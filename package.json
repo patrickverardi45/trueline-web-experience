@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "contracts:check": "node scripts/check-contract-parity.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.17.0",
