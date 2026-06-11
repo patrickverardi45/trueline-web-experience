@@ -223,9 +223,7 @@ export function MapCanvas({
               onClick={() => onSelect(run.id)}
               onMouseEnter={() => onHover(run.id)}
               onMouseLeave={() => onHover(null)}>
-              <title>
-                {run.name} · {meta.label}
-              </title>
+              <title>{`${run.name} · ${meta.label}`}</title>
             </polyline>
           </g>
         );
@@ -291,10 +289,7 @@ export function MapCanvas({
               return (
                 <g key={step.id}>
                   <circle cx={x} cy={y} r={7.5} fill={PIN_KINDS[step.kind]} stroke="#FFFFFF" strokeWidth={2} />
-                  <title>
-                    {step.stationCode ? `${step.stationCode} — ` : ''}
-                    {step.note}
-                  </title>
+                  <title>{`${step.stationCode ? `${step.stationCode} — ` : ''}${step.note}`}</title>
                 </g>
               );
             })
