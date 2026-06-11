@@ -1,26 +1,37 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* Brand — shared family with the TrueLine Field mobile app. */
+  --color-navy-950: #0A1220;
+  --color-navy-900: #101C2C;
+  --color-navy-850: #16212E;
+  --color-navy-800: #1D2B3C;
+  --color-navy-700: #28394E;
+  --color-navy-600: #354A63;
+  --color-accent: #F4640E;
+  --color-accent-strong: #D85408;
+  --color-accent-soft: #FDEBDD;
+
+  /* Content canvas. */
+  --color-canvas: #F3F5F8;
+  --color-line: #E4E9F0;
+  --color-ink: #15202B;
+  --color-ink-2: #45535F;
+  --color-ink-3: #6E7B89;
+
+  /* Run status (Hero Map legend). */
+  --color-status-complete: #1FA563;
+  --color-status-progress: #F4640E;
+  --color-status-blocked: #DE4339;
+  --color-status-review: #E9A23B;
+  --color-status-missing: #8B74D8;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
 }
