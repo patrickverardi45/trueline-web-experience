@@ -8,6 +8,22 @@ data, photos, and closeout in one clean workflow.
 imports. The typed API boundary (`src/lib/api`) is where the TrueLine v2
 engine plugs in later.
 
+## Product boundary
+
+TrueLine Web is the office, review, and closeout command center. It owns the
+dashboard and project portfolio, plan viewing, redline review, evidence
+exploration, packet building, closeout readiness, admin/settings, and reviewer
+workflows.
+
+Web is not the field-capture app. TrueLine Field owns field evidence and data
+capture, field tickets, daily logs, submit-to-review, and later
+photo/GPS/time/user stamps plus offline queue and sync. The v2 engine remains
+the proof/truth layer beneath both products. Do not add mobile-only
+field-capture workflows to web unless explicitly approved.
+
+`src/contracts/index.ts` is the current contract source of truth and is
+mirrored by the mobile app.
+
 ## Run it
 
 ```sh
