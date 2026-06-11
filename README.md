@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TrueLine Web Experience
 
-## Getting Started
+Contract-first website/dashboard for TrueLine — an OSP/fiber construction
+intelligence platform. Plans, bore logs, field evidence, redlines, station
+data, photos, and closeout in one clean workflow.
 
-First, run the development server:
+**Everything here runs on mock data.** No backend, no auth, no engine
+imports. The typed API boundary (`src/lib/api`) is where the TrueLine v2
+engine plugs in later.
 
-```bash
+## Run it
+
+```sh
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Verify: `npx tsc --noEmit` and `npm run build`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Surfaces
 
-## Learn More
+Dashboard `/` · Project detail `/projects/[id]` · **Hero Map** `/map`
+(status-colored redline paths, evidence panel, Redline Playback) ·
+Plan Viewer `/plans` (redline overlay, before/after slider, evidence pins,
+station search, matchlines) · Redline Review `/redlines` · Evidence Explorer
+`/evidence` · Field Feed `/feed` · Closeout Readiness `/closeout` · Packet
+Builder `/packet` · Settings `/settings`.
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+  contracts/        16 shared TrueLine contracts (mirrored in the mobile app)
+  lib/
+    api/            TrueLineApi interface + mock client + fixtures
+    status.ts       status → label/color maps (single source)
+    format.ts       ft/pct/date helpers
+    geometry.ts     polyline math for redline paths
+  components/
+    ui/             design system (Card, StatusPill, KpiStat, rings, meters…)
+    shell/          navy sidebar + topbar
+    map/            Hero Map (SVG canvas, evidence panel, playback bar)
+  app/              one folder per surface (server components + colocated
+                    client components)
+docs/
+  PRODUCT_UX_PLAN.md   product UX plan
+  CONTRACTS.md         contract spec (v0.1)
+  MOBILE_ALIGNMENT.md  mobile M8 alignment + migration plan
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Design tokens live in `src/app/globals.css` (Tailwind v4 `@theme`): dark
+navy chrome, steel canvas, white cards, safety-orange accent — shared brand
+family with the TrueLine Field mobile app.
 
-## Deploy on Vercel
+The Hero Map and plan sheets are custom SVG surfaces by design: zero
+map-provider/PDF dependencies in the preview, and the geometry contracts
+(`RedlinePath`, `SheetPin`) stay renderer-agnostic for later.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Boundaries
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Independent product. Never imports from `TrueLine_Beta`, the v2 engine, or
+any other repo. No competitor UI/workflows were referenced.
