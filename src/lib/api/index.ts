@@ -13,7 +13,6 @@ export const FLAGSHIP_PROJECT_ID = 'p-cedar-ridge';
 export type { TrueLineApi } from './types';
 export type {
   EngineCard,
-  EngineConfidenceClass,
   EngineLane,
   EngineReviewBundle,
   EngineReviewStatus,
@@ -22,5 +21,4 @@ export type {
   EngineArtifactCard,
   EngineArtifactManifest,
   EngineArtifactRef,
-  EngineDesignGrade,
 } from './adapters/v2Artifacts';

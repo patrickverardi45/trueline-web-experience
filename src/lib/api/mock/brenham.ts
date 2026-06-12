@@ -5,7 +5,7 @@ import type { Project, Run } from '@/contracts';
 
 import reviewerBundleFixture from '../fixtures/reviewer_bundle.v1.json';
 
-export const BRENHAM_FIXTURE_PROJECT_ID = 'p-brenham-ph5';
+const BRENHAM_FIXTURE_PROJECT_ID = 'p-brenham-ph5';
 
 const FIXTURE_TIMESTAMP = '2026-06-12T00:00:00-05:00';
 
@@ -69,6 +69,7 @@ export const brenhamRuns: Run[] = brenhamSourceBoreIds.map((sourceBoreId) => ({
   },
 }));
 
+/** Demo-only project container for honest local v2 bore-to-run identity mapping. */
 export const brenhamProject: Project = {
   id: BRENHAM_FIXTURE_PROJECT_ID,
   name: 'Brenham PH5',

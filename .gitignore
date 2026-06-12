@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# local branch safety bundles and patches
+/backups/
+
 # next.js
 /.next/
 /out/

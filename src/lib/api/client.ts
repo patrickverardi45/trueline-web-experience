@@ -1,5 +1,5 @@
-// Mock implementation of the TrueLine API contract. All reads come from
-// local fixtures. No network, no engine coupling.
+// Fixture-default implementation of the TrueLine API contract. Reviewer reads
+// opt into the local v2 API only when NEXT_PUBLIC_TL2_API_BASE is configured.
 
 import type { TrueLineApi } from './types';
 import { adaptV2ReviewerBundle } from './adapters/v2Bundle';
