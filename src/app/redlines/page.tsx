@@ -2,6 +2,7 @@ import type { ReviewStatus } from '@/contracts';
 import { api, FLAGSHIP_PROJECT_ID } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 
+import { EngineReviewPanel } from './EngineReviewPanel';
 import { ReviewQueue } from './ReviewQueue';
 import type { ReviewItem } from './review-types';
 
@@ -17,12 +18,13 @@ const QUEUE_ORDER: Record<ReviewStatus, number> = {
 };
 
 export default async function RedlinesPage() {
-  const [project, runs, tickets, crews, sheets] = await Promise.all([
+  const [project, runs, tickets, crews, sheets, engineBundle] = await Promise.all([
     api.projects.get(FLAGSHIP_PROJECT_ID),
     api.runs.byProject(FLAGSHIP_PROJECT_ID),
     api.tickets.byProject(FLAGSHIP_PROJECT_ID),
     api.crews.list(),
     api.sheets.byProject(FLAGSHIP_PROJECT_ID),
+    api.reviews.engineBundle(),
   ]);
 
   const items: ReviewItem[] = [];
@@ -70,6 +72,7 @@ export default async function RedlinesPage() {
         sub={`${project?.name ?? 'Cedar Ridge FTTH — Phase 2'} · ${items.length} submissions in queue · mock data`}
       />
       <ReviewQueue items={items} />
+      <EngineReviewPanel bundle={engineBundle} />
     </div>
   );
 }

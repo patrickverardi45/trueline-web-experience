@@ -2,6 +2,8 @@
 // local fixtures. No network, no engine coupling.
 
 import type { TrueLineApi } from './types';
+import { adaptV2ReviewerBundle } from './adapters/v2Bundle';
+import reviewerBundleFixture from './fixtures/reviewer_bundle.v1.json';
 import {
   crews,
   dailyLogs,
@@ -19,6 +21,8 @@ import { mapRedlines } from './mock/geometry';
 import { playbackSteps } from './mock/playback';
 import { sheetRedlines, sheetPins, sheets } from './mock/sheets';
 import { packetsByProject, readinessByProject } from './mock/closeout';
+
+const engineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture);
 
 export const mockApi: TrueLineApi = {
   projects: {
@@ -63,6 +67,9 @@ export const mockApi: TrueLineApi = {
       return mapRedlines.filter((p) => runIds.has(p.runId));
     },
     sheetPaths: async (sheetId) => sheetRedlines.filter((p) => p.surfaceId === sheetId),
+  },
+  reviews: {
+    engineBundle: async () => engineReviewBundle,
   },
   playback: {
     byRun: async (runId) =>

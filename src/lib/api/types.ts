@@ -22,6 +22,7 @@ import type {
   Station,
   SyncState,
 } from '@/contracts';
+import type { EngineReviewBundle } from './adapters/v2Bundle';
 
 export interface TrueLineApi {
   projects: {
@@ -63,6 +64,10 @@ export interface TrueLineApi {
   redlines: {
     mapPaths(projectId: ID): Promise<RedlinePath[]>;
     sheetPaths(sheetId: ID): Promise<RedlinePath[]>;
+  };
+  reviews: {
+    /** Static, web-local v2 reviewer cards. Read-only and bore-scoped. */
+    engineBundle(): Promise<EngineReviewBundle>;
   };
   playback: {
     byRun(runId: ID): Promise<RedlinePlaybackStep[]>;

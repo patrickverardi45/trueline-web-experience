@@ -11,3 +11,10 @@ export const api: TrueLineApi = mockApi;
 export const FLAGSHIP_PROJECT_ID = 'p-cedar-ridge';
 
 export type { TrueLineApi } from './types';
+export type {
+  EngineCard,
+  EngineConfidenceClass,
+  EngineLane,
+  EngineReviewBundle,
+  EngineReviewStatus,
+} from './adapters/v2Bundle';
