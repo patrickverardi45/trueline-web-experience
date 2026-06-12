@@ -4,6 +4,9 @@
       "artifact_refs": [
         "log25_lane_s21_redline_stroke.png"
       ],
+      "artifact_urls": [
+        "/engine-artifacts/fcba5a8ad4f0a8710df4eae2e350d3c5fd5e4941/log25_lane_s21_redline_stroke.png"
+      ],
       "design_grade": "PASS_ACCEPTED",
       "lane_status": "STROKE_ELIGIBLE_REVIEW",
       "sheets": [
@@ -14,6 +17,9 @@
     {
       "artifact_refs": [
         "log51_lane_s8_redline_stroke.png"
+      ],
+      "artifact_urls": [
+        "/engine-artifacts/fcba5a8ad4f0a8710df4eae2e350d3c5fd5e4941/log51_lane_s8_redline_stroke.png"
       ],
       "design_grade": "PASS_ACCEPTED",
       "lane_status": "STROKE_ELIGIBLE_REVIEW",
@@ -26,6 +32,9 @@
       "artifact_refs": [
         "log59_lane_s21_redline_stroke.png"
       ],
+      "artifact_urls": [
+        "/engine-artifacts/fcba5a8ad4f0a8710df4eae2e350d3c5fd5e4941/log59_lane_s21_redline_stroke.png"
+      ],
       "design_grade": "PASS_ACCEPTED",
       "lane_status": "STROKE_ELIGIBLE_REVIEW",
       "sheets": [
@@ -37,6 +46,10 @@
       "artifact_refs": [
         "log65_lane_s10_redline_stroke.png",
         "log65_lane_s9_redline_stroke.png"
+      ],
+      "artifact_urls": [
+        "/engine-artifacts/fcba5a8ad4f0a8710df4eae2e350d3c5fd5e4941/log65_lane_s10_redline_stroke.png",
+        "/engine-artifacts/fcba5a8ad4f0a8710df4eae2e350d3c5fd5e4941/log65_lane_s9_redline_stroke.png"
       ],
       "design_grade": "PASS_ACCEPTED",
       "lane_status": "STROKE_ELIGIBLE_REVIEW",
@@ -52,7 +65,7 @@
     "card_contract": "truelinev2-design-stroke-card-1",
     "engine": "truelinev2",
     "lane": "symbol_conduit_matchline",
-    "served": false,
-    "source_git_head": "01ea20c90ea55fe55d5263300bc2a24642656dcf"
+    "served": true,
+    "source_git_head": "fcba5a8ad4f0a8710df4eae2e350d3c5fd5e4941"
   }
 }
