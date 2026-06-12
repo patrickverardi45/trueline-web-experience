@@ -2,6 +2,7 @@ import type { ReviewStatus } from '@/contracts';
 import { api, FLAGSHIP_PROJECT_ID } from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 
+import { EngineArtifactPanel } from './EngineArtifactPanel';
 import { EngineReviewPanel } from './EngineReviewPanel';
 import { ReviewQueue } from './ReviewQueue';
 import type { ReviewItem } from './review-types';
@@ -18,14 +19,16 @@ const QUEUE_ORDER: Record<ReviewStatus, number> = {
 };
 
 export default async function RedlinesPage() {
-  const [project, runs, tickets, crews, sheets, engineBundle] = await Promise.all([
-    api.projects.get(FLAGSHIP_PROJECT_ID),
-    api.runs.byProject(FLAGSHIP_PROJECT_ID),
-    api.tickets.byProject(FLAGSHIP_PROJECT_ID),
-    api.crews.list(),
-    api.sheets.byProject(FLAGSHIP_PROJECT_ID),
-    api.reviews.engineBundle(),
-  ]);
+  const [project, runs, tickets, crews, sheets, engineBundle, engineArtifacts] =
+    await Promise.all([
+      api.projects.get(FLAGSHIP_PROJECT_ID),
+      api.runs.byProject(FLAGSHIP_PROJECT_ID),
+      api.tickets.byProject(FLAGSHIP_PROJECT_ID),
+      api.crews.list(),
+      api.sheets.byProject(FLAGSHIP_PROJECT_ID),
+      api.reviews.engineBundle(),
+      api.reviews.engineDesignStrokeArtifacts(),
+    ]);
 
   const items: ReviewItem[] = [];
   for (const run of runs) {
@@ -73,6 +76,7 @@ export default async function RedlinesPage() {
       />
       <ReviewQueue items={items} />
       <EngineReviewPanel bundle={engineBundle} />
+      <EngineArtifactPanel manifest={engineArtifacts} />
     </div>
   );
 }

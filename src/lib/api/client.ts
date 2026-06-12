@@ -3,7 +3,9 @@
 
 import type { TrueLineApi } from './types';
 import { adaptV2ReviewerBundle } from './adapters/v2Bundle';
+import { adaptV2DesignStrokeArtifacts } from './adapters/v2Artifacts';
 import reviewerBundleFixture from './fixtures/reviewer_bundle.v1.json';
+import designStrokeArtifactsFixture from './fixtures/design_stroke_artifacts.v1.json';
 import {
   crews,
   dailyLogs,
@@ -23,6 +25,9 @@ import { sheetRedlines, sheetPins, sheets } from './mock/sheets';
 import { packetsByProject, readinessByProject } from './mock/closeout';
 
 const engineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture);
+const engineDesignStrokeArtifacts = adaptV2DesignStrokeArtifacts(
+  designStrokeArtifactsFixture,
+);
 
 export const mockApi: TrueLineApi = {
   projects: {
@@ -70,6 +75,7 @@ export const mockApi: TrueLineApi = {
   },
   reviews: {
     engineBundle: async () => engineReviewBundle,
+    engineDesignStrokeArtifacts: async () => engineDesignStrokeArtifacts,
   },
   playback: {
     byRun: async (runId) =>

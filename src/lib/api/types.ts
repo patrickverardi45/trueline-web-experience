@@ -23,6 +23,7 @@ import type {
   SyncState,
 } from '@/contracts';
 import type { EngineReviewBundle } from './adapters/v2Bundle';
+import type { EngineArtifactManifest } from './adapters/v2Artifacts';
 
 export interface TrueLineApi {
   projects: {
@@ -68,6 +69,11 @@ export interface TrueLineApi {
   reviews: {
     /** Static, web-local v2 reviewer cards. Read-only and bore-scoped. */
     engineBundle(): Promise<EngineReviewBundle>;
+    /**
+     * Static, web-local manifest of v2 design-stroke proof artifacts
+     * (filenames only — availability, never served images). Read-only.
+     */
+    engineDesignStrokeArtifacts(): Promise<EngineArtifactManifest>;
   };
   playback: {
     byRun(runId: ID): Promise<RedlinePlaybackStep[]>;

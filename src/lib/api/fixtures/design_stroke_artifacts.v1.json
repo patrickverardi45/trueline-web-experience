@@ -1,0 +1,44 @@
+{
+  "export_schema_version": "truelinev2-web-design-stroke-artifacts-1",
+  "source": {
+    "engine": "truelinev2",
+    "card_contract": "truelinev2-design-stroke-card-1",
+    "lane": "symbol_conduit_matchline",
+    "derivation": "Artifact reference NAMES only, taken from the banked M8.15 design-stroke card packet (the 4 graded-PASS strokes). NO geometry (stroke_points/segments), NO image binaries, and NO file paths are included — only the engine's canonical artifact filenames. The PNGs themselves are gitignored ~0.2-1.1 MB regenerables under the engine's data/outputs and are NOT served in this slice.",
+    "served": false,
+    "follow_up": "A later slice should GENERATE this manifest via a v2 export runner (cf. reviewer_bundle.v1.json from Slice 1) instead of hand-deriving it, and only then decide an artifact URL/serving strategy."
+  },
+  "artifacts": [
+    {
+      "source_bore_id": "log25",
+      "lane_status": "STROKE_ELIGIBLE_REVIEW",
+      "design_grade": "PASS_ACCEPTED",
+      "sheets": [21],
+      "artifact_refs": ["log25_lane_s21_redline_stroke.png"]
+    },
+    {
+      "source_bore_id": "log51",
+      "lane_status": "STROKE_ELIGIBLE_REVIEW",
+      "design_grade": "PASS_ACCEPTED",
+      "sheets": [8],
+      "artifact_refs": ["log51_lane_s8_redline_stroke.png"]
+    },
+    {
+      "source_bore_id": "log59",
+      "lane_status": "STROKE_ELIGIBLE_REVIEW",
+      "design_grade": "PASS_ACCEPTED",
+      "sheets": [21],
+      "artifact_refs": ["log59_lane_s21_redline_stroke.png"]
+    },
+    {
+      "source_bore_id": "log65",
+      "lane_status": "STROKE_ELIGIBLE_REVIEW",
+      "design_grade": "PASS_ACCEPTED",
+      "sheets": [10, 9],
+      "artifact_refs": [
+        "log65_lane_s10_redline_stroke.png",
+        "log65_lane_s9_redline_stroke.png"
+      ]
+    }
+  ]
+}

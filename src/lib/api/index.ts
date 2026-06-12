@@ -18,3 +18,9 @@ export type {
   EngineReviewBundle,
   EngineReviewStatus,
 } from './adapters/v2Bundle';
+export type {
+  EngineArtifactCard,
+  EngineArtifactManifest,
+  EngineArtifactRef,
+  EngineDesignGrade,
+} from './adapters/v2Artifacts';
