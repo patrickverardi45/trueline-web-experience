@@ -8,6 +8,7 @@ import reviewerBundleFixture from './fixtures/reviewer_bundle.v1.json';
 import designStrokeArtifactsFixture from './fixtures/design_stroke_artifacts.v1.json';
 import {
   crews,
+  brenhamRuns,
   dailyLogs,
   evidenceItems,
   issues,
@@ -24,7 +25,7 @@ import { playbackSteps } from './mock/playback';
 import { sheetRedlines, sheetPins, sheets } from './mock/sheets';
 import { packetsByProject, readinessByProject } from './mock/closeout';
 
-const engineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture);
+const engineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture, brenhamRuns);
 const engineDesignStrokeArtifacts = adaptV2DesignStrokeArtifacts(
   designStrokeArtifactsFixture,
 );

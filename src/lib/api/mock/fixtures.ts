@@ -20,6 +20,10 @@ import type {
   SyncState,
 } from '@/contracts';
 
+import { brenhamProject, brenhamRuns } from './brenham';
+
+export { brenhamProject, brenhamRuns } from './brenham';
+
 export const crews: Crew[] = [
   { id: 'c-02', name: 'Crew 02', lead: 'Dana Marsh', size: 4, phone: '(979) 555-0102' },
   { id: 'c-05', name: 'Crew 05', lead: 'Ray Okafor', size: 3, phone: '(979) 555-0105' },
@@ -75,6 +79,7 @@ export const projects: Project[] = [
     openIssueCount: 0,
     lastActivityAt: '2026-06-05T09:20:00-05:00',
   },
+  brenhamProject,
 ];
 
 export const runs: Run[] = [
@@ -285,6 +290,7 @@ export const runs: Run[] = [
       capturedCount: 2,
     },
   },
+  ...brenhamRuns,
 ];
 
 export const segments: Segment[] = [

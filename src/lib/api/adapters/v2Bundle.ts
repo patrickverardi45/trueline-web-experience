@@ -59,10 +59,8 @@ export interface EngineStationSummary {
   readonly footageFt?: number;
 }
 
-export interface EngineCard {
+interface EngineCardFields {
   readonly sourceBoreId: string;
-  readonly runMapping: 'unmapped';
-  readonly runId: null;
   readonly lane: EngineLane;
   readonly reviewStatus: EngineReviewStatus;
   readonly humanAction: EngineHumanAction;
@@ -79,6 +77,25 @@ export interface EngineCard {
   readonly namedMissingRelationship?: string;
   readonly suspectValues?: Readonly<Record<string, unknown>>;
   readonly sourceSchemaVersion: string;
+}
+
+export type EngineCard = EngineCardFields &
+  (
+    | {
+        readonly runMapping: 'mapped';
+        readonly runId: string;
+      }
+    | {
+        readonly runMapping: 'unmapped';
+        readonly runId: null;
+      }
+  );
+
+export interface EngineRunMappingRef {
+  readonly id: string;
+  readonly boreLogRef?: {
+    readonly refId: string;
+  };
 }
 
 export interface EngineReviewBundle {
@@ -227,8 +244,14 @@ function adaptCandidate(value: unknown, index: number): EngineCandidate {
   };
 }
 
-function adaptCard(value: unknown, index: number): EngineCard {
+function adaptCard(
+  value: unknown,
+  index: number,
+  runIdByBoreId: ReadonlyMap<string, string>,
+): EngineCard {
   const payload = record(value, `payloads[${index}]`);
+  const sourceBoreId = string(payload.bore_id, `payloads[${index}].bore_id`);
+  const runId = runIdByBoreId.get(sourceBoreId);
   const lane = engineLane(payload.lane);
   const candidatesRaw = payload.candidates;
   if (!Array.isArray(candidatesRaw)) {
@@ -280,9 +303,10 @@ function adaptCard(value: unknown, index: number): EngineCard {
       : record(payload.suspect_values, `payloads[${index}].suspect_values`);
 
   return {
-    sourceBoreId: string(payload.bore_id, `payloads[${index}].bore_id`),
-    runMapping: 'unmapped',
-    runId: null,
+    sourceBoreId,
+    ...(runId
+      ? { runMapping: 'mapped' as const, runId }
+      : { runMapping: 'unmapped' as const, runId: null }),
     lane,
     reviewStatus: LANE_STATUS[lane],
     humanAction: humanAction(payload.human_action),
@@ -328,7 +352,23 @@ function assertNoGeometry(value: unknown, path = '$'): void {
   }
 }
 
-export function adaptV2ReviewerBundle(value: unknown): EngineReviewBundle {
+function indexRunMappings(runs: readonly EngineRunMappingRef[]): Map<string, string> {
+  const runIdByBoreId = new Map<string, string>();
+  for (const run of runs) {
+    const boreId = run.boreLogRef?.refId;
+    if (!boreId) continue;
+    if (runIdByBoreId.has(boreId)) {
+      throw new Error(`Invalid v2 run mapping: duplicate boreLogRef.refId ${boreId}`);
+    }
+    runIdByBoreId.set(boreId, run.id);
+  }
+  return runIdByBoreId;
+}
+
+export function adaptV2ReviewerBundle(
+  value: unknown,
+  runs: readonly EngineRunMappingRef[] = [],
+): EngineReviewBundle {
   assertNoGeometry(value);
   const root = record(value, 'root');
   if (root.export_schema_version !== EXPORT_SCHEMA) {
@@ -350,7 +390,10 @@ export function adaptV2ReviewerBundle(value: unknown): EngineReviewBundle {
   if (!Array.isArray(bundle.payloads)) {
     throw new Error('Invalid v2 reviewer bundle: payloads must be an array');
   }
-  const cards = bundle.payloads.map(adaptCard);
+  const runIdByBoreId = indexRunMappings(runs);
+  const cards = bundle.payloads.map((payload, index) =>
+    adaptCard(payload, index, runIdByBoreId),
+  );
 
   return {
     exportSchemaVersion: EXPORT_SCHEMA,

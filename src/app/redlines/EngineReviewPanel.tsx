@@ -69,6 +69,13 @@ function EngineCardView({ card }: { card: EngineCard }) {
           <div className="font-mono text-sm font-semibold text-ink">{card.sourceBoreId}</div>
           <div className="mt-0.5 text-xs text-ink-3">
             Run mapping: <span className="font-semibold text-ink-2">{card.runMapping}</span>
+            {card.runMapping === 'mapped' ? (
+              <>
+                {' '}
+                <span className="text-ink-3">via local Brenham fixture</span>
+                <span className="font-mono text-ink-2"> ({card.runId})</span>
+              </>
+            ) : null}
           </div>
         </div>
         <span
@@ -128,6 +135,8 @@ function EngineCardView({ card }: { card: EngineCard }) {
 }
 
 export function EngineReviewPanel({ bundle }: { bundle: EngineReviewBundle }) {
+  const mappedCount = bundle.cards.filter((card) => card.runMapping === 'mapped').length;
+  const unmappedCount = bundle.cards.length - mappedCount;
   const groups = LANE_ORDER.map((lane) => ({
     lane,
     cards: bundle.cards.filter((card) => card.lane === lane),
@@ -147,12 +156,17 @@ export function EngineReviewPanel({ bundle }: { bundle: EngineReviewBundle }) {
               </span>
             </div>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-ink-3">
-              Static M8.11 default baseline export. Bore-to-run identity is not known, so every
-              card remains unmapped. No images, geometry, approvals, or write-back are enabled.
+              Static M8.11 default baseline export. Run IDs resolve only through exact bore-log
+              identity matches in the web-local Brenham PH5 fixture, never against the fictional
+              Cedar Ridge queue above. These staging records are not production customer records.
+              No approvals or write-back are enabled.
             </p>
           </div>
           <div className="text-right text-xs text-ink-3">
             <div>{bundle.cards.length} bore cards</div>
+            <div className="mt-1">
+              {mappedCount} fixture mapped / {unmappedCount} unmapped
+            </div>
             <div className="mt-1 font-mono">source {bundle.sourceGitHead.slice(0, 7)}</div>
           </div>
         </div>
@@ -169,8 +183,8 @@ export function EngineReviewPanel({ bundle }: { bundle: EngineReviewBundle }) {
 
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-canvas px-3 py-2 text-xs text-ink-3">
           <Lock className="size-3.5 shrink-0" />
-          Existing mock review decisions apply only to the run queue above. Engine cards cannot be
-          approved or changed in this slice.
+          Brenham mappings are read-only identity scaffolds. Existing mock review decisions apply
+          only to the Cedar Ridge queue above; engine cards cannot be approved or changed here.
         </div>
       </Card>
 
