@@ -56,8 +56,28 @@ const SOURCE_SHA = /^[0-9a-f]{40}$/;
 // A served URL: site-absolute, SHA-namespaced, bare engine filename leaf. The
 // capture groups let us bind the sha to the manifest source and the leaf to the
 // ref. Nothing with a scheme, `..`, or backslash can match.
-const SERVED_URL = /^\/engine-artifacts\/([0-9a-f]{40})\/([a-z0-9_]+_redline_stroke\.png)$/;
+const STATIC_SERVED_URL =
+  /^\/engine-artifacts\/([0-9a-f]{40})\/([a-z0-9_]+_redline_stroke\.png)$/;
+const API_SERVED_URL =
+  /^\/v2\/reviewer\/design-stroke\/asset\/([a-z0-9_]+_redline_stroke\.png)$/;
 const FORBIDDEN_GEOMETRY = new Set(['segments', 'stroke_points']);
+
+export interface V2ArtifactAdapterOptions {
+  /** Present only for live API manifests; must not end with a slash. */
+  readonly apiBaseUrl?: string;
+}
+
+function validatedApiBaseUrl(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const parsed = new URL(value);
+  if (
+    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+    value.endsWith('/')
+  ) {
+    throw new Error('Invalid v2 artifact manifest: apiBaseUrl must be normalized HTTP(S)');
+  }
+  return value;
+}
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -117,12 +137,24 @@ function servedRef(
   urlValue: unknown,
   sha: string,
   field: string,
+  apiBaseUrl?: string,
 ): EngineArtifactRef {
   const name = fileName(refValue, field);
   if (typeof urlValue !== 'string') {
     throw new Error(`Invalid v2 artifact manifest: ${field} url must be a string`);
   }
-  const match = SERVED_URL.exec(urlValue);
+
+  if (apiBaseUrl) {
+    const match = API_SERVED_URL.exec(urlValue);
+    if (!match || match[1] !== name) {
+      throw new Error(
+        `Invalid v2 artifact manifest: ${field} url must match the reviewer API asset ref`,
+      );
+    }
+    return { fileName: name, served: true, url: `${apiBaseUrl}${urlValue}` };
+  }
+
+  const match = STATIC_SERVED_URL.exec(urlValue);
   if (!match) {
     throw new Error(
       `Invalid v2 artifact manifest: ${field} url must be /engine-artifacts/<sha>/<file>`,
@@ -141,6 +173,7 @@ function adaptCard(
   index: number,
   served: boolean,
   sha: string,
+  apiBaseUrl?: string,
 ): EngineArtifactCard {
   const card = record(value, `artifacts[${index}]`);
   const refs = card.artifact_refs;
@@ -165,7 +198,13 @@ function adaptCard(
       );
     }
     artifacts = refs.map((ref, refIndex) =>
-      servedRef(ref, urls[refIndex], sha, `artifacts[${index}].artifact_refs[${refIndex}]`),
+      servedRef(
+        ref,
+        urls[refIndex],
+        sha,
+        `artifacts[${index}].artifact_refs[${refIndex}]`,
+        apiBaseUrl,
+      ),
     );
   } else {
     artifacts = refs.map((ref, refIndex) =>
@@ -182,7 +221,11 @@ function adaptCard(
   };
 }
 
-export function adaptV2DesignStrokeArtifacts(value: unknown): EngineArtifactManifest {
+export function adaptV2DesignStrokeArtifacts(
+  value: unknown,
+  options: V2ArtifactAdapterOptions = {},
+): EngineArtifactManifest {
+  const apiBaseUrl = validatedApiBaseUrl(options.apiBaseUrl);
   assertNoGeometry(value);
   const root = record(value, 'root');
   if (root.export_schema_version !== EXPORT_SCHEMA) {
@@ -211,6 +254,8 @@ export function adaptV2DesignStrokeArtifacts(value: unknown): EngineArtifactMani
     cardContract: CARD_CONTRACT,
     lane,
     served: source.served,
-    cards: root.artifacts.map((card, index) => adaptCard(card, index, source.served as boolean, sha)),
+    cards: root.artifacts.map((card, index) =>
+      adaptCard(card, index, source.served as boolean, sha, apiBaseUrl),
+    ),
   };
 }
