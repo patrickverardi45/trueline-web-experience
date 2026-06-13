@@ -24,6 +24,7 @@ import type {
 } from '@/contracts';
 import type { EngineReviewBundle } from './adapters/v2Bundle';
 import type { EngineArtifactManifest } from './adapters/v2Artifacts';
+import type { RunAssemblyReview } from './adapters/v2RunAssembly';
 
 export interface TrueLineApi {
   projects: {
@@ -74,6 +75,11 @@ export interface TrueLineApi {
      * (filenames only — availability, never served images). Read-only.
      */
     engineDesignStrokeArtifacts(): Promise<EngineArtifactManifest>;
+    /**
+     * Static, web-local v2 run-assembly review cards (bore-to-bore junctions).
+     * Read-only and suggestion-only: no geometry, no AUTO, no write-back.
+     */
+    engineRunAssembly(): Promise<RunAssemblyReview>;
   };
   playback: {
     byRun(runId: ID): Promise<RedlinePlaybackStep[]>;

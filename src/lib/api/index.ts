@@ -22,3 +22,8 @@ export type {
   EngineArtifactManifest,
   EngineArtifactRef,
 } from './adapters/v2Artifacts';
+export type {
+  RunAssemblyCard,
+  RunAssemblyContinuationClass,
+  RunAssemblyReview,
+} from './adapters/v2RunAssembly';

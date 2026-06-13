@@ -4,8 +4,10 @@
 import type { TrueLineApi } from './types';
 import { adaptV2ReviewerBundle } from './adapters/v2Bundle';
 import { adaptV2DesignStrokeArtifacts } from './adapters/v2Artifacts';
+import { adaptV2RunAssembly } from './adapters/v2RunAssembly';
 import reviewerBundleFixture from './fixtures/reviewer_bundle.v1.json';
 import designStrokeArtifactsFixture from './fixtures/design_stroke_artifacts.v1.json';
+import runAssemblyFixture from './fixtures/run_assembly_cards.v1.json';
 import {
   crews,
   brenhamRuns,
@@ -29,6 +31,7 @@ const fixtureEngineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture, b
 const fixtureEngineDesignStrokeArtifacts = adaptV2DesignStrokeArtifacts(
   designStrokeArtifactsFixture,
 );
+const fixtureRunAssembly = adaptV2RunAssembly(runAssemblyFixture);
 
 function configuredTl2ApiBase(): string | null {
   const raw = process.env.NEXT_PUBLIC_TL2_API_BASE?.trim();
@@ -111,6 +114,11 @@ export const mockApi: TrueLineApi = {
       if (!tl2ApiBase) return fixtureEngineDesignStrokeArtifacts;
       const value = await fetchLiveV2('/v2/reviewer/design-stroke/manifest');
       return adaptV2DesignStrokeArtifacts(value, { apiBaseUrl: tl2ApiBase });
+    },
+    engineRunAssembly: async () => {
+      if (!tl2ApiBase) return fixtureRunAssembly;
+      const value = await fetchLiveV2('/v2/reviewer/run-assembly');
+      return adaptV2RunAssembly(value);
     },
   },
   playback: {
