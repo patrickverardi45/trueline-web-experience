@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 
 import { EngineArtifactPanel } from './EngineArtifactPanel';
 import { EngineReviewPanel } from './EngineReviewPanel';
+import { RedlineManifestPanel } from './RedlineManifestPanel';
 import { RunAssemblyPanel } from './RunAssemblyPanel';
 import { ReviewQueue } from './ReviewQueue';
 import type { ReviewItem } from './review-types';
@@ -35,6 +36,11 @@ export default async function RedlinesPage() {
   // render and no run-assembly read is performed (fixture or live).
   const runAssemblyEnabled = process.env.NEXT_PUBLIC_TL2_RUN_ASSEMBLY === '1';
   const runAssembly = runAssemblyEnabled ? await api.reviews.engineRunAssembly() : null;
+
+  // Phase 2K: default-OFF durable redline-manifest panel. When the flag is unset the panel does
+  // not render and no manifest read is performed.
+  const redlineManifestEnabled = process.env.NEXT_PUBLIC_TL2_REDLINE_MANIFEST === '1';
+  const redlineManifest = redlineManifestEnabled ? await api.reviews.engineRedlineManifest() : null;
 
   const items: ReviewItem[] = [];
   for (const run of runs) {
@@ -84,6 +90,7 @@ export default async function RedlinesPage() {
       <EngineReviewPanel bundle={engineBundle} />
       <EngineArtifactPanel manifest={engineArtifacts} />
       {runAssembly ? <RunAssemblyPanel review={runAssembly} /> : null}
+      {redlineManifest ? <RedlineManifestPanel view={redlineManifest} /> : null}
     </div>
   );
 }

@@ -1,0 +1,25 @@
+{
+  "store_format": "trueline-redline-bundle-store-1",
+  "latest_valid": "brenham-c19b565-ddfffff7cbe7",
+  "bundles": {
+    "brenham-c19b565-ddfffff7cbe7": {
+      "store_format": "trueline-redline-bundle-store-1",
+      "bundle_id": "brenham-c19b565-ddfffff7cbe7",
+      "project_id": "brenham",
+      "project_name": "Brenham (TrueLine v2 reference project)",
+      "render_commit": "c19b565",
+      "manifest_sha256": "ddfffff7cbe7cfa09cd41f71308cc19c52aa110ad23ef717352f374a3e50689f",
+      "manifest_entrypoint": "bundles/brenham-c19b565-ddfffff7cbe7/redline_manifest.json",
+      "artifact_count": 83,
+      "total_bytes": 50499989,
+      "summary": {
+        "total_logs": 58,
+        "drawn": 50,
+        "covered": 1,
+        "blocked": 7
+      },
+      "created_at": "2026-06-19T18:49:48.038753+00:00",
+      "valid_at_store_time": true
+    }
+  }
+}

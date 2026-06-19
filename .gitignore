@@ -45,3 +45,6 @@ next-env.d.ts
 
 # v2 engine artifacts: copied in at export time (Slice 2b), regenerable, never committed
 /public/engine-artifacts/
+
+# v2 durable redline-manifest bundle artifacts (Phase 2K): copied at export time, regenerable, never committed
+/public/redline-bundle/

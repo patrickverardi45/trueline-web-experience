@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "contracts:check": "node scripts/check-contract-parity.mjs"
+    "contracts:check": "node scripts/check-contract-parity.mjs",
+    "export:redline-bundle": "node scripts/export-redline-bundle.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.17.0",

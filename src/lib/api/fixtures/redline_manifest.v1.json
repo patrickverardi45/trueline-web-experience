@@ -1,0 +1,3137 @@
+{
+  "schema_version": "1.0.0",
+  "mock_example": false,
+  "disclaimer": "Published redline manifest (run label 'brenham_c19b565_all50_real_manifest'). 83 final redline artifact(s) copied from 'C:\\Nova\\projects\\TrueLine\\TrueLine_Beta' into 'C:\\Nova\\projects\\TrueLine\\TrueLine_Beta\\data\\outputs\\redline_manifest_publish\\brenham_c19b565_all50_real_manifest' with sha256 checksums; mock_example=false. Status / provenance / coverage / blocker / warning fields are carried through unchanged from the input manifest (publishing is an artifact step, not a placement step).",
+  "project_id": "brenham",
+  "project_name": "Brenham (TrueLine v2 reference project)",
+  "engine": {
+    "branch": "feat/truelinev2",
+    "engine_head": "744d88c",
+    "render_commit": "c19b565",
+    "generated_from": "redline_manifest_publisher run 'brenham_c19b565_all50_real_manifest'"
+  },
+  "summary": {
+    "total_logs": 58,
+    "drawn_count": 50,
+    "covered_count": 1,
+    "blocked_count": 7,
+    "frontier": "50/58"
+  },
+  "status_counts": {
+    "DRAWN_REDLINE": 50,
+    "COVERED_BY_EXISTING_REDLINE": 1,
+    "OWNER_LOCKED_ABSTAIN": 4,
+    "SOURCE_GAP_BLOCKED": 2,
+    "MISSING_SOURCE_SHEET_BLOCKED": 1
+  },
+  "provenance_counts": {
+    "DETERMINISTIC_AUTO": 49,
+    "OWNER_CONFIRMED_HUMAN_ADJUSTABLE": 1,
+    "COVERED_BY_EXISTING_REDLINE": 1,
+    "BLOCKED_OWNER_LOCKED": 4,
+    "BLOCKED_SOURCE_GAP": 2,
+    "BLOCKED_MISSING_SOURCE": 1
+  },
+  "consumption_rules": [
+    "Consume THIS manifest as the only source of drawn/covered/blocked truth.",
+    "Never read parent_source_model.json for status or geometry -- especially placement_status (stale) or adj_corrected_span (corrupted for log48/log70).",
+    "Never infer status from PNG filenames or a file's presence/absence on disk (absence != blocked; presence != drawn).",
+    "Render only artifacts with kind == FINAL_REDLINE_PNG; ignore PROOF_HELPER / EVIDENCE_SCREENSHOT for redline display.",
+    "Resolve artifacts by manifest path + sha256 once published; this mock has sha256 = null and example_placeholder = true.",
+    "Never display 58/58; always show the denominator ('50 drawn of 58 accounted'). Blocked logs get a call-to-action, never a green check.",
+    "log3 is OWNER_CONFIRMED_HUMAN_ADJUSTABLE, never DETERMINISTIC_AUTO.",
+    "log14 is already on the plan as log10 (covered) -- not a separate stroke and not a missing redline."
+  ],
+  "logs": [
+    {
+      "log_id": "log2",
+      "parent_id": "bore_log2",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        18,
+        19
+      ],
+      "span": {
+        "start_station": "12+22",
+        "end_station": "20+71",
+        "label": "12+22->20+71"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log2/log2_s18_redline_stroke.png",
+          "sha256": "bc1b29d2d8a4600c00e305a1c09aeb5eaeabcc1b0339e3b4dc6d464e1a749048",
+          "example_placeholder": false,
+          "bytes": 813051,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log2/log2_s19_redline_stroke.png",
+          "sha256": "1f1f83579e5d41c2123c7322ce9cb7b684ad07f7382c712bf3cb7a4cc164cfbc",
+          "example_placeholder": false,
+          "bytes": 369407,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log3",
+      "parent_id": "bore_log3",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "OWNER_CONFIRMED_HUMAN_ADJUSTABLE",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        3,
+        4,
+        5
+      ],
+      "span": {
+        "start_station": "12+63",
+        "end_station": "21+63",
+        "label": "12+63->21+63"
+      },
+      "closure": {
+        "new_content_ft": 249.8,
+        "target_ft": 250.0,
+        "downstream_covered_ft": 650.0,
+        "closes": true,
+        "note": "upstream new content drawn (s2 12+63 FLOWER POT stub ~2.8' + s3 ~247' straight segment between bound endpoints); downstream covered by drawn log4"
+      },
+      "coverage": {
+        "downstream_covered_by": [
+          "log4"
+        ],
+        "note": "downstream 15+13->21+63 (650') covered by drawn log4 (parent/child coverage exception); 0' overlap, shared 15+13 junction only"
+      },
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log3/log3_s2_redline_stroke.png",
+          "sha256": "b383277bd4c8527c23105c8a1399c5eaf3cd61c7af0f83e3a30a7fd6fe3d81b9",
+          "example_placeholder": false,
+          "bytes": 258784,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log3/log3_s3_redline_stroke.png",
+          "sha256": "d2655e2d61a71b41a857dbc5f368a57e9b67ccfbcb75e2176e6718a9eddcba7f",
+          "example_placeholder": false,
+          "bytes": 747976,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        },
+        {
+          "kind": "GAC_PACKET",
+          "ref": "gac/log3_log14_owner_adjudication.md",
+          "note": "owner adjudication: distinct longer bore + owner geometry"
+        },
+        {
+          "kind": "OWNER_REVIEW",
+          "ref": "data/manual_adjudications",
+          "note": "owner-confirmed top-path control points (human-adjustable lane)"
+        }
+      ],
+      "warnings": [
+        "Owner-confirmed GEOMETRY (human-adjustable lane), NOT DETERMINISTIC_AUTO: the fragmented s3 conduit could not auto-trace (DESIGN_PATH_NOT_CONNECTED); owner confirmed the straight top path (11 control points, maxdev <=1.3pt).",
+        "parent_source_model.json placement_status is STALE for this log (reads BLOCKED/HELD though drawn); never consume placement_status -- use this manifest."
+      ]
+    },
+    {
+      "log_id": "log4",
+      "parent_id": "bore_log4",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        3,
+        4,
+        5
+      ],
+      "span": {
+        "start_station": "15+13",
+        "end_station": "21+63",
+        "label": "15+13->21+63"
+      },
+      "closure": null,
+      "coverage": {
+        "covers_downstream_of": [
+          "log3"
+        ],
+        "note": "covers log3's downstream half 15+13->21+63"
+      },
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log4/log4_s3_redline_stroke.png",
+          "sha256": "4d28a0f5662136d23973115a20ffc7affc21a079c261163cab84c93ceafd77a2",
+          "example_placeholder": false,
+          "bytes": 489213,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log4/log4_s4_redline_stroke.png",
+          "sha256": "277922f092181628841049adc878d182365f4c5402f95ac1faaaffd2147a0907",
+          "example_placeholder": false,
+          "bytes": 925587,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log4/log4_s5_redline_stroke.png",
+          "sha256": "aefdf25dcebba01c58525aaaf42682cd736c2b9656f2116d3c249764ff60354c",
+          "example_placeholder": false,
+          "bytes": 590677,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log5",
+      "parent_id": "bore_log5",
+      "entry_role": "standalone",
+      "status": "OWNER_LOCKED_ABSTAIN",
+      "provenance": "BLOCKED_OWNER_LOCKED",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        12
+      ],
+      "span": {
+        "start_station": "2+65",
+        "end_station": "5+00",
+        "label": "2+65->5+00"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "OWNER_LOCKED",
+        "name": "must_remain_abstained / ABSTAIN_NO_SAFE_SOURCE",
+        "unlock_requirement": "owner lifts the abstain and supplies a safe, source-backed endpoint identity",
+        "must_not_draw_reason": "owner-locked ABSTAIN; auto-placing would violate DO-NOT-WIDEN"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "AUDIT_DOC",
+          "ref": "wiki/trueline_v2_engine_website_readiness_audit.md",
+          "note": "owner-locked abstain (must_remain_abstained)"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log6",
+      "parent_id": "bore_log6",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        5,
+        17,
+        21
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+43",
+        "label": "0+00->2+43"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log6/log6_s17_redline_stroke.png",
+          "sha256": "84d1f34c7deabb0c6a5a97e8f51ff0ebd27c6792a51aa1990e5fd5ed3c057eba",
+          "example_placeholder": false,
+          "bytes": 237154,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log6/log6_s5_redline_stroke.png",
+          "sha256": "a64913e0baa0143338658b6f372fe879d6c32c90a92130f6ef1ecb3fbfd1d929",
+          "example_placeholder": false,
+          "bytes": 574387,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log7",
+      "parent_id": "bore_log7",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "0+55",
+        "end_station": "4+51",
+        "label": "0+55->4+51"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log7/log7_s10_symbol_anchored_stroke.png",
+          "sha256": "942123be1b5011cdfcb1f3e0459cf46f361932c4d1345401ecdc2a925b0f84ae",
+          "example_placeholder": false,
+          "bytes": 572866,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": [
+        "PARTIAL / representative render: the symbol-anchored stroke has exact, source-backed endpoints but a representative interior route (parallel strands not individually traceable); treat the interior path as representative, not surveyed."
+      ]
+    },
+    {
+      "log_id": "log8",
+      "parent_id": "bore_log8",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        18,
+        22
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "3+90",
+        "label": "0+00->3+90"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log8/log8_s18_redline_stroke.png",
+          "sha256": "afc46961ba14c6773f31e8529e153e7da2a0ef69233d1126b2520d2f955360dd",
+          "example_placeholder": false,
+          "bytes": 426806,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log8/log8_s22_redline_stroke.png",
+          "sha256": "d592fa2e6a29e0663cc4e6fe6cf2d14c3d1610548d96fc6007dfca9c7dc7b095",
+          "example_placeholder": false,
+          "bytes": 376063,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log9",
+      "parent_id": "bore_log9",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        14
+      ],
+      "span": {
+        "start_station": "4+94",
+        "end_station": "11+69",
+        "label": "4+94->11+69"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log9/log9_s14_redline_stroke.png",
+          "sha256": "c86c40b3d6d744de2e447564ab785a6e9fcb544c13aa162d00dbb2685b7fbced",
+          "example_placeholder": false,
+          "bytes": 1314666,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log9/log9_s7_redline_stroke.png",
+          "sha256": "684bf947889c0cca8f04f4c97fdc3cdd60acb613d52823f0bb5ab02249cefe2e",
+          "example_placeholder": false,
+          "bytes": 531329,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log10",
+      "parent_id": "bore_log10",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        15
+      ],
+      "span": {
+        "start_station": "0+58",
+        "end_station": "7+30",
+        "label": "0+58->7+30"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log10/log10_s7_redline_stroke.png",
+          "sha256": "6c8784a3ebd893cbd7125e35c6091f64db0f5516b17e3bace966cd47e8abf9cb",
+          "example_placeholder": false,
+          "bytes": 1070377,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log10/log10_s15_redline_stroke.png",
+          "sha256": "a8f85153c141f70232ab519b9dbcf4bafe25b1163b0b793954ac1afadafa2c15",
+          "example_placeholder": false,
+          "bytes": 940048,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log11",
+      "parent_id": "bore_log11",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        5,
+        17
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "6+50",
+        "label": "0+00->6+50"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log11/log11_s5_redline_stroke.png",
+          "sha256": "0f1235109ed0883245ec8ded4db9ac703fe5a80f2c18ab5c885e6ad4c6b2565f",
+          "example_placeholder": false,
+          "bytes": 943224,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log11/log11_s17_redline_stroke.png",
+          "sha256": "9f5d6c06fa825c8c4e13c0eeaaef0a8c0605d8da54074b3e05dce0752ff179ec",
+          "example_placeholder": false,
+          "bytes": 505207,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log12",
+      "parent_id": "bore_log12",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        3
+      ],
+      "span": {
+        "start_station": "5+50",
+        "end_station": "10+92",
+        "label": "5+50->10+92"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log12/log12_s23_redline_stroke.png",
+          "sha256": "26ab20b60c55eb931ccd8893e1fa9f9902452b4bd39376c779beedd25bd75994",
+          "example_placeholder": false,
+          "bytes": 822692,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log12/log12_s3_redline_stroke.png",
+          "sha256": "f777aea4bfab90275fa5b203d02eae97ecb5f4ce2723661238abf79c6599b0ca",
+          "example_placeholder": false,
+          "bytes": 579107,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log14",
+      "parent_id": "bore_log14",
+      "entry_role": "standalone",
+      "status": "COVERED_BY_EXISTING_REDLINE",
+      "provenance": "COVERED_BY_EXISTING_REDLINE",
+      "drawn": false,
+      "covered": true,
+      "blocked": false,
+      "drawn_lane": null,
+      "source_sheets": [
+        7
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "4+18",
+        "label": "0+00->4+18"
+      },
+      "closure": null,
+      "coverage": {
+        "covered_by": "log10",
+        "note": "physical route already on the plan as drawn log10's first leg (reset 0+58=0+00, run 0+00->4+16); no separate stroke, not a missing redline"
+      },
+      "blocker": null,
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "GAC_PACKET",
+          "ref": "gac/log3_log14_owner_adjudication.md",
+          "note": "covered_by log10 adjudication (duplicate)"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log15",
+      "parent_id": "bore_log15",
+      "entry_role": "standalone",
+      "status": "SOURCE_GAP_BLOCKED",
+      "provenance": "BLOCKED_SOURCE_GAP",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        6,
+        7,
+        8
+      ],
+      "span": {
+        "start_station": "24+07",
+        "end_station": "31+00",
+        "label": "24+07->31+00"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "SOURCE_GAP",
+        "name": "unprinted ruler-cut head-end",
+        "unlock_requirement": "the sheet-5+ head-end source where the unprinted ruler-cut start is printed",
+        "must_not_draw_reason": "start is an unprinted ruler-cut; no source coordinate to bind -- guessing would invent geometry"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "GAC_PACKET",
+          "ref": "gac/log15_log16_continuation_trace_result.md",
+          "note": "unprinted ruler-cut head-end trace"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log16",
+      "parent_id": "bore_log16",
+      "entry_role": "standalone",
+      "status": "SOURCE_GAP_BLOCKED",
+      "provenance": "BLOCKED_SOURCE_GAP",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        8,
+        9,
+        10
+      ],
+      "span": {
+        "start_station": "31+00",
+        "end_station": "39+79",
+        "label": "31+00->39+79"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "SOURCE_GAP",
+        "name": "unprinted ruler-cut head-end (log15 continuation)",
+        "unlock_requirement": "the same sheet-5+ head-end source as log15",
+        "must_not_draw_reason": "downstream continuation of log15's unprinted cut -- same missing-source bind"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "GAC_PACKET",
+          "ref": "gac/log16_fiber_proof_result.md",
+          "note": "log15 continuation; missing-source bind"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log19",
+      "parent_id": "bore_log19",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        14
+      ],
+      "span": {
+        "start_station": "4+94",
+        "end_station": "11+50",
+        "label": "4+94->11+50"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log19/log19_s14_redline_stroke.png",
+          "sha256": "99c7d5ba41c039135217af8ba8348cb39d12a56c4cba4d0989d931641aac63bf",
+          "example_placeholder": false,
+          "bytes": 1314647,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log19/log19_s7_redline_stroke.png",
+          "sha256": "fc54ab9dba70549e8f1bfcff9fe6c31c4576848c95814e410d0e6416941f41a5",
+          "example_placeholder": false,
+          "bytes": 531325,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log23",
+      "parent_id": "bore_log23",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        8
+      ],
+      "span": {
+        "start_station": "2+36",
+        "end_station": "5+57",
+        "label": "2+36->5+57"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log23/log23_s13_redline_stroke.png",
+          "sha256": "fd9660b1fe738d29ddd88cd07107f36fcd3081f1c24269758c5b0cb82e72da9d",
+          "example_placeholder": false,
+          "bytes": 231093,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log23/log23_s8_redline_stroke.png",
+          "sha256": "4f2ba155938bbdf7a8e35ac8da7b0ce9d39144596805d29b2fdc2cf5fdea762b",
+          "example_placeholder": false,
+          "bytes": 688623,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log25",
+      "parent_id": "bore_log25",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        21
+      ],
+      "span": {
+        "start_station": "3+14",
+        "end_station": "6+63",
+        "label": "3+14->6+63"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log25/log25_design_path_s21_redline_stroke.png",
+          "sha256": "d10e038e294dcb53ba04209cc347b1280669677d1ed7463178f25bade79942b7",
+          "example_placeholder": false,
+          "bytes": 1112269,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log27",
+      "parent_id": "bore_log27",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        15,
+        16
+      ],
+      "span": {
+        "start_station": "7+30",
+        "end_station": "13+55",
+        "label": "7+30->13+55"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log27/log27_s15_redline_stroke.png",
+          "sha256": "93c51d18b8fdecf4f0223b7f435cd17d77f2f82216f42ec864dba3fda962c5a8",
+          "example_placeholder": false,
+          "bytes": 1156143,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log27/log27_s16_redline_stroke.png",
+          "sha256": "ff7d90db0f2207049d94879686eab0d00c8cebaa1907f2be75f30d82a822df39",
+          "example_placeholder": false,
+          "bytes": 643046,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log29",
+      "parent_id": "bore_log29",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "4+15",
+        "label": "0+00->4+15"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log29/log29_s10_redline_stroke.png",
+          "sha256": "a8b0a73b75c67a0e4b8895878366e633dbaa579f92e260c6941bf5a783cade47",
+          "example_placeholder": false,
+          "bytes": 649694,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log29/log29_s12_redline_stroke.png",
+          "sha256": "5fecab20070511f66276598c65127d8885ac9181bc8802cbf826da201f97062d",
+          "example_placeholder": false,
+          "bytes": 827285,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log30",
+      "parent_id": "bore_log30",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10,
+        12
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "5+00",
+        "label": "0+00->5+00"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log30/log30_s10_redline_stroke.png",
+          "sha256": "a2c43a26350a0c9d0ca04cbc96a71ce1684342b10fb1cf4835f6d0c36eccaf6d",
+          "example_placeholder": false,
+          "bytes": 649754,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log30/log30_s12_redline_stroke.png",
+          "sha256": "ed45ee0e7d9f64e17a9fba32fc800d400639987d8eb85957c31d2db3915ea4a6",
+          "example_placeholder": false,
+          "bytes": 853763,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": [
+        "parent_source_model.json placement_status is STALE for this log (reads BLOCKED/HELD though drawn); never consume placement_status -- use this manifest."
+      ]
+    },
+    {
+      "log_id": "log31",
+      "parent_id": "bore_log31",
+      "entry_role": "standalone",
+      "status": "OWNER_LOCKED_ABSTAIN",
+      "provenance": "BLOCKED_OWNER_LOCKED",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+60",
+        "label": "0+00->2+60"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "OWNER_LOCKED",
+        "name": "must_remain_abstained / ABSTAIN_NO_SAFE_SOURCE",
+        "unlock_requirement": "owner lifts the abstain and supplies a safe source relationship",
+        "must_not_draw_reason": "owner-locked ABSTAIN; no safe source to bind either end"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "AUDIT_DOC",
+          "ref": "wiki/trueline_v2_engine_website_readiness_audit.md",
+          "note": "owner-locked abstain (must_remain_abstained)"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log32",
+      "parent_id": "bore_log32",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        18,
+        22
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+13",
+        "label": "0+00->2+13"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log32/log32_s18_redline_stroke.png",
+          "sha256": "e13cbd7895e61fdffb435b316fbccfe05dd86983e589c84247962d0b82095b9b",
+          "example_placeholder": false,
+          "bytes": 421320,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log32/log32_s22_redline_stroke.png",
+          "sha256": "5b5a3f25a4b7203463422c52c468be57654df15f24300d9dd34639e752397045",
+          "example_placeholder": false,
+          "bytes": 193995,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log36",
+      "parent_id": "bore_log36",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        17
+      ],
+      "span": {
+        "start_station": "0+56",
+        "end_station": "1+45",
+        "label": "0+56->1+45"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log36/log36_s17_redline_stroke.png",
+          "sha256": "085860cff794052b7e0c51f4ab71db0a86346a312ddfd4f33dcad37c1b8c1918",
+          "example_placeholder": false,
+          "bytes": 335143,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log37",
+      "parent_id": "bore_log37",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        23
+      ],
+      "span": {
+        "start_station": "3+50",
+        "end_station": "4+08",
+        "label": "3+50->4+08"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log37/log37_s23_redline_stroke.png",
+          "sha256": "0632408f1382391c89edac49fe1c7b1d7fb8b61d30f316f134b9bfa923f40217",
+          "example_placeholder": false,
+          "bytes": 580579,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log38",
+      "parent_id": "bore_log38",
+      "entry_role": "standalone",
+      "status": "OWNER_LOCKED_ABSTAIN",
+      "provenance": "BLOCKED_OWNER_LOCKED",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        25,
+        27
+      ],
+      "span": {
+        "start_station": "0+62",
+        "end_station": "16+21",
+        "label": "0+62->16+21"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "OWNER_LOCKED",
+        "name": "must_remain_abstained / ABSTAIN_NO_SAFE_SOURCE",
+        "unlock_requirement": "owner lifts the abstain and supplies safe source for the long (~1559') cross-sheet run",
+        "must_not_draw_reason": "owner-locked ABSTAIN; cross-sheet long run with no safe bind"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "AUDIT_DOC",
+          "ref": "wiki/trueline_v2_engine_website_readiness_audit.md",
+          "note": "owner-locked abstain (must_remain_abstained)"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log39",
+      "parent_id": "bore_log39",
+      "entry_role": "standalone",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        25
+      ],
+      "span": {
+        "start_station": "10+00",
+        "end_station": "14+41",
+        "label": "10+00->14+41"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log39/log39_s24_redline_stroke.png",
+          "sha256": "01619d64e91ac6cf918f89277a5b41525895a56abb5f8cec2e2b83513daa8af0",
+          "example_placeholder": false,
+          "bytes": 257227,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log39/log39_s25_redline_stroke.png",
+          "sha256": "2a23f74f0b6b60c570f8a8b0f1258f3391045dabb68560a4f6bf813ed965ddcf",
+          "example_placeholder": false,
+          "bytes": 1068673,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log41",
+      "parent_id": "bore_log13",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        1,
+        2
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "0+44",
+        "label": "0+00->0+44"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log41/log41_s2_redline_stroke.png",
+          "sha256": "26059d5b9b8bba59a5e940e5898bca0aa3bdc666987422895c1c5d72f3df668a",
+          "example_placeholder": false,
+          "bytes": 521567,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log42",
+      "parent_id": "bore_log13",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        1,
+        2
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+87",
+        "label": "0+00->2+87"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log42/log42_s2_redline_stroke.png",
+          "sha256": "5f76e563f21c07e9aa6dbe61e765abf033472f2f35700546d85ba79bcbb2c2a1",
+          "example_placeholder": false,
+          "bytes": 793848,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log42/log42_s1_redline_stroke.png",
+          "sha256": "37311f237308e8935947ec9d29cddb07b5578c2a8c1bc0478ba598add331e2d8",
+          "example_placeholder": false,
+          "bytes": 246867,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": [
+        "parent_source_model.json placement_status is STALE for this log (reads BLOCKED/HELD though drawn); never consume placement_status -- use this manifest."
+      ]
+    },
+    {
+      "log_id": "log43",
+      "parent_id": "bore_log17",
+      "entry_role": "split_child",
+      "status": "OWNER_LOCKED_ABSTAIN",
+      "provenance": "BLOCKED_OWNER_LOCKED",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "40+00",
+        "end_station": "59+19",
+        "label": "40+00->59+19"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "OWNER_LOCKED",
+        "name": "must_remain_abstained / ABSTAIN_NO_SAFE_SOURCE",
+        "unlock_requirement": "owner lifts the abstain; resolve the 43+00->45+86 gap / 59+19 continuation",
+        "must_not_draw_reason": "owner-locked ABSTAIN; possible missed intermediate rows / prior-day continuation"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "AUDIT_DOC",
+          "ref": "wiki/trueline_v2_engine_website_readiness_audit.md",
+          "note": "owner-locked abstain (must_remain_abstained)"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log44",
+      "parent_id": "bore_log17",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10,
+        13
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "3+25",
+        "label": "0+00->3+25"
+      },
+      "closure": {
+        "drawn_ft": 318.2,
+        "target_ft": 323.0,
+        "corpus_ft": 325.0,
+        "closes": true,
+        "note": "cross-sheet 2-leg Woodson (INSTALLER HH s10 -> FLOWER POT s13)"
+      },
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log44/log44_s10_redline_stroke.png",
+          "sha256": "5fc9fc4cb531a825bb821ea14ffc944dcd40eb5a309c373a552d28ef0880f0c2",
+          "example_placeholder": false,
+          "bytes": 607111,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log44/log44_s13_redline_stroke.png",
+          "sha256": "d9a9a266276d70bcd3e575e2e77c0ef75c0bf9df2f4fb8f19c655768c67c042e",
+          "example_placeholder": false,
+          "bytes": 319310,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        },
+        {
+          "kind": "GAC_PACKET",
+          "ref": "gac/log44_owner_source_verification.md",
+          "note": "owner source-verified Woodson sheet remap [18]->[10,13]"
+        }
+      ],
+      "warnings": [
+        "Corpus 'print 18' was owner-verified as a sheet mis-map; drawn sheets are [10,13] (gated owner_corrected_parent_sheet_context). source_sheets here reflect the drawn truth, not the corpus print.",
+        "parent_source_model.json placement_status is STALE for this log (reads BLOCKED/HELD though drawn); never consume placement_status -- use this manifest."
+      ]
+    },
+    {
+      "log_id": "log45",
+      "parent_id": "bore_log18",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "43+56",
+        "end_station": "44+89",
+        "label": "43+56->44+89"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log45/log45_s10_redline_stroke.png",
+          "sha256": "2669d2e10fcd3c77ebd760ca7964f025269aad1d02e3f3b001d1af5c48904ca1",
+          "example_placeholder": false,
+          "bytes": 1329066,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log46",
+      "parent_id": "bore_log18",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10,
+        13,
+        14
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "5+34",
+        "label": "0+00->5+34"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log46/log46_s10_redline_stroke.png",
+          "sha256": "9d0ea3d151a4bd40995cf6fa72e0b5b21f50706795811becf819004c9b413adf",
+          "example_placeholder": false,
+          "bytes": 584184,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log46/log46_s13_redline_stroke.png",
+          "sha256": "a753f37706cd763518ace05024c2152a80433f93335e90e5957c7c3441a3bc53",
+          "example_placeholder": false,
+          "bytes": 312672,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log46/log46_s14_redline_stroke.png",
+          "sha256": "1c69923c6682768117e45871d4389cfbdae462a3a1f9887713b5e09b33c05f31",
+          "example_placeholder": false,
+          "bytes": 512051,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log47",
+      "parent_id": "bore_log18",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "span": {
+        "start_station": "3+25",
+        "end_station": "4+94",
+        "label": "3+25->4+94"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log47/log47_s13_redline_stroke.png",
+          "sha256": "beb6709bdc95146f75db8408b41445863a01963d93dd4187fea1632d1d48cd23",
+          "example_placeholder": false,
+          "bytes": 242319,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log47/log47_s14_redline_stroke.png",
+          "sha256": "421608aed51f28ccc57544dc4e09603530c053d3af8a08ae9a0364e11c86a627",
+          "example_placeholder": false,
+          "bytes": 441239,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log48",
+      "parent_id": "bore_log20",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10,
+        12
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "5+09",
+        "label": "0+00->5+09"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log48/log48_s10_redline_stroke.png",
+          "sha256": "fb3ffd4cc306b3357f959d8d5fa0c452198ac88766f3ae93c21162596ea6ec7b",
+          "example_placeholder": false,
+          "bytes": 639574,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log48/log48_s12_redline_stroke.png",
+          "sha256": "9e762b8cf35509b8affdaa53cf8a1de722da6476a48fe921afb6aec1d4997880",
+          "example_placeholder": false,
+          "bytes": 839376,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": [
+        "B-DATA-LOG48-ADJ-1 stored-anchor debt: parent_source_model.json adj_corrected_span '0+00->5+14' is corrupted (carries sibling log50's value); the drawn route is sheets [10,12]. Consume this manifest, never the raw fixture."
+      ]
+    },
+    {
+      "log_id": "log49",
+      "parent_id": "bore_log20",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "44+89",
+        "end_station": "45+33",
+        "label": "44+89->45+33"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log49/log49_s10_redline_stroke.png",
+          "sha256": "ba3421abf69661489886e6f81f87cdf7f51cd0b8376efd91e29bad50b17e1d29",
+          "example_placeholder": false,
+          "bytes": 535243,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log50",
+      "parent_id": "bore_log20",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        10,
+        11
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "5+14",
+        "label": "0+00->5+14"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log50/log50_s10_redline_stroke.png",
+          "sha256": "1f2bc4ece8be78f8fa378c04b212052bed7658ced618a1ac25490f5d8c8365a1",
+          "example_placeholder": false,
+          "bytes": 452467,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log50/log50_s11_redline_stroke.png",
+          "sha256": "590683e19bedcd66d5765fd8f9dc2440fdc273f1ecab504fa379374555daf4c8",
+          "example_placeholder": false,
+          "bytes": 351329,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log51",
+      "parent_id": "bore_log21",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        8
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+99",
+        "label": "0+00->2+99"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log51/log51_s8_symbol_anchored_stroke.png",
+          "sha256": "b7edf64ab3c33d260523dca9259c5b010711bafe41c48fcbfaf7821f1fdb1489",
+          "example_placeholder": false,
+          "bytes": 548963,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log52",
+      "parent_id": "bore_log21",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        7,
+        8,
+        9
+      ],
+      "span": {
+        "start_station": "0+98",
+        "end_station": "4+50",
+        "label": "0+98->4+50"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log52/log52_s7_redline_stroke.png",
+          "sha256": "fe68190bb136b5b8cd5c88218fc6e9f55fd3163da00d1417c83d7b8468a48073",
+          "example_placeholder": false,
+          "bytes": 505484,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log52/log52_s8_redline_stroke.png",
+          "sha256": "5ebd5f98d47f611902b2ed492610eae6eaf3160682ae8e07bae3dae696555064",
+          "example_placeholder": false,
+          "bytes": 742043,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log53",
+      "parent_id": "bore_log22",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        5,
+        6
+      ],
+      "span": {
+        "start_station": "21+45",
+        "end_station": "24+11",
+        "label": "21+45->24+11"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log53/log53_s5_redline_stroke.png",
+          "sha256": "40e6a0911bed65c3af4f21b5d2650cdc4c2be60c64f7875b3ddc91b6a84b5d10",
+          "example_placeholder": false,
+          "bytes": 906490,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log53/log53_s6_redline_stroke.png",
+          "sha256": "93eef6d7ea9c00beac1802388841e17db0748e0896a7e3977204e8e96aa7b9d3",
+          "example_placeholder": false,
+          "bytes": 671300,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log54",
+      "parent_id": "bore_log22",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        2,
+        5,
+        6,
+        17,
+        21
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "3+14",
+        "label": "0+00->3+14"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log54/log54_s17_redline_stroke.png",
+          "sha256": "3501d7425acb7f0f2ef0aaf0403d7026d8acae852ac52f9a9dab1a9cfd73cba7",
+          "example_placeholder": false,
+          "bytes": 362248,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log54/log54_s21_redline_stroke.png",
+          "sha256": "2b7816ea2735bd7fcb19b9e321e1518a65a07a77a6f2c9454d3b306f067d40a6",
+          "example_placeholder": false,
+          "bytes": 529307,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log55",
+      "parent_id": "bore_log22",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        17
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "1+69",
+        "label": "0+00->1+69"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log55/log55_s17_redline_stroke.png",
+          "sha256": "7df8eaf8c56b5c4f9e8fcc88704acc8302301ee917fc5066cbea98c5c5d05520",
+          "example_placeholder": false,
+          "bytes": 466750,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log56",
+      "parent_id": "bore_log22",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        2
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+76",
+        "label": "0+00->2+76"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log56/log56_s2_redline_stroke.png",
+          "sha256": "b5ec9e044f4efe091b1deba4db73db3e5280335e4775a1ef974976fdf47afb95",
+          "example_placeholder": false,
+          "bytes": 1108133,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log57",
+      "parent_id": "bore_log24",
+      "entry_role": "split_child",
+      "status": "MISSING_SOURCE_SHEET_BLOCKED",
+      "provenance": "BLOCKED_MISSING_SOURCE",
+      "drawn": false,
+      "covered": false,
+      "blocked": true,
+      "drawn_lane": null,
+      "source_sheets": [
+        8,
+        10,
+        13
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "4+13",
+        "label": "0+00->4+13"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": {
+        "category": "MISSING_SOURCE_SHEET",
+        "name": ".FS drive-decomposition sheet absent",
+        "unlock_requirement": "the absent .FS drive-decomposition sheet that defines this drive's route",
+        "must_not_draw_reason": "the source sheet that defines the route is not present in the corpus -- nothing to extract"
+      },
+      "artifacts": [],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "GAC_PACKET",
+          "ref": "gac/target34_bore_log57_pdf_derived_placement_candidate.md",
+          "note": "missing .FS drive sheet"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log58",
+      "parent_id": "bore_log24",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        8,
+        10,
+        13
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+36",
+        "label": "0+00->2+36"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log58/log58_s10_redline_stroke.png",
+          "sha256": "5d35e4beef81c760be8f099646b4346f59c20b9d002dad4da8b45e21497d0613",
+          "example_placeholder": false,
+          "bytes": 579952,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log58/log58_s13_redline_stroke.png",
+          "sha256": "43095370d3527692501c7a158d0c1263988606d7505cf44657791868b3aa2752",
+          "example_placeholder": false,
+          "bytes": 278339,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log59",
+      "parent_id": "bore_log26",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        21
+      ],
+      "span": {
+        "start_station": "2+76",
+        "end_station": "4+46",
+        "label": "2+76->4+46"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log59/log59_s21_redline_stroke.png",
+          "sha256": "45ddbb531f070635e2d2da71009c3bcb5f5e312bac6cdfbdb3afe798be3bf4b3",
+          "example_placeholder": false,
+          "bytes": 944974,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log60",
+      "parent_id": "bore_log26",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        15
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "1+13",
+        "label": "0+00->1+13"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log60/log60_s15_redline_stroke.png",
+          "sha256": "b661caef4425408f14b24249a17ce9328b21b10f36324b1465178db22e2b5e25",
+          "example_placeholder": false,
+          "bytes": 643368,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log61",
+      "parent_id": "bore_log26",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        6
+      ],
+      "span": {
+        "start_station": "2+43",
+        "end_station": "4+50",
+        "label": "2+43->4+50"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log61/log61_s5_redline_stroke.png",
+          "sha256": "2aabccb0d7455de1bfe3e83595d68736c81ff072e35df7ff1ff71ed5144f6dcb",
+          "example_placeholder": false,
+          "bytes": 666822,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log61/log61_s6_redline_stroke.png",
+          "sha256": "06638b941571737832577205203b1f35cdec7ccc763370c7c0b90b36b587f386",
+          "example_placeholder": false,
+          "bytes": 287172,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log62",
+      "parent_id": "bore_log26",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        5,
+        6
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+01",
+        "label": "0+00->2+01"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log62/log62_s5_redline_stroke.png",
+          "sha256": "ebab3c8f71832655c7024f501ae1af18eda04befcb6ec0f3f5e5e68b6612ca2f",
+          "example_placeholder": false,
+          "bytes": 650216,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log62/log62_s6_redline_stroke.png",
+          "sha256": "4451fda65e7590a5d9b87c3b05132075aa8d33ef0bda34be22b4189893d5105d",
+          "example_placeholder": false,
+          "bytes": 269520,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log63",
+      "parent_id": "bore_log28",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        5,
+        17,
+        21
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "0+56",
+        "label": "0+00->0+56"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log63/log63_s17_redline_stroke.png",
+          "sha256": "1899bfce4c9cf66852058a2c800444dc6777261fbdf2071ad9eb50e1bbb6380c",
+          "example_placeholder": false,
+          "bytes": 299905,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log64",
+      "parent_id": "bore_log28",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        5,
+        17,
+        21
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "1+00",
+        "label": "0+00->1+00"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log64/log64_s21_redline_stroke.png",
+          "sha256": "9f23ec0a0accb6293e7663dc06e469bee671d9781c3bd431659051c29a89dfab",
+          "example_placeholder": false,
+          "bytes": 646173,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log65",
+      "parent_id": "bore_log33",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        9,
+        10
+      ],
+      "span": {
+        "start_station": "4+51",
+        "end_station": "6+50",
+        "label": "4+51->6+50"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log65/log65_s10_s9_cross_sheet_stroke.png",
+          "sha256": "8b7a520ce77d6a32948f1d77c64f845644e785afc62c559a805d2d441c65b60b",
+          "example_placeholder": false,
+          "bytes": 420013,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log66",
+      "parent_id": "bore_log33",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        10
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "0+55",
+        "label": "0+00->0+55"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log66/log66_s10_redline_stroke.png",
+          "sha256": "c2ee3e575e838fe548bfca8fdc1346d8d0ab3637169a93ddbe81252c4f647f40",
+          "example_placeholder": false,
+          "bytes": 598486,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log67",
+      "parent_id": "bore_log34",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        17,
+        19,
+        20
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "4+14",
+        "label": "0+00->4+14"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log67/log67_s17_redline_stroke.png",
+          "sha256": "47bf8b5efe2736dc454eabff1bf1b85b3c036bd870dda128ad0846fcdc535981",
+          "example_placeholder": false,
+          "bytes": 405768,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log67/log67_s20_redline_stroke.png",
+          "sha256": "3d18b28780d9406c2821858d3118c4e9e1f37bf0eac57e899b04997b01ef8a20",
+          "example_placeholder": false,
+          "bytes": 384524,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log68",
+      "parent_id": "bore_log34",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        17,
+        19,
+        20
+      ],
+      "span": {
+        "start_station": "4+54",
+        "end_station": "7+21",
+        "label": "4+54->7+21"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log68/log68_s17_redline_stroke.png",
+          "sha256": "aebd02ea729022856d98b19a0839b7a6b8cfcb550e3c9d1f6ec297ce1bb80191",
+          "example_placeholder": false,
+          "bytes": 349583,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log69",
+      "parent_id": "bore_log35",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        17,
+        19,
+        20
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "4+54",
+        "label": "0+00->4+54"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log69/log69_s17_redline_stroke.png",
+          "sha256": "32d4c8d5d512687eb9cfae34230434fea33d725f66134c7986ccae1afe823834",
+          "example_placeholder": false,
+          "bytes": 654510,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log70",
+      "parent_id": "bore_log35",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        17,
+        19,
+        20
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "2+15",
+        "label": "0+00->2+15"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log70/log70_s17_redline_stroke.png",
+          "sha256": "ab176c933323d3d4ad29d6aa5d4af4680eea185ebcc94902fbab57dc04eee6d8",
+          "example_placeholder": false,
+          "bytes": 344210,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log70/log70_s20_redline_stroke.png",
+          "sha256": "f38fd415ef376a18528101c2f18fee6fe235f2f3b017a4417a5607e367cf8670",
+          "example_placeholder": false,
+          "bytes": 204216,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": [
+        "B-DATA-LOG48-ADJ-1 stored-anchor debt: parent_source_model.json start '1+45' is superseded (re-anchored to 4+54 via gated override). Consume this manifest, never the raw fixture."
+      ]
+    },
+    {
+      "log_id": "log71",
+      "parent_id": "bore_log40",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "ALREADY_DRAWN",
+      "source_sheets": [
+        23,
+        24
+      ],
+      "span": {
+        "start_station": "0+00",
+        "end_station": "6+95",
+        "label": "0+00->6+95"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log71/log71_s23_redline_stroke.png",
+          "sha256": "dcc798576849ec38c9ede211f1f0a9cb418b0f77c80308d9372c0224fcdbcc37",
+          "example_placeholder": false,
+          "bytes": 587599,
+          "published": true
+        },
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log71/log71_s24_redline_stroke.png",
+          "sha256": "bf7026dd879f835fb1e505972a3557d9dcb70f3f755c401212812fab1557e7d6",
+          "example_placeholder": false,
+          "bytes": 1425517,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "ALREADY_DRAWN"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "log_id": "log72",
+      "parent_id": "bore_log40",
+      "entry_role": "split_child",
+      "status": "DRAWN_REDLINE",
+      "provenance": "DETERMINISTIC_AUTO",
+      "drawn": true,
+      "covered": false,
+      "blocked": false,
+      "drawn_lane": "NEW_TARGETS",
+      "source_sheets": [
+        24
+      ],
+      "span": {
+        "start_station": "7+50",
+        "end_station": "10+00",
+        "label": "7+50->10+00"
+      },
+      "closure": null,
+      "coverage": null,
+      "blocker": null,
+      "artifacts": [
+        {
+          "kind": "FINAL_REDLINE_PNG",
+          "path": "artifacts/log72/log72_s24_redline_stroke.png",
+          "sha256": "69d277a01f6a2d9aaba05e9a03e16d53eb623d524755d4717f7f128ace42411b",
+          "example_placeholder": false,
+          "bytes": 686981,
+          "published": true
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "ACCOUNTABILITY_LEDGER",
+          "ref": "wiki/trueline_v2_50_of_58_accountability_table.md"
+        },
+        {
+          "kind": "SWEEP_CONSTANT",
+          "ref": "truelinev2/proof/run_callout_route_assembly_sweep.py",
+          "note": "NEW_TARGETS"
+        },
+        {
+          "kind": "SWEEP_TEST",
+          "ref": "truelinev2/tests/test_callout_route_assembly_sweep.py"
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}

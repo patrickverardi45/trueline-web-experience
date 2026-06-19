@@ -25,6 +25,7 @@ import type {
 import type { EngineReviewBundle } from './adapters/v2Bundle';
 import type { EngineArtifactManifest } from './adapters/v2Artifacts';
 import type { RunAssemblyReview } from './adapters/v2RunAssembly';
+import type { RedlineManifestView } from './adapters/v2RedlineManifest';
 
 export interface TrueLineApi {
   projects: {
@@ -80,6 +81,12 @@ export interface TrueLineApi {
      * Read-only and suggestion-only: no geometry, no AUTO, no write-back.
      */
     engineRunAssembly(): Promise<RunAssemblyReview>;
+    /**
+     * Static, web-local view of the engine's durable redline-manifest bundle
+     * (store_index -> latest_valid -> redline_manifest.json). Read-only: drawn/covered/blocked
+     * accounting + FINAL_REDLINE_PNG refs resolved by manifest path. No geometry, no live render.
+     */
+    engineRedlineManifest(): Promise<RedlineManifestView>;
   };
   playback: {
     byRun(runId: ID): Promise<RedlinePlaybackStep[]>;

@@ -5,9 +5,12 @@ import type { TrueLineApi } from './types';
 import { adaptV2ReviewerBundle } from './adapters/v2Bundle';
 import { adaptV2DesignStrokeArtifacts } from './adapters/v2Artifacts';
 import { adaptV2RunAssembly } from './adapters/v2RunAssembly';
+import { adaptV2RedlineManifest } from './adapters/v2RedlineManifest';
 import reviewerBundleFixture from './fixtures/reviewer_bundle.v1.json';
 import designStrokeArtifactsFixture from './fixtures/design_stroke_artifacts.v1.json';
 import runAssemblyFixture from './fixtures/run_assembly_cards.v1.json';
+import redlineManifestFixture from './fixtures/redline_manifest.v1.json';
+import redlineStoreIndexFixture from './fixtures/redline_store_index.v1.json';
 import {
   crews,
   brenhamRuns,
@@ -32,6 +35,14 @@ const fixtureEngineDesignStrokeArtifacts = adaptV2DesignStrokeArtifacts(
   designStrokeArtifactsFixture,
 );
 const fixtureRunAssembly = adaptV2RunAssembly(runAssemblyFixture);
+// Served images exist only after `npm run export:redline-bundle` populates the gitignored
+// public/redline-bundle tree; opt in with NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED=1.
+const redlineManifestServed = process.env.NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED === '1';
+const fixtureRedlineManifest = adaptV2RedlineManifest(
+  redlineStoreIndexFixture,
+  redlineManifestFixture,
+  { served: redlineManifestServed },
+);
 
 function configuredTl2ApiBase(): string | null {
   const raw = process.env.NEXT_PUBLIC_TL2_API_BASE?.trim();
@@ -120,6 +131,9 @@ export const mockApi: TrueLineApi = {
       const value = await fetchLiveV2('/v2/reviewer/run-assembly');
       return adaptV2RunAssembly(value);
     },
+    // Phase 2K: read-only static consume of the durable redline-manifest bundle. Fixture-only
+    // (no live serving yet) — the committed manifest/index are byte copies of the durable bundle.
+    engineRedlineManifest: async () => fixtureRedlineManifest,
   },
   playback: {
     byRun: async (runId) =>

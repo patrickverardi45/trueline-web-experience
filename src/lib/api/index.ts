@@ -27,3 +27,8 @@ export type {
   RunAssemblyContinuationClass,
   RunAssemblyReview,
 } from './adapters/v2RunAssembly';
+export type {
+  RedlineArtifactRef,
+  RedlineLogEntry,
+  RedlineManifestView,
+} from './adapters/v2RedlineManifest';
