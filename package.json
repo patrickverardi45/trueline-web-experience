@@ -4,13 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/fetch-redline-bundle.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "contracts:check": "node scripts/check-contract-parity.mjs",
     "export:redline-bundle": "node scripts/export-redline-bundle.mjs",
-    "fetch:redline-bundle": "node scripts/fetch-redline-bundle.mjs --force",
-    "prebuild": "node scripts/fetch-redline-bundle.mjs"
+    "fetch:redline-bundle": "node scripts/fetch-redline-bundle.mjs --force"
   },
   "dependencies": {
     "lucide-react": "^1.17.0",

@@ -129,12 +129,22 @@ async function sha256File(path) {
 }
 
 async function main() {
+  // Always-on diagnostic (no secrets): the flag value is quoted to reveal stray whitespace or a
+  // wrong value (e.g. "true"); the bundle URL is reported present/missing + length only — never the
+  // URL itself, since a signed/private asset URL may carry a token.
+  const servedRaw = process.env.NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED;
+  const urlRaw = process.env.TL2_REDLINE_BUNDLE_URL;
+  info(
+    `env: NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED=${servedRaw === undefined ? '<unset>' : JSON.stringify(servedRaw)} ` +
+      `(served=${SERVED}); TL2_REDLINE_BUNDLE_URL=${urlRaw ? `present(len=${urlRaw.length})` : '<missing>'}; force=${FORCE}`,
+  );
+
   if (!SERVED && !FORCE) {
-    info('NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED != 1 and no --force; skipping fetch (availability-only).');
+    info('served mode OFF — skipping artifact fetch (availability-only). Set NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED=1 to activate.');
     return;
   }
 
-  const url = process.env.TL2_REDLINE_BUNDLE_URL;
+  const url = urlRaw;
   if (!url) fail('served mode requested but TL2_REDLINE_BUNDLE_URL is not set');
 
   const { bundleId, expected } = await loadExpected();
