@@ -48,3 +48,6 @@ next-env.d.ts
 
 # v2 durable redline-manifest bundle artifacts (Phase 2K): copied at export time, regenerable, never committed
 /public/redline-bundle/
+
+# local staging archive for the redline bundle (uploaded to a GitHub Release; never committed)
+/.release-staging/
