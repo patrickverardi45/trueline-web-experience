@@ -1,194 +1,90 @@
 import Link from 'next/link';
-import {
-  AlertTriangle,
-  ClipboardCheck,
-  ImageIcon,
-  Map as MapIcon,
-  Ruler,
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ImageIcon, Ruler, ShieldCheck } from 'lucide-react';
 
 import { api } from '@/lib/api';
-import { dateTime, ft, pct, pctLabel } from '@/lib/format';
-import { EVIDENCE_KIND, PROJECT_STATUS } from '@/lib/status';
 import { Card } from '@/components/ui/Card';
 import { KpiStat } from '@/components/ui/KpiStat';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { ProgressMeter } from '@/components/ui/ProgressMeter';
-import { ReadinessRing } from '@/components/ui/ReadinessRing';
-import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
 
+export const metadata = { title: 'Brenham PH5 — v2 staging' };
+
+// Single-project, read-only v2 staging summary. Numbers come from the committed durable
+// redline manifest (real engine truth), not from the mock portfolio fixtures.
 export default async function DashboardPage() {
-  const [projects, crews] = await Promise.all([api.projects.list(), api.crews.list()]);
-  const perProject = await Promise.all(
-    projects.map(async (project) => ({
-      project,
-      runs: await api.runs.byProject(project.id),
-      evidence: await api.evidence.byProject(project.id),
-      issues: await api.issues.byProject(project.id),
-    })),
-  );
-
-  const placedFt = projects.reduce((sum, p) => sum + p.footagePlacedFt, 0);
-  const plannedFt = projects.reduce((sum, p) => sum + p.footagePlannedFt, 0);
-  const allRuns = perProject.flatMap((p) => p.runs);
-  const allEvidence = perProject.flatMap((p) => p.evidence);
-  const openIssues = perProject
-    .flatMap((p) => p.issues)
-    .filter((i) => i.status !== 'resolved');
-  const readyRuns = allRuns.filter((r) => r.status === 'complete').length;
-  const photoCount = allEvidence.reduce((sum, e) => sum + e.photoIds.length, 0);
-
-  const recentEvidence = [...allEvidence]
-    .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
-    .slice(0, 6);
-  const crewName = (id: string) => crews.find((c) => c.id === id)?.name ?? id;
-  const runName = (id: string) => allRuns.find((r) => r.id === id)?.name ?? id;
+  const manifest = await api.reviews.engineRedlineManifest();
+  const { totals, bundleId, renderCommit, frontier, artifactCount } = manifest;
 
   return (
     <div>
       <PageHeader
-        title="Portfolio"
-        sub={`${projects.length} projects · ${projects.filter((p) => p.status === 'active').length} active · mock data`}
+        title="Brenham PH5 — v2 staging"
+        sub="Read-only v2 staging · no upload / live render yet"
         actions={
           <Link
-            href="/map"
+            href="/redlines"
             className="inline-flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
-            <MapIcon className="size-4" /> Open Hero Map
+            Open redline review →
           </Link>
         }
       />
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <KpiStat
-          label="Footage placed"
-          value={ft(placedFt)}
-          sub={`of ${ft(plannedFt)} planned · ${pctLabel(placedFt, plannedFt)}`}
-          icon={Ruler}
-          tone="accent"
-        />
-        <KpiStat
-          label="Evidence captured"
-          value={`${allEvidence.length} items`}
-          sub={`${photoCount} field photos`}
-          icon={ImageIcon}
-        />
-        <KpiStat
-          label="Runs complete"
-          value={`${readyRuns} of ${allRuns.length}`}
-          sub="across all projects"
-          icon={ClipboardCheck}
-        />
-        <KpiStat
-          label="Open issues"
-          value={String(openIssues.length)}
-          sub={`${openIssues.filter((i) => i.blocking).length} blocking`}
-          icon={AlertTriangle}
-          tone={openIssues.some((i) => i.blocking) ? 'danger' : 'default'}
-        />
+        <KpiStat label="Bore logs" value={String(totals.total)} sub={`frontier ${frontier}`} icon={Ruler} tone="accent" />
+        <KpiStat label="Drawn redlines" value={String(totals.drawn)} sub={`of ${totals.total} accounted`} icon={CheckCircle2} />
+        <KpiStat label="Covered" value={String(totals.covered)} sub="already on the plan" icon={ShieldCheck} />
+        <KpiStat label="Blocked" value={String(totals.blocked)} sub="owner / source-gated" icon={AlertTriangle} />
       </div>
 
-      <div className="mt-8">
-        <SectionHeader title="Projects" sub="Click a project for runs, evidence, and closeout" />
-        <div className="grid gap-4 lg:grid-cols-3">
-          {perProject.map(({ project, runs, issues }) => {
-            const status = PROJECT_STATUS[project.status];
-            const open = issues.filter((i) => i.status !== 'resolved').length;
-            return (
-              <Link key={project.id} href={`/projects/${project.id}`} className="group">
-                <Card className="h-full transition-shadow group-hover:shadow-md">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="truncate font-semibold text-ink group-hover:text-accent-strong">
-                        {project.name}
-                      </h3>
-                      <p className="mt-0.5 truncate text-xs text-ink-3">
-                        {project.client} · {project.location}
-                      </p>
-                    </div>
-                    <ReadinessRing score={project.readinessScore} size={48} />
-                  </div>
-                  <div className="mt-4">
-                    <ProgressMeter value={pct(project.footagePlacedFt, project.footagePlannedFt)} />
-                    <div className="mt-1.5 flex justify-between text-xs">
-                      <span className="text-ink-2">
-                        {ft(project.footagePlacedFt)} of {ft(project.footagePlannedFt)}
-                      </span>
-                      <span className="font-semibold text-ink">
-                        {pctLabel(project.footagePlacedFt, project.footagePlannedFt)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between gap-2">
-                    <StatusPill meta={status} size="sm" />
-                    <span className="text-xs text-ink-3">
-                      {runs.length} runs
-                      {open > 0 ? (
-                        <span className="ml-2 font-semibold text-red-600">{open} issues</span>
-                      ) : null}
-                    </span>
-                  </div>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
+      <div className="mt-8 grid gap-4 lg:grid-cols-3">
+        <Link href="/redlines" className="group lg:col-span-2">
+          <Card className="h-full transition-shadow group-hover:shadow-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-ink group-hover:text-accent-strong">
+                  v2 durable redline manifest
+                </h3>
+                <p className="mt-1 max-w-xl text-sm leading-relaxed text-ink-3">
+                  Real engine output — {totals.drawn} drawn · {totals.covered} covered · {totals.blocked}{' '}
+                  blocked of {totals.total} bore logs, {artifactCount} final redline artifacts. Read-only;
+                  nothing is uploaded or live-rendered in this staging build.
+                </p>
+              </div>
+              <ImageIcon className="size-6 shrink-0 text-accent" />
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm">
+              <div>
+                <dt className="text-ink-3">Bundle</dt>
+                <dd className="truncate font-mono text-ink">{bundleId}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-3">Render / source</dt>
+                <dd className="font-mono text-ink">{renderCommit}</dd>
+              </div>
+            </dl>
+            <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent-strong">
+              Open the redline review →
+            </span>
+          </Card>
+        </Link>
 
-      <div className="mt-8 grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <SectionHeader title="Recent field activity" actionLabel="Open field feed" actionHref="/feed" />
-          <Card flush>
-            <ul className="divide-y divide-line">
-              {recentEvidence.map((item) => {
-                const kind = EVIDENCE_KIND[item.kind];
-                return (
-                  <li key={item.id} className="flex items-center gap-3 px-5 py-3">
-                    <span
-                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${kind.chip}`}>
-                      {kind.label}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-ink">{item.label}</div>
-                      <div className="truncate text-xs text-ink-3">
-                        {runName(item.runId)} · {crewName(item.crewId)}
-                        {item.photoIds.length > 0
-                          ? ` · ${item.photoIds.length} photo${item.photoIds.length === 1 ? '' : 's'}`
-                          : ''}
-                      </div>
-                    </div>
-                    <span className="shrink-0 text-xs text-ink-3">{dateTime(item.capturedAt)}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
-        </div>
-        <div>
-          <SectionHeader title="Open issues" actionLabel="View closeout" actionHref="/closeout" />
-          <Card flush>
-            <ul className="divide-y divide-line">
-              {openIssues.map((issue) => (
-                <li key={issue.id} className="flex items-start gap-3 px-5 py-3">
-                  <AlertTriangle
-                    className={`mt-0.5 size-4 shrink-0 ${issue.blocking ? 'text-red-500' : 'text-amber-500'}`}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium leading-snug text-ink">{issue.title}</div>
-                    <div className="mt-0.5 text-xs text-ink-3">
-                      {runName(issue.runId ?? '')} ·{' '}
-                      {issue.blocking ? (
-                        <span className="font-semibold text-red-600">Blocking</span>
-                      ) : (
-                        'Monitoring'
-                      )}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
+        <Card>
+          <h3 className="font-semibold text-ink">What is real vs demo</h3>
+          <ul className="mt-2 space-y-2 text-sm leading-relaxed text-ink-3">
+            <li>
+              <span className="font-semibold text-ink">Real:</span> the v2 durable redline manifest on{' '}
+              <Link href="/redlines" className="font-medium text-accent-strong underline">
+                /redlines
+              </Link>{' '}
+              (bundle <span className="font-mono">{bundleId}</span>, render{' '}
+              <span className="font-mono">{renderCommit}</span>).
+            </li>
+            <li>
+              <span className="font-semibold text-ink">UI demo only — not engine data:</span> map, field
+              feed, evidence, plans, packet, closeout, and the review queue use placeholder data.
+            </li>
+            <li>No upload or live engine processing yet — that is a later backend / job-runner lane.</li>
+          </ul>
+        </Card>
       </div>
     </div>
   );

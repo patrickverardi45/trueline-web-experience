@@ -84,13 +84,20 @@ export default async function RedlinesPage() {
     <div>
       <PageHeader
         title="Redline Review"
-        sub={`${project?.name ?? 'Brenham PH5 — v2 staging'} · mock review queue (${items.length}) · v2 durable redline manifest = real engine data`}
+        sub={`${project?.name ?? 'Brenham PH5 — v2 staging'} · read-only v2 staging · the durable redline manifest below is real engine data`}
       />
-      <ReviewQueue items={items} />
+      {redlineManifest ? <RedlineManifestPanel view={redlineManifest} /> : null}
+      {runAssembly ? <RunAssemblyPanel review={runAssembly} /> : null}
       <EngineReviewPanel bundle={engineBundle} />
       <EngineArtifactPanel manifest={engineArtifacts} />
-      {runAssembly ? <RunAssemblyPanel review={runAssembly} /> : null}
-      {redlineManifest ? <RedlineManifestPanel view={redlineManifest} /> : null}
+      <details className="mt-8 overflow-hidden rounded-xl border border-dashed border-line bg-canvas/40">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-ink-3 hover:bg-canvas/60">
+          Mock UI demo queue — not engine data ({items.length})
+        </summary>
+        <div className="border-t border-line p-3">
+          <ReviewQueue items={items} />
+        </div>
+      </details>
     </div>
   );
 }
