@@ -33,9 +33,9 @@ export const crews: Crew[] = [
 export const projects: Project[] = [
   {
     id: 'p-cedar-ridge',
-    name: 'Cedar Ridge FTTH — Phase 2',
+    name: 'Brenham PH5 — v2 staging',
     client: 'Bluebonnet Fiber Cooperative',
-    location: 'Cedar Ridge, TX',
+    location: 'Brenham, TX',
     status: 'active',
     startDate: '2026-04-20',
     targetDate: '2026-08-14',

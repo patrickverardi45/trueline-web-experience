@@ -83,7 +83,7 @@ export const packetsByProject: Record<string, CloseoutPacket> = {
   'p-cedar-ridge': {
     id: 'pk-cedar',
     projectId: 'p-cedar-ridge',
-    name: 'Cedar Ridge FTTH Phase 2 — Closeout Packet',
+    name: 'Brenham PH5 — v2 staging — Closeout Packet',
     status: 'draft',
     sections: [
       { id: 'ps-cover', title: 'Cover & certification', kind: 'cover', itemCount: 1, included: true, ready: true },

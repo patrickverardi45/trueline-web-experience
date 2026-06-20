@@ -6,9 +6,9 @@ export function Topbar() {
       <button
         type="button"
         className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-medium text-ink hover:bg-canvas"
-        title="Project switcher (single demo project in mock mode)">
+        title="Project switcher — TrueLine v2 staging (single demo project)">
         <span className="size-2 rounded-full bg-emerald-500" />
-        Cedar Ridge FTTH — Phase 2
+        Brenham PH5 — v2 staging
         <ChevronDown className="size-3.5 text-ink-3" />
       </button>
       <div className="ml-auto flex items-center gap-3">

@@ -84,7 +84,7 @@ export default async function RedlinesPage() {
     <div>
       <PageHeader
         title="Redline Review"
-        sub={`${project?.name ?? 'Cedar Ridge FTTH — Phase 2'} · ${items.length} submissions in queue · mock data`}
+        sub={`${project?.name ?? 'Brenham PH5 — v2 staging'} · mock review queue (${items.length}) · v2 durable redline manifest = real engine data`}
       />
       <ReviewQueue items={items} />
       <EngineReviewPanel bundle={engineBundle} />

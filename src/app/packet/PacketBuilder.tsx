@@ -61,11 +61,11 @@ export const PACKET_STATUS: Record<CloseoutPacket['status'], StatusMeta> = {
 
 /** Short tab names — the packet fixture names carry a ' — Closeout Packet' suffix. */
 const TAB_NAME: Record<string, string> = {
-  'p-cedar-ridge': 'Cedar Ridge FTTH — Phase 2',
+  'p-cedar-ridge': 'Brenham PH5 — v2 staging',
   'p-oakdale': 'Oakdale Business Park',
 };
 
-/** Why a Cedar Ridge section is still waiting, matching the readiness fixture story. */
+/** Why a Brenham PH5 section is still waiting, matching the readiness fixture story. */
 const WAITING_REASON: Record<string, string> = {
   'as-builts': 'Runs A-12 / A-13 still in progress — sheets not final',
   redlines: 'Run B-04 redline pending review approval',
