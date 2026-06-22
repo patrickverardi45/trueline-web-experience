@@ -19,6 +19,7 @@ import {
 import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
+import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 
 type Boot =
   | { phase: 'off' }
@@ -213,6 +214,12 @@ export function ProductIntake() {
             }}
           />
           <ProductUploadInventory job={detail} />
+          <ProductReviewedBoreLogGate
+            jobId={selectedJobId}
+            boreLogUploads={detail.uploads
+              .filter((u) => u.kind === 'BORE_LOG')
+              .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
+          />
         </>
       )}
     </div>

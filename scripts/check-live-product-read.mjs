@@ -21,6 +21,15 @@ import {
   createProductJob,
   uploadProductFile,
   listProductJobs,
+  composeReviewedBoreLog,
+  composeReviewQueue,
+  createReviewedBoreLog,
+  fetchReviewedBoreLog,
+  addReviewedRows,
+  reviewReviewedRow,
+  defineSegmentGroup,
+  setGroupingStatus,
+  fetchReviewQueue,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -271,6 +280,89 @@ async function run() {
     wThrew = true;
   }
   check('failed product write throws (no mock fallback)', wThrew === true);
+
+  // --- Slice B: reviewed bore-log gate helpers ----------------------------------------------------
+  check('composeReviewedBoreLog parses rows + groups', (() => {
+    const v = composeReviewedBoreLog({
+      reviewed_bore_log_id: 'rbl-main', source_upload_id: 'up-x',
+      rows: [{ row_id: 'row-1', raw: { start_station: '0+00', end_station: '2+99' },
+               normalized: { start_station: '0+00', end_station: '2+99' },
+               extraction: { extraction_method: 'MANUAL_ENTRY' }, review: { status: 'CONFIRMED', reason: null } }],
+      groups: [{ group_id: 'grp-1', member_row_ids: ['row-1'], relation: 'SEPARATE_BORE', grouping_status: 'CONFIRMED' }],
+    });
+    return v.rblId === 'rbl-main' && v.sourceUploadId === 'up-x' && v.rows.length === 1
+      && v.rows[0].rowId === 'row-1' && v.rows[0].startStation === '0+00'
+      && v.rows[0].reviewStatus === 'CONFIRMED' && v.rows[0].extractionMethod === 'MANUAL_ENTRY'
+      && v.groups.length === 1 && v.groups[0].groupId === 'grp-1' && v.groups[0].memberRowIds[0] === 'row-1';
+  })());
+  check('composeReviewQueue parses gate fields', (() => {
+    const q = composeReviewQueue({
+      rows_needing_review: ['row-2'], rows_rejected: [], rows_review_passed: ['row-1'],
+      engine_eligible_row_ids: ['row-1'], ungrouped_rows: ['row-2'], rows_in_multiple_groups: [],
+      unresolved_groups: [], engine_ready: false,
+    });
+    return q.engineReady === false && q.rowsNeedingReview[0] === 'row-2'
+      && q.rowsReviewPassed[0] === 'row-1' && q.engineEligibleRowIds[0] === 'row-1'
+      && q.ungroupedRows[0] === 'row-2';
+  })());
+
+  // live reviewed-bore-log writes/reads: paths + bodies + identity headers (capture mock)
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({}) };
+  };
+  const B = 'http://localhost:8000/v2/product/jobs/job-x/reviewed-bore-logs';
+
+  await createReviewedBoreLog('job-x', 'rbl-main', 'up-1');
+  check('createReviewedBoreLog POST path + body + tenant header',
+    wUrl === B && JSON.parse(wInit.body).reviewed_bore_log_id === 'rbl-main'
+      && JSON.parse(wInit.body).source_upload_id === 'up-1' && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  await addReviewedRows('job-x', 'rbl-main', 'up-1', [{ rowId: 'row-1', startStation: '0+00', endStation: '2+99' }]);
+  check('addReviewedRows POST path + MANUAL_ENTRY body', (() => {
+    const b = JSON.parse(wInit.body);
+    return wUrl === `${B}/rbl-main/rows` && b.rows[0].row_id === 'row-1'
+      && b.rows[0].source_upload_id === 'up-1' && b.rows[0].extraction_method === 'MANUAL_ENTRY'
+      && b.rows[0].raw.start_station === '0+00' && b.rows[0].normalized.end_station === '2+99';
+  })());
+
+  await reviewReviewedRow('job-x', 'rbl-main', 'row-1', { toStatus: 'CONFIRMED' });
+  check('reviewReviewedRow POST path + to_status',
+    wUrl === `${B}/rbl-main/rows/row-1/review` && JSON.parse(wInit.body).to_status === 'CONFIRMED');
+
+  await defineSegmentGroup('job-x', 'rbl-main', 'grp-1', ['row-1'], 'SEPARATE_BORE');
+  check('defineSegmentGroup POST path + body', (() => {
+    const b = JSON.parse(wInit.body);
+    return wUrl === `${B}/rbl-main/groups` && b.group_id === 'grp-1'
+      && b.member_row_ids[0] === 'row-1' && b.relation === 'SEPARATE_BORE';
+  })());
+
+  await setGroupingStatus('job-x', 'rbl-main', 'grp-1', 'CONFIRMED');
+  check('setGroupingStatus POST path + to_status',
+    wUrl === `${B}/rbl-main/groups/grp-1/status` && JSON.parse(wInit.body).to_status === 'CONFIRMED');
+
+  await fetchReviewQueue('job-x', 'rbl-main');
+  check('fetchReviewQueue GET path', wUrl === `${B}/rbl-main/review-queue`);
+
+  await fetchReviewedBoreLog('job-x', 'rbl-main');
+  check('fetchReviewedBoreLog GET path + tenant header',
+    wUrl === `${B}/rbl-main` && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) });
+  let rblThrew = false;
+  try {
+    await fetchReviewedBoreLog('job-x', 'rbl-main');
+  } catch {
+    rblThrew = true;
+  }
+  check('failed reviewed-bore-log read throws (no mock fallback)', rblThrew === true);
 
   globalThis.fetch = realFetch;
   setEnv({});

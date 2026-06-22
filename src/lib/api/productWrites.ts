@@ -200,3 +200,171 @@ export async function fileToBase64(file: File): Promise<string> {
   }
   return btoa(binary);
 }
+
+// ====================================================================================================
+// Slice B — reviewed bore-log gate (manual reviewed structured rows; NO OCR, NO engine run).
+// ====================================================================================================
+
+export type ReviewStatus = 'UNREVIEWED' | 'CONFIRMED' | 'CORRECTED' | 'REJECTED' | 'NEEDS_CLARIFICATION';
+export type SegmentRelation = 'SEPARATE_BORE' | 'SAME_RUN_SEGMENTS' | 'AMBIGUOUS';
+export type GroupingStatus = 'PENDING' | 'CONFIRMED' | 'SOURCE_CONFLICT';
+
+/** One manually-entered (human-supplied, reviewed/corrected) row — NOT OCR/auto-extracted. */
+export interface ManualRowInput {
+  readonly rowId: string;
+  readonly startStation: string;
+  readonly endStation: string;
+  readonly note?: string;
+}
+
+export interface ReviewedRowView {
+  readonly rowId: string;
+  readonly startStation: string;
+  readonly endStation: string;
+  readonly extractionMethod: string;
+  readonly reviewStatus: string;
+  readonly reason: string | null;
+}
+
+export interface ReviewedGroupView {
+  readonly groupId: string;
+  readonly memberRowIds: readonly string[];
+  readonly relation: string;
+  readonly groupingStatus: string;
+}
+
+export interface ReviewedBoreLogView {
+  readonly rblId: string;
+  readonly sourceUploadId: string;
+  readonly rows: readonly ReviewedRowView[];
+  readonly groups: readonly ReviewedGroupView[];
+}
+
+export interface ReviewQueueView {
+  readonly rowsNeedingReview: readonly string[];
+  readonly rowsRejected: readonly string[];
+  readonly rowsReviewPassed: readonly string[];
+  readonly engineEligibleRowIds: readonly string[];
+  readonly ungroupedRows: readonly string[];
+  readonly rowsInMultipleGroups: readonly string[];
+  readonly unresolvedGroups: readonly string[];
+  readonly engineReady: boolean;
+}
+
+function strList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+// --- pure compose (unit-checkable) ----------------------------------------------------------------- //
+
+export function composeReviewedBoreLog(doc: unknown): ReviewedBoreLogView {
+  const r = asRecord(doc, 'reviewed-bore-log');
+  const rawRows = Array.isArray(r.rows) ? r.rows : [];
+  const rows: ReviewedRowView[] = rawRows
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
+    .map((row) => {
+      const normalized = (typeof row.normalized === 'object' && row.normalized !== null)
+        ? (row.normalized as Record<string, unknown>) : {};
+      const raw = (typeof row.raw === 'object' && row.raw !== null)
+        ? (row.raw as Record<string, unknown>) : {};
+      const extraction = (typeof row.extraction === 'object' && row.extraction !== null)
+        ? (row.extraction as Record<string, unknown>) : {};
+      const review = (typeof row.review === 'object' && row.review !== null)
+        ? (row.review as Record<string, unknown>) : {};
+      return {
+        rowId: str(row.row_id),
+        startStation: str(normalized.start_station) || str(raw.start_station),
+        endStation: str(normalized.end_station) || str(raw.end_station),
+        extractionMethod: str(extraction.extraction_method),
+        reviewStatus: str(review.status),
+        reason: strOrNull(review.reason),
+      };
+    });
+  const rawGroups = Array.isArray(r.groups) ? r.groups : [];
+  const groups: ReviewedGroupView[] = rawGroups
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
+    .map((g) => ({
+      groupId: str(g.group_id),
+      memberRowIds: strList(g.member_row_ids),
+      relation: str(g.relation),
+      groupingStatus: str(g.grouping_status),
+    }));
+  return { rblId: str(r.reviewed_bore_log_id), sourceUploadId: str(r.source_upload_id), rows, groups };
+}
+
+export function composeReviewQueue(doc: unknown): ReviewQueueView {
+  const q = asRecord(doc, 'review-queue');
+  return {
+    rowsNeedingReview: strList(q.rows_needing_review),
+    rowsRejected: strList(q.rows_rejected),
+    rowsReviewPassed: strList(q.rows_review_passed),
+    engineEligibleRowIds: strList(q.engine_eligible_row_ids),
+    ungroupedRows: strList(q.ungrouped_rows),
+    rowsInMultipleGroups: strList(q.rows_in_multiple_groups),
+    unresolvedGroups: strList(q.unresolved_groups),
+    engineReady: q.engine_ready === true,
+  };
+}
+
+// --- live reads/writes (throw on failure; never mock) ---------------------------------------------- //
+
+export async function createReviewedBoreLog(jobId: string, rblId: string, sourceUploadId: string): Promise<unknown> {
+  return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs`, {
+    reviewed_bore_log_id: rblId,
+    source_upload_id: sourceUploadId,
+  });
+}
+
+export async function fetchReviewedBoreLog(jobId: string, rblId: string): Promise<ReviewedBoreLogView> {
+  return composeReviewedBoreLog(await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}`));
+}
+
+/** Append manually-reviewed rows (extraction_method MANUAL_ENTRY — human-supplied, NOT OCR). */
+export async function addReviewedRows(
+  jobId: string, rblId: string, sourceUploadId: string, rows: readonly ManualRowInput[],
+): Promise<unknown> {
+  return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/rows`, {
+    rows: rows.map((r) => ({
+      row_id: r.rowId,
+      source_upload_id: sourceUploadId,
+      raw: { start_station: r.startStation, end_station: r.endStation, ...(r.note ? { note: r.note } : {}) },
+      normalized: { start_station: r.startStation, end_station: r.endStation },
+      extraction_method: 'MANUAL_ENTRY',
+    })),
+  });
+}
+
+export async function reviewReviewedRow(
+  jobId: string, rblId: string, rowId: string,
+  decision: { toStatus: ReviewStatus; reason?: string; correctedValues?: Record<string, unknown> },
+): Promise<unknown> {
+  return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/rows/${rowId}/review`, {
+    to_status: decision.toStatus,
+    reason: decision.reason ?? null,
+    corrected_values: decision.correctedValues ?? null,
+  });
+}
+
+export async function defineSegmentGroup(
+  jobId: string, rblId: string, groupId: string, memberRowIds: readonly string[], relation: SegmentRelation,
+): Promise<unknown> {
+  return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/groups`, {
+    group_id: groupId,
+    member_row_ids: [...memberRowIds],
+    relation,
+  });
+}
+
+export async function setGroupingStatus(
+  jobId: string, rblId: string, groupId: string, toStatus: GroupingStatus, reason?: string,
+): Promise<unknown> {
+  return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/groups/${groupId}/status`, {
+    to_status: toStatus,
+    reason: reason ?? null,
+  });
+}
+
+export async function fetchReviewQueue(jobId: string, rblId: string): Promise<ReviewQueueView> {
+  return composeReviewQueue(
+    await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/review-queue`));
+}
