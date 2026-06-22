@@ -87,14 +87,19 @@ export function composeRedlineManifestView(
 ): RedlineManifestView {
   const s = asRecord(slot, 'redline-manifest');
   const a = asRecord(artifactsDoc, 'artifacts');
-  const counts = asRecord(s.summary_counts ?? {}, 'redline-manifest.summary_counts');
+  // The backend returns the job's output-slot envelope { ref: { summary_counts, bundle_id, ... }, set_at,
+  // set_by } — the manifest descriptor (counts, bundle id) lives under `ref`. Fall back to the slot itself
+  // for an already-unwrapped descriptor. This is shape tolerance only; it is NOT a mock fallback (a failed
+  // live read still throws upstream in fetchProduct).
+  const ref = asRecord(s.ref ?? s, 'redline-manifest.ref');
+  const counts = asRecord(ref.summary_counts ?? {}, 'redline-manifest.summary_counts');
   const total = intOr0(counts.total_logs);
   const drawn = intOr0(counts.drawn);
   const covered = intOr0(counts.covered);
   const blocked = intOr0(counts.blocked);
   const artifacts = Array.isArray(a.artifacts) ? a.artifacts : [];
   const artifactBytes = artifacts.reduce((sum: number, art) => sum + intOr0(asRecord(art, 'artifact').bytes), 0);
-  const bundleId = strOrNull(a.bundle_id) ?? strOrNull(s.bundle_id) ?? '';
+  const bundleId = strOrNull(a.bundle_id) ?? strOrNull(ref.bundle_id) ?? '';
   return {
     bundleId,
     projectId: tenant,

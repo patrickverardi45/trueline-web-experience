@@ -88,8 +88,13 @@ async function run() {
   // --- redline manifest composition (summary + artifacts -> view; empty per-log; real counts) ------
   const view = composeRedlineManifestView(
     {
-      summary_counts: { total_logs: 58, drawn: 50, covered: 1, blocked: 7 },
-      bundle_id: 'seed-project-c19b565-abeaf35b1848',
+      // the real backend returns the output-slot envelope: { ref: { summary_counts, bundle_id, ... }, ... }
+      ref: {
+        summary_counts: { total_logs: 58, drawn: 50, covered: 1, blocked: 7 },
+        bundle_id: 'seed-project-c19b565-abeaf35b1848',
+      },
+      set_at: '2026-06-22T00:00:00+00:00',
+      set_by: 'workflow-seed',
     },
     {
       bundle_id: 'seed-project-c19b565-abeaf35b1848',
@@ -105,6 +110,14 @@ async function run() {
   check('manifest artifact count + bytes real', view.artifactCount === 2 && view.artifactBytes === 1006760);
   check('manifest per-log body honestly empty (not fabricated)', view.logs.length === 0 && view.drawnLogs.length === 0);
   check('manifest bundle id surfaced', view.bundleId === 'seed-project-c19b565-abeaf35b1848');
+
+  // adapter also tolerates an already-unwrapped (flat) descriptor — defensive; the backend sends the ref envelope
+  const flatView = composeRedlineManifestView(
+    { summary_counts: { total_logs: 1, drawn: 1, covered: 0, blocked: 0 } },
+    { bundle_id: 'seed-project-c19b565-abeaf35b1848', artifacts: [] },
+    'seed-project',
+  );
+  check('manifest tolerates flat (unwrapped) descriptor', flatView.frontier === '1/1' && flatView.totals.drawn === 1);
 
   // --- job-status composition (real shapes; KMZ pixel-only -> blocked) -----------------------------
   const status = composeJobStatus(
