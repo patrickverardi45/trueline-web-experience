@@ -13,10 +13,12 @@ import {
   PenLine,
   Settings,
   ShieldCheck,
+  Upload,
 } from 'lucide-react';
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/intake', label: 'Intake', icon: Upload },
   { href: '/projects/demo-project-001', label: 'Projects', icon: FolderKanban, match: '/projects' },
   { href: '/map', label: 'Hero Map', icon: Map },
   { href: '/plans', label: 'Plan Viewer', icon: FileText },

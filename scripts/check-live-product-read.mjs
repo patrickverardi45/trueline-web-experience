@@ -14,6 +14,14 @@ import {
   fetchProductArtifactBlob,
   createLiveV2ProductApi,
 } from '../src/lib/api/liveV2Product.ts';
+import {
+  inferUploadKind,
+  composeJobSummaries,
+  composeJobDetail,
+  createProductJob,
+  uploadProductFile,
+  listProductJobs,
+} from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
 function check(name, cond) {
@@ -191,6 +199,78 @@ async function run() {
   check('runs.byProject honest-empty', (await apiUnderTest.runs.byProject('x')).length === 0);
   check('closeout.readiness honest-undefined', (await apiUnderTest.closeout.readiness('x')) === undefined);
   check('sync.state honest offline', (await apiUnderTest.sync.state()).state === 'offline');
+
+  // --- product WRITE/intake helpers (Slice A: create job + upload + list) --------------------------
+  check('inferUploadKind: .pdf uses the selected category',
+    inferUploadKind('plan.pdf', 'PLAN_PDF') === 'PLAN_PDF' && inferUploadKind('log.pdf', 'BORE_LOG') === 'BORE_LOG');
+  check('inferUploadKind: csv/xlsx->BORE_LOG, kmz/kml->GIS_ROUTE, images->PHOTO',
+    inferUploadKind('a.csv', 'PLAN_PDF') === 'BORE_LOG' &&
+      inferUploadKind('a.xlsx', 'PLAN_PDF') === 'BORE_LOG' &&
+      inferUploadKind('a.kmz', 'PLAN_PDF') === 'GIS_ROUTE' &&
+      inferUploadKind('a.kml', 'PLAN_PDF') === 'GIS_ROUTE' &&
+      inferUploadKind('a.png', 'PLAN_PDF') === 'PHOTO' &&
+      inferUploadKind('a.jpeg', 'PLAN_PDF') === 'PHOTO');
+  check('inferUploadKind: unsupported -> null (never guessed)', inferUploadKind('movie.mp4', 'PLAN_PDF') === null);
+
+  check('composeJobSummaries parses tenant jobs', composeJobSummaries({
+    jobs: [
+      { job_id: 'job-1', status: 'CREATED', upload_count: 2, created_at: 't0', updated_at: 't1' },
+      { job_id: 'job-2', status: 'UPLOADING', upload_count: 0 },
+    ],
+  }).length === 2);
+  check('composeJobSummaries honest-empty for empty doc', composeJobSummaries({}).length === 0);
+  check('composeJobDetail maps real uploads', (() => {
+    const d = composeJobDetail({
+      job_id: 'job-1', status: 'CREATED',
+      uploads: [{ upload_id: 'up-abc', kind: 'PLAN_PDF', original_filename: 'p.pdf', bytes: 10,
+                  sha256: 'a'.repeat(64), extraction_status: 'queued' }],
+    });
+    return d.jobId === 'job-1' && d.uploads.length === 1 && d.uploads[0].uploadId === 'up-abc'
+      && d.uploads[0].kind === 'PLAN_PDF' && d.uploads[0].extractionStatus === 'queued';
+  })());
+
+  // write helpers: identity headers + POST path/body; GET list; throw on non-OK (no mock fallback)
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  let wUrl = '';
+  let wInit = {};
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ ok: true, jobs: [] }) };
+  };
+
+  await createProductJob('job-x');
+  check('createProductJob POSTs /v2/product/jobs',
+    wUrl === 'http://localhost:8000/v2/product/jobs' && wInit.method === 'POST');
+  check('createProductJob sends X-TL-Tenant + X-TL-Session',
+    wInit.headers['X-TL-Tenant'] === 'seed-project' && wInit.headers['X-TL-Session'] === 'web-intake');
+  check('createProductJob body carries job_id', JSON.parse(wInit.body).job_id === 'job-x');
+
+  await uploadProductFile('job-x', { kind: 'PLAN_PDF', filename: 'p.pdf', contentBase64: 'QQ==' });
+  check('uploadProductFile POSTs the job uploads path',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/uploads');
+  check('uploadProductFile body has kind/filename/content_base64', (() => {
+    const b = JSON.parse(wInit.body);
+    return b.kind === 'PLAN_PDF' && b.filename === 'p.pdf' && b.content_base64 === 'QQ==';
+  })());
+
+  await listProductJobs();
+  check('listProductJobs GETs /v2/product/jobs with tenant header',
+    wUrl === 'http://localhost:8000/v2/product/jobs' && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  let wThrew = false;
+  try {
+    await createProductJob('job-y');
+  } catch {
+    wThrew = true;
+  }
+  check('failed product write throws (no mock fallback)', wThrew === true);
 
   globalThis.fetch = realFetch;
   setEnv({});
