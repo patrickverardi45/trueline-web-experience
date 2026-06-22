@@ -13,10 +13,12 @@ import {
   addReviewedRows,
   createReviewedBoreLog,
   defineSegmentGroup,
+  fetchEngineHandoffReadiness,
   fetchReviewQueue,
   fetchReviewedBoreLog,
   reviewReviewedRow,
   setGroupingStatus,
+  type EngineHandoffReadinessView,
   type ManualRowInput,
   type ReviewedBoreLogView,
   type ReviewQueueView,
@@ -64,6 +66,9 @@ export function ProductReviewedBoreLogGate({
   const [note, setNote] = useState('');
   const [members, setMembers] = useState<Record<string, boolean>>({});
   const [relation, setRelation] = useState<SegmentRelation>('SEPARATE_BORE');
+  const [handoff, setHandoff] = useState<EngineHandoffReadinessView | null>(null);
+  const [handoffErr, setHandoffErr] = useState<string | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -124,6 +129,18 @@ export function ProductReviewedBoreLogGate({
     if (picked.length === 0) return;
     await act(() => defineSegmentGroup(jobId, RBL_ID, gid(), picked, relation));
     setMembers({});
+  }
+
+  async function onCheckHandoff() {
+    setHandoffBusy(true);
+    setHandoffErr(null);
+    try {
+      setHandoff(await fetchEngineHandoffReadiness(jobId));
+    } catch (e) {
+      setHandoffErr(e instanceof Error ? e.message : 'check failed');
+    } finally {
+      setHandoffBusy(false);
+    }
   }
 
   const passedRows = (rbl?.rows ?? []).filter((r) => PASS.has(r.reviewStatus));
@@ -329,6 +346,57 @@ export function ProductReviewedBoreLogGate({
       )}
 
       {error && phase === 'ready' && <p className="mt-2 text-sm text-red-600">{error}</p>}
+
+      {/* Engine handoff readiness (read-only — runs nothing, creates nothing) */}
+      <Card className="mt-4">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="font-medium text-ink">Engine handoff readiness</h4>
+          <button
+            onClick={onCheckHandoff}
+            disabled={handoffBusy}
+            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-2 hover:text-ink disabled:opacity-50">
+            {handoffBusy ? 'Checking…' : 'Check engine handoff'}
+          </button>
+        </div>
+        {handoffErr && <p className="mt-2 text-sm text-red-600">{handoffErr}</p>}
+        {handoff ? (
+          <div className="mt-2">
+            <p className="text-sm">
+              <span className="font-mono text-ink">status: {handoff.status}</span>
+              <span className="ml-2 font-mono text-ink-3">runnable: {String(handoff.runnable)}</span>
+            </p>
+            <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <dt className="text-ink-3">PLAN_PDF present</dt>
+                <dd className="font-mono text-ink">{handoff.hasPlanPdf ? 'yes' : 'no'}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-3">engine-ready reviewed bore log</dt>
+                <dd className="font-mono text-ink">{handoff.hasEngineReadyReviewedBoreLog ? 'yes' : 'no'}</dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-xs font-medium text-ink-2">Blockers</p>
+            <ul className="mt-1 list-disc space-y-1 pl-6 text-xs text-ink-2">
+              {handoff.blockers.map((b) => (
+                <li key={b.code}>
+                  <span className="font-mono">{b.code}</span> — {b.reason}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-ink-3">
+              engine_ready means the review gate passed — NOT that redlines were generated. Uploaded-corpus
+              engine handoff is not implemented; this check created no artifacts, slots, or redlines.
+            </p>
+          </div>
+        ) : (
+          !handoffErr && (
+            <p className="mt-2 text-sm text-ink-3">
+              Check whether this job’s uploaded inputs could be handed to the engine. Read-only — runs
+              nothing and creates nothing.
+            </p>
+          )
+        )}
+      </Card>
 
       <div className="mt-4 rounded-lg border border-line bg-white p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-ink">

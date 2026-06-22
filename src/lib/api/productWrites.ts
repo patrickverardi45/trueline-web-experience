@@ -368,3 +368,42 @@ export async function fetchReviewQueue(jobId: string, rblId: string): Promise<Re
   return composeReviewQueue(
     await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/review-queue`));
 }
+
+// ====================================================================================================
+// Slice C — uploaded-corpus engine-handoff readiness (read-only; the API renders nothing / creates nothing).
+// ====================================================================================================
+
+export interface EngineHandoffBlocker {
+  readonly code: string;
+  readonly reason: string;
+}
+
+export interface EngineHandoffReadinessView {
+  readonly status: string;
+  readonly runnable: boolean;
+  readonly hasPlanPdf: boolean;
+  readonly hasEngineReadyReviewedBoreLog: boolean;
+  readonly blockers: readonly EngineHandoffBlocker[];
+}
+
+export function composeEngineHandoffReadiness(doc: unknown): EngineHandoffReadinessView {
+  const d = asRecord(doc, 'engine-handoff');
+  const checks = (typeof d.checks === 'object' && d.checks !== null && !Array.isArray(d.checks))
+    ? (d.checks as Record<string, unknown>) : {};
+  const rawBlockers = Array.isArray(d.blockers) ? d.blockers : [];
+  const blockers: EngineHandoffBlocker[] = rawBlockers
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
+    .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
+  return {
+    status: str(d.status),
+    runnable: d.runnable === true,
+    hasPlanPdf: checks.has_plan_pdf === true,
+    hasEngineReadyReviewedBoreLog: checks.has_engine_ready_reviewed_bore_log === true,
+    blockers,
+  };
+}
+
+/** Read-only uploaded-corpus engine-handoff readiness for a job. Throws on a failed live read (no mock). */
+export async function fetchEngineHandoffReadiness(jobId: string): Promise<EngineHandoffReadinessView> {
+  return composeEngineHandoffReadiness(await getProductJson(`/v2/product/jobs/${jobId}/engine-handoff`));
+}

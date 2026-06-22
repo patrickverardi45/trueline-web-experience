@@ -30,6 +30,8 @@ import {
   defineSegmentGroup,
   setGroupingStatus,
   fetchReviewQueue,
+  composeEngineHandoffReadiness,
+  fetchEngineHandoffReadiness,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -363,6 +365,44 @@ async function run() {
     rblThrew = true;
   }
   check('failed reviewed-bore-log read throws (no mock fallback)', rblThrew === true);
+
+  // --- Slice C: engine-handoff readiness ----------------------------------------------------------
+  check('composeEngineHandoffReadiness parses status/runnable/checks/blockers', (() => {
+    const v = composeEngineHandoffReadiness({
+      status: 'BLOCKED', runnable: false,
+      checks: { has_plan_pdf: true, has_engine_ready_reviewed_bore_log: false },
+      blockers: [{ code: 'ENGINE_HANDOFF_NOT_IMPLEMENTED_FOR_UPLOADED_CORPUS', reason: 'x' },
+                 { code: 'NO_ENGINE_READY_REVIEWED_BORE_LOG', reason: 'y' }],
+    });
+    return v.status === 'BLOCKED' && v.runnable === false && v.hasPlanPdf === true
+      && v.hasEngineReadyReviewedBoreLog === false && v.blockers.length === 2
+      && v.blockers[0].code === 'ENGINE_HANDOFF_NOT_IMPLEMENTED_FOR_UPLOADED_CORPUS';
+  })());
+
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ status: 'BLOCKED', runnable: false, checks: {}, blockers: [] }) };
+  };
+  await fetchEngineHandoffReadiness('job-x');
+  check('fetchEngineHandoffReadiness GET path + tenant header',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/engine-handoff'
+      && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  let hThrew = false;
+  try {
+    await fetchEngineHandoffReadiness('job-x');
+  } catch {
+    hThrew = true;
+  }
+  check('failed engine-handoff read throws (no mock fallback)', hThrew === true);
 
   globalThis.fetch = realFetch;
   setEnv({});
