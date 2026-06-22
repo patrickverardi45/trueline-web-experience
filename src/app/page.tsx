@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/Card';
 import { KpiStat } from '@/components/ui/KpiStat';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ProductJobStatusStrip } from '@/components/ProductJobStatusStrip';
+import { ProductArtifactGallery } from '@/components/ProductArtifactGallery';
 
 export const metadata = { title: 'Demo Project 001 — v2 staging' };
 
@@ -37,6 +38,8 @@ export default async function DashboardPage() {
       </div>
 
       <ProductJobStatusStrip />
+
+      <ProductArtifactGallery />
 
       <div className="mt-8 grid gap-4 lg:grid-cols-3">
         <Link href="/redlines" className="group lg:col-span-2">

@@ -10,6 +10,8 @@ import {
   fetchProduct,
   composeRedlineManifestView,
   composeJobStatus,
+  composeArtifactList,
+  fetchProductArtifactBlob,
   createLiveV2ProductApi,
 } from '../src/lib/api/liveV2Product.ts';
 
@@ -118,6 +120,52 @@ async function run() {
     'seed-project',
   );
   check('manifest tolerates flat (unwrapped) descriptor', flatView.frontier === '1/1' && flatView.totals.drawn === 1);
+
+  // --- product artifact list + blob fetch (Slice 1B) -----------------------------------------------
+  const artifactRefs = composeArtifactList({
+    bundle_id: 'seed-project-c19b565-abeaf35b1848',
+    artifacts: [
+      { log_id: 'log3', path: 'artifacts/log3/log3_s2_redline_stroke.png', sha256: 'a'.repeat(64), bytes: 258784, kind: 'FINAL_REDLINE_PNG' },
+      { log_id: 'log3', path: 'artifacts/log3/log3_s3_redline_stroke.png', sha256: 'b'.repeat(64), bytes: 747976, kind: 'FINAL_REDLINE_PNG' },
+    ],
+  });
+  check('composeArtifactList parses 2 real artifact refs',
+    artifactRefs.length === 2 &&
+      artifactRefs[0].logId === 'log3' &&
+      artifactRefs[0].path === 'artifacts/log3/log3_s2_redline_stroke.png' &&
+      artifactRefs[0].bytes === 258784);
+  check('composeArtifactList honest-empty for empty doc', composeArtifactList({}).length === 0);
+
+  // fetchProductArtifactBlob: identity headers + doubled-artifacts serve path + Blob; throws on non-OK.
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  const fakePng = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+  let blobUrl = '';
+  let blobHeaders = {};
+  globalThis.fetch = async (url, init) => {
+    blobUrl = String(url);
+    blobHeaders = (init && init.headers) || {};
+    return { ok: true, blob: async () => fakePng };
+  };
+  const blob = await fetchProductArtifactBlob('artifacts/log3/log3_s2_redline_stroke.png');
+  check('fetchProductArtifactBlob hits doubled-artifacts serve path',
+    blobUrl === 'http://localhost:8000/v2/product/jobs/seed-job-1/artifacts/artifacts/log3/log3_s2_redline_stroke.png');
+  check('fetchProductArtifactBlob sends X-TL-Tenant', blobHeaders['X-TL-Tenant'] === 'seed-project');
+  check('fetchProductArtifactBlob sends X-TL-Session', blobHeaders['X-TL-Session'] === 'web-readonly');
+  check('fetchProductArtifactBlob returns a Blob', blob instanceof Blob && blob.type === 'image/png');
+
+  globalThis.fetch = async () => ({ ok: false, status: 404, blob: async () => fakePng });
+  let blobThrew = false;
+  try {
+    await fetchProductArtifactBlob('artifacts/log3/log3_s2_redline_stroke.png');
+  } catch {
+    blobThrew = true;
+  }
+  check('fetchProductArtifactBlob throws on non-OK (no mock fallback)', blobThrew === true);
 
   // --- job-status composition (real shapes; KMZ pixel-only -> blocked) -----------------------------
   const status = composeJobStatus(

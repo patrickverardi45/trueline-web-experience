@@ -131,6 +131,63 @@ async function productRedlineManifest(): Promise<RedlineManifestView> {
   return composeRedlineManifestView(slot, artifactsDoc, productTenant());
 }
 
+// --- product redline artifacts (Slice 1B: real FINAL_REDLINE_PNG thumbnails on the dashboard) ------ //
+// The job's artifacts are LISTED as JSON, but each PNG is SERVED as bytes (FileResponse) and the serve
+// route REQUIRES the identity headers — so the image cannot be loaded with a plain <img src>. The client
+// lists the refs, then fetches each PNG's bytes here and renders them via an object URL. Never mock.
+
+export interface ProductArtifactRef {
+  readonly logId: string;
+  /** Bundle-relative manifest path (artifacts/<log>/<file>.png) — the serve key. */
+  readonly path: string;
+  readonly bytes: number;
+  readonly kind: string | null;
+}
+
+/** Parse the /artifacts list response into safe artifact refs. Honest-empty for a missing/empty doc;
+ *  never invents records (only refs that carry a usable manifest path are surfaced). */
+export function composeArtifactList(doc: unknown): ProductArtifactRef[] {
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return [];
+  const list = (doc as Record<string, unknown>).artifacts;
+  if (!Array.isArray(list)) return [];
+  const refs: ProductArtifactRef[] = [];
+  for (const item of list) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const path = strOrNull(rec.path);
+    if (!path) continue;
+    refs.push({ logId: strOrNull(rec.log_id) ?? '', path, bytes: intOr0(rec.bytes), kind: strOrNull(rec.kind) });
+  }
+  return refs;
+}
+
+/** List the configured job's manifest-backed artifacts (throws on a failed live read; no mock fallback). */
+export async function fetchProductArtifacts(): Promise<ProductArtifactRef[]> {
+  const jobId = productJobId();
+  return composeArtifactList(await fetchProduct(`/v2/product/jobs/${jobId}/artifacts`));
+}
+
+/** Fetch ONE proof artifact's bytes by its manifest path, WITH the product identity headers (a plain
+ *  <img src> cannot send headers). Throws on a non-OK response; never returns a placeholder/mock image.
+ *  The manifest path itself begins with "artifacts/", so the request path intentionally doubles the
+ *  segment: /v2/product/jobs/{job}/artifacts/artifacts/<log>/<file>.png */
+export async function fetchProductArtifactBlob(path: string): Promise<Blob> {
+  const jobId = productJobId();
+  const response = await fetch(`${productApiBase()}/v2/product/jobs/${jobId}/artifacts/${path}`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      // Backend DEV STAND-IN identity headers — not real auth.
+      'X-TL-Tenant': productTenant(),
+      'X-TL-Session': 'web-readonly',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`product artifact GET ${path} failed with HTTP ${response.status}`);
+  }
+  return response.blob();
+}
+
 // --- v2 job-status strip (real server-authoritative product status; no per-run readiness fabricated) //
 export interface ProductJobStatus {
   readonly closeoutStatus: string | null;
