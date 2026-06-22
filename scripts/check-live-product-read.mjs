@@ -32,6 +32,11 @@ import {
   fetchReviewQueue,
   composeEngineHandoffReadiness,
   fetchEngineHandoffReadiness,
+  composePlanPageMetadata,
+  fetchPlanPageMetadata,
+  fetchPlanPageRasterBlob,
+  composeSourceAnchorResult,
+  createSourceAnchor,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -403,6 +408,97 @@ async function run() {
     hThrew = true;
   }
   check('failed engine-handoff read throws (no mock fallback)', hThrew === true);
+
+  // --- M2 Slice 2: plan-page metadata + raster blob + source-anchor create ------------------------
+  check('composePlanPageMetadata parses pages + display bounds', (() => {
+    const m = composePlanPageMetadata({
+      plan_upload_id: 'up-plan', page_count: 1,
+      pages: [{ page_number: 1, bounds: { x0: 0, y0: 0, x1: 612, y1: 792 },
+                width: 612, height: 792, zoom: 2, raster_width: 1224, raster_height: 1584 }],
+    });
+    return m.planUploadId === 'up-plan' && m.pageCount === 1 && m.pages.length === 1
+      && m.pages[0].pageNumber === 1 && m.pages[0].bounds.x1 === 612 && m.pages[0].bounds.y1 === 792
+      && m.pages[0].width === 612 && m.pages[0].rasterWidth === 1224;
+  })());
+  check('composePlanPageMetadata honest-empty for empty doc', composePlanPageMetadata({}).pages.length === 0);
+  check('composeSourceAnchorResult parses status/renderable/provenance/blockers', (() => {
+    const v = composeSourceAnchorResult({
+      source_anchor_id: 'sa-1', status: 'REJECTED', renderable: false,
+      provenance: 'HUMAN_CONFIRMED_CONTROL_POINTS', coordinate_space: 'pdf_display_space',
+      blockers: [{ code: 'CONTROL_POINTS_TOO_FEW', reason: 'need >= 2' }],
+    });
+    return v.sourceAnchorId === 'sa-1' && v.status === 'REJECTED' && v.renderable === false
+      && v.provenance === 'HUMAN_CONFIRMED_CONTROL_POINTS' && v.coordinateSpace === 'pdf_display_space'
+      && v.blockers.length === 1 && v.blockers[0].code === 'CONTROL_POINTS_TOO_FEW';
+  })());
+
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ plan_upload_id: 'up-plan', page_count: 1, pages: [] }) };
+  };
+  await fetchPlanPageMetadata('job-x', 'up-plan');
+  check('fetchPlanPageMetadata GET path + tenant header',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/plan-pages/up-plan'
+      && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  const pagePng = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+  let rUrl = '';
+  let rHeaders = {};
+  globalThis.fetch = async (url, init) => {
+    rUrl = String(url);
+    rHeaders = (init && init.headers) || {};
+    return { ok: true, blob: async () => pagePng };
+  };
+  const pageBlob = await fetchPlanPageRasterBlob('job-x', 'up-plan', 1);
+  check('fetchPlanPageRasterBlob GET raster path + tenant header + Blob',
+    rUrl === 'http://localhost:8000/v2/product/jobs/job-x/plan-pages/up-plan/1/raster'
+      && rHeaders['X-TL-Tenant'] === 'seed-project'
+      && pageBlob instanceof Blob && pageBlob.type === 'image/png');
+
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ source_anchor_id: 'sa-1', status: 'VALIDATED', renderable: true,
+      provenance: 'HUMAN_CONFIRMED_CONTROL_POINTS', coordinate_space: 'pdf_display_space', blockers: [] }) };
+  };
+  const saResult = await createSourceAnchor('job-x', {
+    sourceAnchorId: 'sa-1', planUploadId: 'up-plan', reviewedBoreLogId: 'rbl-main', pageNumber: 1,
+    controlPoints: [{ x: 100, y: 120 }, { x: 300, y: 340 }],
+    startIdentity: { station: '0+00', structureLabel: 'HH' },
+  });
+  check('createSourceAnchor POST path + tenant header + body + validated result', (() => {
+    const b = JSON.parse(wInit.body);
+    return wUrl === 'http://localhost:8000/v2/product/jobs/job-x/source-anchors'
+      && wInit.method === 'POST' && wInit.headers['X-TL-Tenant'] === 'seed-project'
+      && b.source_anchor_id === 'sa-1' && b.plan_upload_id === 'up-plan'
+      && b.reviewed_bore_log_id === 'rbl-main' && b.page_number === 1
+      && b.control_points.length === 2 && b.control_points[0].x === 100
+      && b.start_identity.station === '0+00' && b.start_identity.structure_label === 'HH'
+      && saResult.status === 'VALIDATED' && saResult.renderable === true;
+  })());
+  check('createSourceAnchor identity is coordinate-free (no x/y keys)', (() => {
+    const b = JSON.parse(wInit.body);
+    return !('x' in b.start_identity) && !('y' in b.start_identity);
+  })());
+
+  globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}), blob: async () => pagePng });
+  let m2Threw = 0;
+  for (const fn of [
+    () => fetchPlanPageMetadata('job-x', 'up-plan'),
+    () => fetchPlanPageRasterBlob('job-x', 'up-plan', 1),
+    () => createSourceAnchor('job-x', { sourceAnchorId: 'sa-1', planUploadId: 'up-plan',
+      reviewedBoreLogId: 'rbl-main', pageNumber: 1, controlPoints: [{ x: 1, y: 1 }, { x: 2, y: 2 }] }),
+  ]) {
+    try { await fn(); } catch { m2Threw += 1; }
+  }
+  check('M2 plan-page + source-anchor reads/writes throw on non-OK (no mock fallback)', m2Threw === 3);
 
   globalThis.fetch = realFetch;
   setEnv({});

@@ -407,3 +407,158 @@ export function composeEngineHandoffReadiness(doc: unknown): EngineHandoffReadin
 export async function fetchEngineHandoffReadiness(jobId: string): Promise<EngineHandoffReadinessView> {
   return composeEngineHandoffReadiness(await getProductJson(`/v2/product/jobs/${jobId}/engine-handoff`));
 }
+
+// ====================================================================================================
+// M2 Slice 2 — uploaded PLAN_PDF page display + human-confirmed source-anchor capture.
+// The page raster is the plan AS-IS (NO redline drawn); creating a source anchor RECORDS geometry only —
+// it does NOT render a redline. All reads/writes throw on failure (no mock fallback).
+// ====================================================================================================
+
+export interface PlanPageBounds {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+export interface PlanPageInfo {
+  readonly pageNumber: number;
+  readonly bounds: PlanPageBounds;        // PDF DISPLAY-space (the space control points are stored in)
+  readonly width: number;
+  readonly height: number;
+  readonly zoom: number;
+  readonly rasterWidth: number;
+  readonly rasterHeight: number;
+}
+
+export interface PlanPageMetadata {
+  readonly planUploadId: string;
+  readonly pageCount: number;
+  readonly pages: readonly PlanPageInfo[];
+}
+
+export function composePlanPageMetadata(doc: unknown): PlanPageMetadata {
+  const d = asRecord(doc, 'plan-pages');
+  const rawPages = Array.isArray(d.pages) ? d.pages : [];
+  const pages: PlanPageInfo[] = rawPages
+    .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && !Array.isArray(p))
+    .map((p) => {
+      const b = (typeof p.bounds === 'object' && p.bounds !== null && !Array.isArray(p.bounds))
+        ? (p.bounds as Record<string, unknown>) : {};
+      return {
+        pageNumber: int(p.page_number),
+        bounds: { x0: int(b.x0), y0: int(b.y0), x1: int(b.x1), y1: int(b.y1) },
+        width: int(p.width),
+        height: int(p.height),
+        zoom: int(p.zoom),
+        rasterWidth: int(p.raster_width),
+        rasterHeight: int(p.raster_height),
+      };
+    });
+  return { planUploadId: str(d.plan_upload_id), pageCount: int(d.page_count), pages };
+}
+
+/** Read-only PLAN_PDF page metadata (page_count + per-page display-space bounds + raster size). The web
+ *  maps click pixels back to display-space using a page's bounds. Throws on a failed live read (no mock). */
+export async function fetchPlanPageMetadata(jobId: string, planUploadId: string): Promise<PlanPageMetadata> {
+  return composePlanPageMetadata(
+    await getProductJson(`/v2/product/jobs/${jobId}/plan-pages/${planUploadId}`));
+}
+
+async function getProductBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${apiBase()}${path}`, { method: 'GET', cache: 'no-store', headers: headers() });
+  if (!response.ok) throw new Error(`product GET ${path} failed with HTTP ${response.status}`);
+  return response.blob();
+}
+
+/** Read-only PNG raster of ONE uploaded PLAN_PDF page (the plan AS-IS — NO redline overlay). Header-
+ *  bearing fetch -> Blob (a plain <img src> cannot send the identity headers). Throws on non-OK (no mock). */
+export async function fetchPlanPageRasterBlob(
+  jobId: string, planUploadId: string, pageNumber: number,
+): Promise<Blob> {
+  return getProductBlob(`/v2/product/jobs/${jobId}/plan-pages/${planUploadId}/${pageNumber}/raster`);
+}
+
+export interface ControlPointInput {
+  readonly x: number;          // PDF DISPLAY-space coordinates (NOT screen pixels)
+  readonly y: number;
+}
+
+export interface SourceAnchorIdentityInput {
+  readonly station?: string;
+  readonly structureLabel?: string;
+  readonly note?: string;
+}
+
+export interface SourceAnchorBlocker {
+  readonly code: string;
+  readonly reason: string;
+}
+
+export interface SourceAnchorResult {
+  readonly sourceAnchorId: string;
+  readonly status: string;            // VALIDATED | REJECTED
+  readonly renderable: boolean;
+  readonly provenance: string;        // HUMAN_CONFIRMED_CONTROL_POINTS
+  readonly coordinateSpace: string;   // pdf_display_space
+  readonly blockers: readonly SourceAnchorBlocker[];
+}
+
+export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
+  const d = asRecord(doc, 'source-anchor');
+  const rawBlockers = Array.isArray(d.blockers) ? d.blockers : [];
+  const blockers: SourceAnchorBlocker[] = rawBlockers
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
+    .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
+  return {
+    sourceAnchorId: str(d.source_anchor_id),
+    status: str(d.status),
+    renderable: d.renderable === true,
+    provenance: str(d.provenance),
+    coordinateSpace: str(d.coordinate_space),
+    blockers,
+  };
+}
+
+export interface SourceAnchorCreateInput {
+  readonly sourceAnchorId: string;
+  readonly planUploadId: string;
+  readonly reviewedBoreLogId: string;
+  readonly pageNumber: number;
+  readonly controlPoints: readonly ControlPointInput[];   // ordered; >= 2; PDF display-space
+  readonly groupId?: string | null;
+  readonly rowIds?: readonly string[];
+  readonly startIdentity?: SourceAnchorIdentityInput;
+  readonly endIdentity?: SourceAnchorIdentityInput;
+  readonly notes?: string;
+}
+
+function identityBody(identity?: SourceAnchorIdentityInput): Record<string, unknown> | null {
+  if (!identity) return null;
+  // coordinate-FREE identity only (station / structure label / note) — never x/y geometry
+  return {
+    station: identity.station ?? null,
+    structure_label: identity.structureLabel ?? null,
+    note: identity.note ?? null,
+  };
+}
+
+/** Create + validate a HUMAN-confirmed source anchor (ordered PDF display-space control points). Returns
+ *  the backend's validation result (VALIDATED/REJECTED + named blockers). This RECORDS geometry only — it
+ *  does NOT render a redline. Throws on a failed live write (no mock fallback). */
+export async function createSourceAnchor(
+  jobId: string, input: SourceAnchorCreateInput,
+): Promise<SourceAnchorResult> {
+  return composeSourceAnchorResult(await postProductJson(`/v2/product/jobs/${jobId}/source-anchors`, {
+    source_anchor_id: input.sourceAnchorId,
+    plan_upload_id: input.planUploadId,
+    reviewed_bore_log_id: input.reviewedBoreLogId,
+    page_number: input.pageNumber,
+    control_points: input.controlPoints.map((p) => ({ x: p.x, y: p.y })),
+    group_id: input.groupId ?? null,
+    row_ids: input.rowIds ? [...input.rowIds] : null,
+    start_identity: identityBody(input.startIdentity),
+    end_identity: identityBody(input.endIdentity),
+    notes: input.notes ?? null,
+  }));
+}

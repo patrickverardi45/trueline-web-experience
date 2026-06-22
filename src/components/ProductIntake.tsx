@@ -20,6 +20,7 @@ import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
+import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapture';
 
 type Boot =
   | { phase: 'off' }
@@ -220,6 +221,14 @@ export function ProductIntake() {
               .filter((u) => u.kind === 'BORE_LOG')
               .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
           />
+          {detail.uploads.some((u) => u.kind === 'PLAN_PDF') && (
+            <ProductSourceAnchorCapture
+              jobId={selectedJobId}
+              planUploads={detail.uploads
+                .filter((u) => u.kind === 'PLAN_PDF')
+                .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
+            />
+          )}
         </>
       )}
     </div>
