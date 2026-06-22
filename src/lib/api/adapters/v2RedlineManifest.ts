@@ -105,7 +105,7 @@ const FORBIDDEN_FIELDS = new Set(['parent_source_model', 'placement_status']);
 const FORBIDDEN_GEOMETRY = new Set(['segments', 'stroke_points']);
 // Safe, layout-bound artifact path; rejects traversal, URLs, backslashes, absolute paths.
 const ARTIFACT_PATH = /^artifacts\/[a-z0-9_]+\/[a-z0-9_]+\.png$/;
-// Content-keyed bundle id (e.g. brenham-c19b565-ddfffff7cbe7); bounds the served URL prefix.
+// Content-keyed bundle id (e.g. demo-project-c19b565-deadbeefcafe); bounds the served URL prefix.
 const BUNDLE_ID = /^[a-z0-9][a-z0-9._-]*$/;
 
 const STATUSES = new Set<RedlineStatus>([

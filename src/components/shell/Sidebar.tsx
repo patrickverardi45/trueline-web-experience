@@ -17,7 +17,7 @@ import {
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/projects/p-cedar-ridge', label: 'Projects', icon: FolderKanban, match: '/projects' },
+  { href: '/projects/demo-project-001', label: 'Projects', icon: FolderKanban, match: '/projects' },
   { href: '/map', label: 'Hero Map', icon: Map },
   { href: '/plans', label: 'Plan Viewer', icon: FileText },
   { href: '/redlines', label: 'Redline Review', icon: PenLine },

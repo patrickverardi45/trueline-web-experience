@@ -7,7 +7,7 @@ import { KpiStat } from '@/components/ui/KpiStat';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ProductJobStatusStrip } from '@/components/ProductJobStatusStrip';
 
-export const metadata = { title: 'Brenham PH5 — v2 staging' };
+export const metadata = { title: 'Demo Project 001 — v2 staging' };
 
 // Single-project, read-only v2 staging summary. Numbers come from the committed durable
 // redline manifest (real engine truth), not from the mock portfolio fixtures.
@@ -18,7 +18,7 @@ export default async function DashboardPage() {
   return (
     <div>
       <PageHeader
-        title="Brenham PH5 — v2 staging"
+        title="Demo Project 001 — v2 staging"
         sub="Read-only v2 staging · no upload / live render yet"
         actions={
           <Link

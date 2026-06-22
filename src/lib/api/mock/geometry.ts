@@ -1,4 +1,4 @@
-// Hero Map geometry for the Cedar Ridge project, in map surface coordinates
+// Hero Map geometry for the demo project, in map surface coordinates
 // (viewBox 1200 × 800). The basemap is a stylized OSP plan view — roads,
 // parcels, a creek — not real GIS data.
 
@@ -23,11 +23,11 @@ export interface ParcelFeature {
 }
 
 export const roads: RoadFeature[] = [
-  { id: 'rd-cedar', name: 'CEDAR RIDGE RD', points: [[0, 480], [1200, 480]], labelAt: [960, 502] },
-  { id: 'rd-bluebonnet', name: 'BLUEBONNET LN', points: [[300, 120], [300, 760]], labelAt: [318, 640], labelRotate: -90 },
-  { id: 'rd-ridgeline', name: 'RIDGELINE DR', points: [[60, 190], [780, 190]], labelAt: [600, 174] },
+  { id: 'rd-001', name: 'SAMPLE ROAD', points: [[0, 480], [1200, 480]], labelAt: [960, 502] },
+  { id: 'rd-002', name: 'SAMPLE LANE', points: [[300, 120], [300, 760]], labelAt: [318, 640], labelRotate: -90 },
+  { id: 'rd-003', name: 'SAMPLE DRIVE', points: [[60, 190], [780, 190]], labelAt: [600, 174] },
   { id: 'rd-quarry', name: 'QUARRY RD', points: [[820, 120], [820, 760]], labelAt: [838, 300], labelRotate: -90 },
-  { id: 'rd-pecan', name: 'PECAN LOOP', points: [[700, 650], [1160, 650]], labelAt: [880, 672] },
+  { id: 'rd-004', name: 'SAMPLE LOOP', points: [[700, 650], [1160, 650]], labelAt: [880, 672] },
 ];
 
 export const creek: Array<[number, number]> = [

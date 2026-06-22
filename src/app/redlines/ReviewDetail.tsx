@@ -27,7 +27,7 @@ const COMMENTS: Record<string, MockComment[]> = {
   'r-b04': [
     {
       author: 'L. Hargrove',
-      role: 'Inspector · Bluebonnet Fiber',
+      role: 'Inspector · Sample Fiber Co-op',
       at: 'Jun 10',
       body: 'Verify slack loop footage at HH-112 before approval.',
     },
@@ -41,7 +41,7 @@ const COMMENTS: Record<string, MockComment[]> = {
   'r-a12': [
     {
       author: 'L. Hargrove',
-      role: 'Inspector · Bluebonnet Fiber',
+      role: 'Inspector · Sample Fiber Co-op',
       at: 'Jun 10',
       body: 'Caliche note received. Hold the creek crossing shot until engineering review CR-104 clears.',
     },
@@ -49,7 +49,7 @@ const COMMENTS: Record<string, MockComment[]> = {
   'r-c02': [
     {
       author: 'L. Hargrove',
-      role: 'Inspector · Bluebonnet Fiber',
+      role: 'Inspector · Sample Fiber Co-op',
       at: 'Jun 9',
       body: 'Two obstructions on one segment — include the locates refresh ticket number on resubmittal.',
     },
@@ -57,7 +57,7 @@ const COMMENTS: Record<string, MockComment[]> = {
   'r-d07': [
     {
       author: 'L. Hargrove',
-      role: 'Inspector · Bluebonnet Fiber',
+      role: 'Inspector · Sample Fiber Co-op',
       at: 'Jun 5',
       body: 'Pole transfer sign-offs look complete. Clean submission.',
     },

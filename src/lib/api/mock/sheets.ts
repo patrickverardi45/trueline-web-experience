@@ -6,13 +6,13 @@ import type { PlanSheet, RedlinePath, SheetPin } from '@/contracts';
 export const SHEET_VIEWBOX = { width: 1000, height: 700 };
 
 export const sheets: PlanSheet[] = [
-  { id: 'sh-c101', projectId: 'p-cedar-ridge', code: 'C-101', title: 'Plan & Profile — Ridgeline Dr', runIds: ['r-d07'], nextSheetId: 'sh-c102' },
-  { id: 'sh-c102', projectId: 'p-cedar-ridge', code: 'C-102', title: 'Plan & Profile — Bluebonnet Ln', runIds: ['r-b04'], prevSheetId: 'sh-c101', nextSheetId: 'sh-c103' },
-  { id: 'sh-c103', projectId: 'p-cedar-ridge', code: 'C-103', title: 'Plan & Profile — Cedar Ridge Rd, STA 0+00 to STA 8+80', runIds: ['r-a12'], prevSheetId: 'sh-c102', nextSheetId: 'sh-c104' },
-  { id: 'sh-c104', projectId: 'p-cedar-ridge', code: 'C-104', title: 'Plan & Profile — Cedar Ridge Rd, STA 8+80 to STA 16+20', runIds: ['r-a13'], prevSheetId: 'sh-c103', nextSheetId: 'sh-c105' },
-  { id: 'sh-c105', projectId: 'p-cedar-ridge', code: 'C-105', title: 'Plan & Profile — Pecan Loop', runIds: ['r-c02'], prevSheetId: 'sh-c104' },
-  { id: 'sh-f101', projectId: 'p-fm-1842', code: 'F-101', title: 'Plan & Profile — FM 1842 Parallel', runIds: ['r-m01', 'r-m02'] },
-  { id: 'sh-o101', projectId: 'p-oakdale', code: 'O-101', title: 'Site Plan — Oakdale Business Park', runIds: ['r-l11', 'r-l12'] },
+  { id: 'sh-c101', projectId: 'demo-project-001', code: 'C-101', title: 'Plan & Profile — Sample Street 1', runIds: ['r-d07'], nextSheetId: 'sh-c102' },
+  { id: 'sh-c102', projectId: 'demo-project-001', code: 'C-102', title: 'Plan & Profile — Sample Street 2', runIds: ['r-b04'], prevSheetId: 'sh-c101', nextSheetId: 'sh-c103' },
+  { id: 'sh-c103', projectId: 'demo-project-001', code: 'C-103', title: 'Plan & Profile — Sample Road, STA 0+00 to STA 8+80', runIds: ['r-a12'], prevSheetId: 'sh-c102', nextSheetId: 'sh-c104' },
+  { id: 'sh-c104', projectId: 'demo-project-001', code: 'C-104', title: 'Plan & Profile — Sample Road, STA 8+80 to STA 16+20', runIds: ['r-a13'], prevSheetId: 'sh-c103', nextSheetId: 'sh-c105' },
+  { id: 'sh-c105', projectId: 'demo-project-001', code: 'C-105', title: 'Plan & Profile — Sample Loop', runIds: ['r-c02'], prevSheetId: 'sh-c104' },
+  { id: 'sh-f101', projectId: 'demo-project-002', code: 'F-101', title: 'Plan & Profile — Sample Highway Parallel', runIds: ['r-m01', 'r-m02'] },
+  { id: 'sh-o101', projectId: 'demo-project-003', code: 'O-101', title: 'Site Plan — Sample Business Park', runIds: ['r-l11', 'r-l12'] },
 ];
 
 export const sheetPins: SheetPin[] = [

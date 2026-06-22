@@ -7,7 +7,7 @@ import type { PacketBundle } from './PacketBuilder';
 
 export const metadata: Metadata = { title: 'Packet Builder' };
 
-const PACKET_PROJECT_IDS = ['p-cedar-ridge', 'p-oakdale'] as const;
+const PACKET_PROJECT_IDS = ['demo-project-001', 'demo-project-003'] as const;
 
 export default async function PacketPage() {
   const loaded = await Promise.all(

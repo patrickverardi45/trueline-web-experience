@@ -16,7 +16,7 @@ const liveV2ProductApi: TrueLineApi = createLiveV2ProductApi(reviewerReads);
 export const api: TrueLineApi = productApiEnabled() ? liveV2ProductApi : mockApi;
 
 /** The project the offline demo experience focuses on. */
-export const FLAGSHIP_PROJECT_ID = 'p-cedar-ridge';
+export const FLAGSHIP_PROJECT_ID = 'demo-project-001';
 
 export type { TrueLineApi } from './types';
 export type {

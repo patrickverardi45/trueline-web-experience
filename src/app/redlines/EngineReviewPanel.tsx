@@ -72,7 +72,7 @@ function EngineCardView({ card }: { card: EngineCard }) {
             {card.runMapping === 'mapped' ? (
               <>
                 {' '}
-                <span className="text-ink-3">via local Brenham fixture</span>
+                <span className="text-ink-3">via local internal-demo fixture</span>
                 <span className="font-mono text-ink-2"> ({card.runId})</span>
               </>
             ) : null}
@@ -157,7 +157,7 @@ export function EngineReviewPanel({ bundle }: { bundle: EngineReviewBundle }) {
             </div>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-ink-3">
               Static M8.11 default baseline export. Run IDs resolve only through exact bore-log
-              identity matches in the web-local Brenham PH5 fixture, never against the fictional
+              identity matches in the web-local internal demo fixture, never against the fictional
               mock review queue above. These staging records are not production customer records.
               No approvals or write-back are enabled.
             </p>
@@ -183,7 +183,7 @@ export function EngineReviewPanel({ bundle }: { bundle: EngineReviewBundle }) {
 
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-canvas px-3 py-2 text-xs text-ink-3">
           <Lock className="size-3.5 shrink-0" />
-          Brenham mappings are read-only identity scaffolds. Existing mock review decisions apply
+          internal-demo mappings are read-only identity scaffolds. Existing mock review decisions apply
           only to the mock review queue above; engine cards cannot be approved or changed here.
         </div>
       </Card>

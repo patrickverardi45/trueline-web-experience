@@ -23,7 +23,7 @@ export const playbackSteps: RedlinePlaybackStep[] = [
 
   // --- Run B-04: complete, awaiting review ---
   { id: 'pb-b04-1', runId: 'r-b04', seq: 1, at: '2026-06-09T08:05:00-05:00', kind: 'start-evidence', progress: 0, stationCode: 'VLT-201', note: 'Start evidence captured at the vault.', evidenceId: 'ev-b04-start' },
-  { id: 'pb-b04-2', runId: 'r-b04', seq: 2, at: '2026-06-09T12:30:00-05:00', kind: 'advance', progress: 0.55, note: 'Pull past the Cedar Ridge Rd crossing.' },
+  { id: 'pb-b04-2', runId: 'r-b04', seq: 2, at: '2026-06-09T12:30:00-05:00', kind: 'advance', progress: 0.55, note: 'Pull past the Sample Road crossing.' },
   { id: 'pb-b04-3', runId: 'r-b04', seq: 3, at: '2026-06-09T15:50:00-05:00', kind: 'end-evidence', progress: 1, stationCode: 'HH-112', note: 'End evidence captured. Slack loops verified.', evidenceId: 'ev-b04-end' },
   { id: 'pb-b04-4', runId: 'r-b04', seq: 4, at: '2026-06-09T16:20:00-05:00', kind: 'submit', progress: 1, note: 'Ticket T-1038 submitted — now in review.' },
 ];

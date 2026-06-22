@@ -84,7 +84,7 @@ export default async function RedlinesPage() {
     <div>
       <PageHeader
         title="Redline Review"
-        sub={`${project?.name ?? 'Brenham PH5 — v2 staging'} · read-only v2 staging · the durable redline manifest below is real engine data`}
+        sub={`${project?.name ?? 'Demo Project 001 — v2 staging'} · read-only v2 staging · the durable redline manifest below is real engine data`}
       />
       {redlineManifest ? <RedlineManifestPanel view={redlineManifest} /> : null}
       {runAssembly ? <RunAssemblyPanel review={runAssembly} /> : null}

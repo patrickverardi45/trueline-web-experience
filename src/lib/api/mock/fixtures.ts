@@ -20,9 +20,9 @@ import type {
   SyncState,
 } from '@/contracts';
 
-import { brenhamProject, brenhamRuns } from './brenham';
+import { internalDemoProject, internalDemoRuns } from './internalDemo';
 
-export { brenhamProject, brenhamRuns } from './brenham';
+export { internalDemoProject, internalDemoRuns } from './internalDemo';
 
 // Synthetic demo crews (offline mode only). No real person names.
 export const crews: Crew[] = [
@@ -33,7 +33,7 @@ export const crews: Crew[] = [
 
 export const projects: Project[] = [
   {
-    id: 'p-cedar-ridge',
+    id: 'demo-project-001',
     name: 'Sample Project A — demo',
     client: 'Sample Fiber Co-op (demo)',
     location: 'Demo City, ST',
@@ -49,7 +49,7 @@ export const projects: Project[] = [
     lastActivityAt: '2026-06-10T14:35:00-05:00',
   },
   {
-    id: 'p-fm-1842',
+    id: 'demo-project-002',
     name: 'Sample Mainline Extension — demo',
     client: 'Sample Valley Telecom (demo)',
     location: 'Demo Town, ST',
@@ -65,7 +65,7 @@ export const projects: Project[] = [
     lastActivityAt: '2026-06-09T16:12:00-05:00',
   },
   {
-    id: 'p-oakdale',
+    id: 'demo-project-003',
     name: 'Sample Business Park Laterals — demo',
     client: 'Sample Utilities (demo)',
     location: 'Demo Park, ST',
@@ -80,13 +80,13 @@ export const projects: Project[] = [
     openIssueCount: 0,
     lastActivityAt: '2026-06-05T09:20:00-05:00',
   },
-  brenhamProject,
+  internalDemoProject,
 ];
 
 export const runs: Run[] = [
   {
     id: 'r-a12',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     name: 'Run A-12',
     fromStationCode: 'HH-104',
     toStationCode: 'HH-105',
@@ -110,7 +110,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-a13',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     name: 'Run A-13',
     fromStationCode: 'HH-105',
     toStationCode: 'HH-106',
@@ -132,7 +132,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-b04',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     name: 'Run B-04',
     fromStationCode: 'VLT-201',
     toStationCode: 'HH-112',
@@ -155,7 +155,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-c02',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     name: 'Run C-02',
     fromStationCode: 'PED-310',
     toStationCode: 'PED-311',
@@ -178,7 +178,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-d07',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     name: 'Run D-07',
     fromStationCode: 'PL-77',
     toStationCode: 'PL-82',
@@ -201,7 +201,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-m01',
-    projectId: 'p-fm-1842',
+    projectId: 'demo-project-002',
     name: 'Run M-01',
     fromStationCode: 'STA 0+00',
     toStationCode: 'STA 24+00',
@@ -225,7 +225,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-m02',
-    projectId: 'p-fm-1842',
+    projectId: 'demo-project-002',
     name: 'Run M-02',
     fromStationCode: 'STA 24+00',
     toStationCode: 'STA 46+00',
@@ -247,7 +247,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-l11',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     name: 'Run L-11',
     fromStationCode: 'HH-12',
     toStationCode: 'BLDG C',
@@ -270,7 +270,7 @@ export const runs: Run[] = [
   },
   {
     id: 'r-l12',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     name: 'Run L-12',
     fromStationCode: 'HH-12',
     toStationCode: 'BLDG D',
@@ -291,7 +291,7 @@ export const runs: Run[] = [
       capturedCount: 2,
     },
   },
-  ...brenhamRuns,
+  ...internalDemoRuns,
 ];
 
 export const segments: Segment[] = [
@@ -349,7 +349,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-a12-start',
     runId: 'r-a12',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'start',
     label: 'Start evidence — HH-104',
     capturedAt: '2026-06-10T07:42:00-05:00',
@@ -366,7 +366,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-a12-st280',
     runId: 'r-a12',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'station-drop',
     label: 'Station drop — STA 2+80',
     capturedAt: '2026-06-10T10:15:00-05:00',
@@ -383,7 +383,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-a12-prob',
     runId: 'r-a12',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'problem',
     label: 'Problem — caliche at STA 3+40',
     capturedAt: '2026-06-10T11:48:00-05:00',
@@ -401,7 +401,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-a12-st520',
     runId: 'r-a12',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'station-drop',
     label: 'Station drop — STA 5+20',
     capturedAt: '2026-06-10T14:35:00-05:00',
@@ -415,7 +415,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-b04-start',
     runId: 'r-b04',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'start',
     label: 'Start evidence — VLT-201',
     capturedAt: '2026-06-09T08:05:00-05:00',
@@ -428,7 +428,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-b04-end',
     runId: 'r-b04',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'end',
     label: 'End evidence — HH-112',
     capturedAt: '2026-06-09T15:50:00-05:00',
@@ -441,7 +441,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-c02-start',
     runId: 'r-c02',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'start',
     label: 'Start evidence — PED-310',
     capturedAt: '2026-06-08T07:55:00-05:00',
@@ -454,7 +454,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-c02-prob1',
     runId: 'r-c02',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'problem',
     label: 'Problem — unmarked irrigation line',
     capturedAt: '2026-06-08T13:20:00-05:00',
@@ -468,7 +468,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-c02-prob2',
     runId: 'r-c02',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'problem',
     label: 'Problem — rock shelf at STA 1+90',
     capturedAt: '2026-06-08T14:40:00-05:00',
@@ -481,7 +481,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-d07-start',
     runId: 'r-d07',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'start',
     label: 'Start evidence — PL-77',
     capturedAt: '2026-06-04T07:30:00-05:00',
@@ -494,7 +494,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-d07-end',
     runId: 'r-d07',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     kind: 'end',
     label: 'End evidence — PL-82',
     capturedAt: '2026-06-04T16:10:00-05:00',
@@ -507,7 +507,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-m01-start',
     runId: 'r-m01',
-    projectId: 'p-fm-1842',
+    projectId: 'demo-project-002',
     kind: 'start',
     label: 'Start evidence — STA 0+00',
     capturedAt: '2026-06-09T07:18:00-05:00',
@@ -520,7 +520,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-m01-st900',
     runId: 'r-m01',
-    projectId: 'p-fm-1842',
+    projectId: 'demo-project-002',
     kind: 'station-drop',
     label: 'Station drop — STA 9+00',
     capturedAt: '2026-06-09T11:10:00-05:00',
@@ -534,7 +534,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-m01-st1850',
     runId: 'r-m01',
-    projectId: 'p-fm-1842',
+    projectId: 'demo-project-002',
     kind: 'station-drop',
     label: 'Station drop — STA 18+50',
     capturedAt: '2026-06-09T15:05:00-05:00',
@@ -548,7 +548,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-l11-start',
     runId: 'r-l11',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     kind: 'start',
     label: 'Start evidence — HH-12',
     capturedAt: '2026-05-28T08:00:00-05:00',
@@ -561,7 +561,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-l11-end',
     runId: 'r-l11',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     kind: 'end',
     label: 'End evidence — BLDG C',
     capturedAt: '2026-05-28T14:25:00-05:00',
@@ -574,7 +574,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-l12-start',
     runId: 'r-l12',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     kind: 'start',
     label: 'Start evidence — HH-12',
     capturedAt: '2026-05-29T07:45:00-05:00',
@@ -587,7 +587,7 @@ export const evidenceItems: EvidenceItem[] = [
   {
     id: 'ev-l12-end',
     runId: 'r-l12',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     kind: 'end',
     label: 'End evidence — BLDG D',
     capturedAt: '2026-05-29T13:55:00-05:00',
@@ -603,7 +603,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-1042',
     runId: 'r-a12',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     date: '2026-06-10',
     crewId: 'c-02',
     status: 'draft',
@@ -619,7 +619,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-1038',
     runId: 'r-b04',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     date: '2026-06-09',
     crewId: 'c-02',
     status: 'in-review',
@@ -633,7 +633,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-1040',
     runId: 'r-c02',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     date: '2026-06-08',
     crewId: 'c-05',
     status: 'draft',
@@ -647,7 +647,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-1031',
     runId: 'r-d07',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     date: '2026-06-04',
     crewId: 'c-02',
     status: 'approved',
@@ -661,7 +661,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-2007',
     runId: 'r-m01',
-    projectId: 'p-fm-1842',
+    projectId: 'demo-project-002',
     date: '2026-06-09',
     crewId: 'c-07',
     status: 'draft',
@@ -672,7 +672,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-3001',
     runId: 'r-l11',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     date: '2026-05-28',
     crewId: 'c-05',
     status: 'approved',
@@ -686,7 +686,7 @@ export const tickets: FieldTicket[] = [
   {
     id: 't-3002',
     runId: 'r-l12',
-    projectId: 'p-oakdale',
+    projectId: 'demo-project-003',
     date: '2026-05-29',
     crewId: 'c-05',
     status: 'approved',
@@ -702,7 +702,7 @@ export const tickets: FieldTicket[] = [
 export const dailyLogs: DailyLog[] = [
   {
     id: 'd-0610',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     crewId: 'c-02',
     date: '2026-06-10',
     weather: '93°F · Sunny',
@@ -717,7 +717,7 @@ export const dailyLogs: DailyLog[] = [
   },
   {
     id: 'd-0609',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     crewId: 'c-02',
     date: '2026-06-09',
     weather: '90°F · Partly cloudy',
@@ -731,7 +731,7 @@ export const dailyLogs: DailyLog[] = [
   },
   {
     id: 'd-0606',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     crewId: 'c-02',
     date: '2026-06-06',
     weather: '88°F · Overcast',
@@ -748,7 +748,7 @@ export const dailyLogs: DailyLog[] = [
 export const issues: Issue[] = [
   {
     id: 'i-101',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     runId: 'r-a12',
     kind: 'permit',
     title: 'Creek crossing at STA 4+00 — engineering review before next shot',
@@ -758,7 +758,7 @@ export const issues: Issue[] = [
   },
   {
     id: 'i-102',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     runId: 'r-c02',
     kind: 'utility-conflict',
     title: 'Unmarked irrigation line at STA 1+20',
@@ -768,7 +768,7 @@ export const issues: Issue[] = [
   },
   {
     id: 'i-103',
-    projectId: 'p-cedar-ridge',
+    projectId: 'demo-project-001',
     runId: 'r-c02',
     kind: 'locates',
     title: 'Locates refresh required past STA 2+00',

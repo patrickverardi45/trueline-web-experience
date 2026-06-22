@@ -16,9 +16,9 @@ import designStrokeArtifactsFixture from './fixtures/design_stroke_artifacts.v1.
 import runAssemblyFixture from './fixtures/run_assembly_cards.v1.json';
 import redlineManifestFixture from './fixtures/redline_manifest.v1.json';
 import redlineStoreIndexFixture from './fixtures/redline_store_index.v1.json';
-import { brenhamRuns } from './mock/fixtures';
+import { internalDemoRuns } from './mock/fixtures';
 
-const fixtureEngineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture, brenhamRuns);
+const fixtureEngineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture, internalDemoRuns);
 const fixtureEngineDesignStrokeArtifacts = adaptV2DesignStrokeArtifacts(designStrokeArtifactsFixture);
 const fixtureRunAssembly = adaptV2RunAssembly(runAssemblyFixture);
 // Served images exist only after `npm run export:redline-bundle` populates the gitignored
@@ -59,7 +59,7 @@ export const reviewerReads: TrueLineApi['reviews'] = {
   engineBundle: async () => {
     if (!tl2ApiBase) return fixtureEngineReviewBundle;
     const value = await fetchLiveV2('/v2/reviewer/bundle?mode=default_baseline');
-    return adaptV2ReviewerBundle(value, brenhamRuns);
+    return adaptV2ReviewerBundle(value, internalDemoRuns);
   },
   engineDesignStrokeArtifacts: async () => {
     if (!tl2ApiBase) return fixtureEngineDesignStrokeArtifacts;

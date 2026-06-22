@@ -3,8 +3,8 @@
 import type { CloseoutPacket, CloseoutReadiness } from '@/contracts';
 
 export const readinessByProject: Record<string, CloseoutReadiness> = {
-  'p-cedar-ridge': {
-    projectId: 'p-cedar-ridge',
+  'demo-project-001': {
+    projectId: 'demo-project-001',
     score: 65,
     updatedAt: '2026-06-10T14:40:00-05:00',
     runsReady: ['r-d07'],
@@ -40,8 +40,8 @@ export const readinessByProject: Record<string, CloseoutReadiness> = {
       { runId: 'r-d07', score: 100, missing: [], blockedBy: [] },
     ],
   },
-  'p-fm-1842': {
-    projectId: 'p-fm-1842',
+  'demo-project-002': {
+    projectId: 'demo-project-002',
     score: 27,
     updatedAt: '2026-06-09T16:15:00-05:00',
     runsReady: [],
@@ -64,8 +64,8 @@ export const readinessByProject: Record<string, CloseoutReadiness> = {
       ], blockedBy: [] },
     ],
   },
-  'p-oakdale': {
-    projectId: 'p-oakdale',
+  'demo-project-003': {
+    projectId: 'demo-project-003',
     score: 100,
     updatedAt: '2026-06-05T09:20:00-05:00',
     runsReady: ['r-l11', 'r-l12'],
@@ -80,10 +80,10 @@ export const readinessByProject: Record<string, CloseoutReadiness> = {
 };
 
 export const packetsByProject: Record<string, CloseoutPacket> = {
-  'p-cedar-ridge': {
-    id: 'pk-cedar',
-    projectId: 'p-cedar-ridge',
-    name: 'Brenham PH5 — v2 staging — Closeout Packet',
+  'demo-project-001': {
+    id: 'pk-001',
+    projectId: 'demo-project-001',
+    name: 'Demo Project 001 — v2 staging — Closeout Packet',
     status: 'draft',
     sections: [
       { id: 'ps-cover', title: 'Cover & certification', kind: 'cover', itemCount: 1, included: true, ready: true },
@@ -96,10 +96,10 @@ export const packetsByProject: Record<string, CloseoutPacket> = {
       { id: 'ps-qty', title: 'Quantity summary', kind: 'quantities', itemCount: 1, included: true, ready: true },
     ],
   },
-  'p-oakdale': {
-    id: 'pk-oakdale',
-    projectId: 'p-oakdale',
-    name: 'Oakdale Business Park — Closeout Packet',
+  'demo-project-003': {
+    id: 'pk-003',
+    projectId: 'demo-project-003',
+    name: 'Demo Project 003 — Closeout Packet',
     status: 'ready',
     generatedAt: '2026-06-05T09:20:00-05:00',
     sections: [
