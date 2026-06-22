@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import { KpiStat } from '@/components/ui/KpiStat';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ProductJobStatusStrip } from '@/components/ProductJobStatusStrip';
 
 export const metadata = { title: 'Brenham PH5 — v2 staging' };
 
@@ -34,6 +35,8 @@ export default async function DashboardPage() {
         <KpiStat label="Covered" value={String(totals.covered)} sub="already on the plan" icon={ShieldCheck} />
         <KpiStat label="Blocked" value={String(totals.blocked)} sub="owner / source-gated" icon={AlertTriangle} />
       </div>
+
+      <ProductJobStatusStrip />
 
       <div className="mt-8 grid gap-4 lg:grid-cols-3">
         <Link href="/redlines" className="group lg:col-span-2">

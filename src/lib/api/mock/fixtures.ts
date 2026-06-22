@@ -24,18 +24,19 @@ import { brenhamProject, brenhamRuns } from './brenham';
 
 export { brenhamProject, brenhamRuns } from './brenham';
 
+// Synthetic demo crews (offline mode only). No real person names.
 export const crews: Crew[] = [
-  { id: 'c-02', name: 'Crew 02', lead: 'Dana Marsh', size: 4, phone: '(979) 555-0102' },
-  { id: 'c-05', name: 'Crew 05', lead: 'Ray Okafor', size: 3, phone: '(979) 555-0105' },
-  { id: 'c-07', name: 'Crew 07', lead: 'Mara Reyes', size: 5, phone: '(979) 555-0107' },
+  { id: 'c-02', name: 'Crew 02', lead: 'Crew 02 lead', size: 4, phone: '(555) 555-0102' },
+  { id: 'c-05', name: 'Crew 05', lead: 'Crew 05 lead', size: 3, phone: '(555) 555-0105' },
+  { id: 'c-07', name: 'Crew 07', lead: 'Crew 07 lead', size: 5, phone: '(555) 555-0107' },
 ];
 
 export const projects: Project[] = [
   {
     id: 'p-cedar-ridge',
-    name: 'Brenham PH5 — v2 staging',
-    client: 'Bluebonnet Fiber Cooperative',
-    location: 'Brenham, TX',
+    name: 'Sample Project A — demo',
+    client: 'Sample Fiber Co-op (demo)',
+    location: 'Demo City, ST',
     status: 'active',
     startDate: '2026-04-20',
     targetDate: '2026-08-14',
@@ -49,9 +50,9 @@ export const projects: Project[] = [
   },
   {
     id: 'p-fm-1842',
-    name: 'FM 1842 Mainline Extension',
-    client: 'Brazos Valley Telecom',
-    location: 'Somerville, TX',
+    name: 'Sample Mainline Extension — demo',
+    client: 'Sample Valley Telecom (demo)',
+    location: 'Demo Town, ST',
     status: 'active',
     startDate: '2026-05-26',
     targetDate: '2026-09-30',
@@ -65,9 +66,9 @@ export const projects: Project[] = [
   },
   {
     id: 'p-oakdale',
-    name: 'Oakdale Business Park Laterals',
-    client: 'Pine Hollow Utilities',
-    location: 'Oakdale, TX',
+    name: 'Sample Business Park Laterals — demo',
+    client: 'Sample Utilities (demo)',
+    location: 'Demo Park, ST',
     status: 'closeout',
     startDate: '2026-03-02',
     targetDate: '2026-06-26',

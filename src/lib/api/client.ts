@@ -1,19 +1,12 @@
-// Fixture-default implementation of the TrueLine API contract. Reviewer reads
-// opt into the local v2 API only when NEXT_PUBLIC_TL2_API_BASE is configured.
+// Fixture-default implementation of the TrueLine API contract (offline / product-mode-OFF). Reviewer
+// reads are shared with the live product client via ./reviewerReads (they opt into the local v2 reviewer
+// API only when NEXT_PUBLIC_TL2_API_BASE is set). Every other surface is mock portfolio fixture data,
+// reachable ONLY in offline/demo mode — product mode uses the live v2 product client instead.
 
 import type { TrueLineApi } from './types';
-import { adaptV2ReviewerBundle } from './adapters/v2Bundle';
-import { adaptV2DesignStrokeArtifacts } from './adapters/v2Artifacts';
-import { adaptV2RunAssembly } from './adapters/v2RunAssembly';
-import { adaptV2RedlineManifest } from './adapters/v2RedlineManifest';
-import reviewerBundleFixture from './fixtures/reviewer_bundle.v1.json';
-import designStrokeArtifactsFixture from './fixtures/design_stroke_artifacts.v1.json';
-import runAssemblyFixture from './fixtures/run_assembly_cards.v1.json';
-import redlineManifestFixture from './fixtures/redline_manifest.v1.json';
-import redlineStoreIndexFixture from './fixtures/redline_store_index.v1.json';
+import { reviewerReads } from './reviewerReads';
 import {
   crews,
-  brenhamRuns,
   dailyLogs,
   evidenceItems,
   issues,
@@ -29,47 +22,6 @@ import { mapRedlines } from './mock/geometry';
 import { playbackSteps } from './mock/playback';
 import { sheetRedlines, sheetPins, sheets } from './mock/sheets';
 import { packetsByProject, readinessByProject } from './mock/closeout';
-
-const fixtureEngineReviewBundle = adaptV2ReviewerBundle(reviewerBundleFixture, brenhamRuns);
-const fixtureEngineDesignStrokeArtifacts = adaptV2DesignStrokeArtifacts(
-  designStrokeArtifactsFixture,
-);
-const fixtureRunAssembly = adaptV2RunAssembly(runAssemblyFixture);
-// Served images exist only after `npm run export:redline-bundle` populates the gitignored
-// public/redline-bundle tree; opt in with NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED=1.
-const redlineManifestServed = process.env.NEXT_PUBLIC_TL2_REDLINE_MANIFEST_SERVED === '1';
-const fixtureRedlineManifest = adaptV2RedlineManifest(
-  redlineStoreIndexFixture,
-  redlineManifestFixture,
-  { served: redlineManifestServed },
-);
-
-function configuredTl2ApiBase(): string | null {
-  const raw = process.env.NEXT_PUBLIC_TL2_API_BASE?.trim();
-  if (!raw) return null;
-
-  const parsed = new URL(raw);
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('NEXT_PUBLIC_TL2_API_BASE must be an HTTP(S) URL');
-  }
-  return raw.replace(/\/+$/, '');
-}
-
-const tl2ApiBase = configuredTl2ApiBase();
-
-async function fetchLiveV2(path: string): Promise<unknown> {
-  if (!tl2ApiBase) {
-    throw new Error('Live v2 fetch requested without NEXT_PUBLIC_TL2_API_BASE');
-  }
-  const response = await fetch(`${tl2ApiBase}${path}`, {
-    method: 'GET',
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    throw new Error(`Live v2 GET ${path} failed with HTTP ${response.status}`);
-  }
-  return response.json();
-}
 
 export const mockApi: TrueLineApi = {
   projects: {
@@ -115,26 +67,7 @@ export const mockApi: TrueLineApi = {
     },
     sheetPaths: async (sheetId) => sheetRedlines.filter((p) => p.surfaceId === sheetId),
   },
-  reviews: {
-    engineBundle: async () => {
-      if (!tl2ApiBase) return fixtureEngineReviewBundle;
-      const value = await fetchLiveV2('/v2/reviewer/bundle?mode=default_baseline');
-      return adaptV2ReviewerBundle(value, brenhamRuns);
-    },
-    engineDesignStrokeArtifacts: async () => {
-      if (!tl2ApiBase) return fixtureEngineDesignStrokeArtifacts;
-      const value = await fetchLiveV2('/v2/reviewer/design-stroke/manifest');
-      return adaptV2DesignStrokeArtifacts(value, { apiBaseUrl: tl2ApiBase });
-    },
-    engineRunAssembly: async () => {
-      if (!tl2ApiBase) return fixtureRunAssembly;
-      const value = await fetchLiveV2('/v2/reviewer/run-assembly');
-      return adaptV2RunAssembly(value);
-    },
-    // Phase 2K: read-only static consume of the durable redline-manifest bundle. Fixture-only
-    // (no live serving yet) — the committed manifest/index are byte copies of the durable bundle.
-    engineRedlineManifest: async () => fixtureRedlineManifest,
-  },
+  reviews: reviewerReads,
   playback: {
     byRun: async (runId) =>
       playbackSteps.filter((s) => s.runId === runId).sort((a, b) => a.seq - b.seq),
