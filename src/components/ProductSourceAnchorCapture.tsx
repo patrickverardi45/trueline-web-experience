@@ -1,19 +1,24 @@
 'use client';
 
-// Human-confirmed source-anchor capture for the selected job. A reviewer picks an uploaded PLAN_PDF + page,
-// clicks the bore route (first = start, last = end, middle = bends) on the real plan image, optionally adds
-// coordinate-FREE start/end identity, and submits to POST /source-anchors. The backend validates and
-// returns VALIDATED/REJECTED + named blockers. This RECORDS human-confirmed geometry only — it is NOT OCR,
-// NOT automatic engine placement, and it does NOT render a redline (that is the next slice). No mock
-// fallback: failures surface honestly.
+// Human-confirmed source-anchor capture + render for the selected job. A reviewer picks an uploaded
+// PLAN_PDF + page, clicks the bore route (first = start, last = end, middle = bends) on the real plan
+// image, optionally adds coordinate-FREE start/end identity, and submits to POST /source-anchors. Once the
+// anchor is VALIDATED the reviewer can render it: POST /source-anchors/{id}/render draws a dashed REVIEW
+// redline PNG from the confirmed control points and publishes a real bundle, which is then shown inline.
+// This RECORDS + DRAWS human-confirmed geometry only — it is NOT OCR, NOT automatic engine placement, and
+// it does NOT change the deterministic frontier. No mock fallback: failures surface honestly.
 
 import { useCallback, useEffect, useState } from 'react';
 
 import {
   createSourceAnchor,
+  fetchJobArtifactBlob,
   fetchPlanPageMetadata,
+  renderSourceAnchor,
   type ControlPointInput,
+  type JobArtifactRef,
   type PlanPageMetadata,
+  type SourceAnchorRenderResult,
   type SourceAnchorResult,
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
@@ -54,6 +59,10 @@ export function ProductSourceAnchorCapture({
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<SourceAnchorResult | null>(null);
+  const [renderBusy, setRenderBusy] = useState(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderResult, setRenderResult] = useState<SourceAnchorRenderResult | null>(null);
+  const [renderedImages, setRenderedImages] = useState<readonly { path: string; url: string }[]>([]);
 
   const loadMeta = useCallback(async (uploadId: string) => {
     setMeta(null);
@@ -82,6 +91,8 @@ export function ProductSourceAnchorCapture({
     setBusy(true);
     setSubmitError(null);
     setResult(null);
+    setRenderResult(null);
+    setRenderError(null);
     try {
       const r = await createSourceAnchor(jobId, {
         sourceAnchorId: anchorId,
@@ -93,13 +104,52 @@ export function ProductSourceAnchorCapture({
         endIdentity: { station: endStation || undefined, structureLabel: endLabel || undefined },
       });
       setResult(r);
-      if (r.renderable) setAnchorId(defaultAnchorId()); // ready for the next anchor
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'failed to create source anchor');
     } finally {
       setBusy(false);
     }
   }
+
+  async function onRender(sourceAnchorId: string) {
+    setRenderBusy(true);
+    setRenderError(null);
+    setRenderResult(null);
+    try {
+      setRenderResult(await renderSourceAnchor(jobId, sourceAnchorId));
+    } catch (e) {
+      setRenderError(e instanceof Error ? e.message : 'failed to render source anchor');
+    } finally {
+      setRenderBusy(false);
+    }
+  }
+
+  // Load the rendered redline PNG(s) WITH identity headers (a plain <img src> cannot send them); revoke
+  // object URLs on change/unmount. Honest-empty on failure (never a placeholder image).
+  useEffect(() => {
+    const refs: readonly JobArtifactRef[] = renderResult?.artifacts ?? [];
+    if (refs.length === 0) {
+      setRenderedImages([]);
+      return;
+    }
+    let active = true;
+    const created: string[] = [];
+    Promise.all(refs.map((ref) => fetchJobArtifactBlob(jobId, ref.path)))
+      .then((blobs) => {
+        if (!active) return;
+        const imgs = refs.map((ref, i) => {
+          const url = URL.createObjectURL(blobs[i]);
+          created.push(url);
+          return { path: ref.path, url };
+        });
+        setRenderedImages(imgs);
+      })
+      .catch(() => active && setRenderedImages([]));
+    return () => {
+      active = false;
+      for (const url of created) URL.revokeObjectURL(url);
+    };
+  }, [jobId, renderResult]);
 
   if (planUploads.length === 0) return null;
 
@@ -254,9 +304,56 @@ export function ProductSourceAnchorCapture({
             </>
           )}
           {result.renderable && (
+            <div className="mt-3 border-t border-line pt-3">
+              <p className="text-xs text-ink-3">
+                Source anchor validated and saved as human-confirmed geometry. Render it to draw a dashed
+                redline from these control points and publish a real artifact.
+              </p>
+              <button
+                onClick={() => onRender(result.sourceAnchorId)}
+                disabled={renderBusy}
+                className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+                {renderBusy ? 'Rendering…' : 'Render dashed redline from this validated anchor'}
+              </button>
+              <p className="mt-2 text-xs text-ink-3">
+                Dashed = human-adjustable / review. This draws ONLY your confirmed control points — not OCR,
+                not automatic engine placement — and does not change the deterministic engine frontier.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {renderError && <p className="mt-2 text-sm text-red-600">{renderError}</p>}
+
+      {renderResult && (
+        <div className="mt-3 rounded-lg border border-line bg-white p-3">
+          <p className="text-sm">
+            <span className="font-mono text-ink">render: {renderResult.status}</span>
+            <span className="ml-2 font-mono text-ink-3">
+              {renderResult.artifactCount} artifact(s) · {renderResult.bundleOrigin}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-ink-3">
+            bundle: <span className="font-mono">{renderResult.bundleId ?? '—'}</span> · anchors:{' '}
+            <span className="font-mono">{renderResult.sourceAnchorIds.join(', ') || '—'}</span>
+          </p>
+          {renderedImages.length > 0 ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {renderedImages.map((img) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  key={img.path}
+                  src={img.url}
+                  alt={`Rendered dashed redline ${img.path}`}
+                  className="w-full rounded-lg border border-line bg-white"
+                />
+              ))}
+            </div>
+          ) : (
             <p className="mt-2 text-xs text-ink-3">
-              Source anchor validated and saved as human-confirmed geometry. No redline has been rendered —
-              rendering is the next slice.
+              Real redline artifact(s) published to this job. (Preview unavailable — the artifacts are
+              listed in the redline gallery.)
             </p>
           )}
         </div>

@@ -37,6 +37,11 @@ import {
   fetchPlanPageRasterBlob,
   composeSourceAnchorResult,
   createSourceAnchor,
+  composeSourceAnchorRenderResult,
+  composeJobArtifacts,
+  renderSourceAnchor,
+  fetchJobArtifacts,
+  fetchJobArtifactBlob,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -499,6 +504,79 @@ async function run() {
     try { await fn(); } catch { m2Threw += 1; }
   }
   check('M2 plan-page + source-anchor reads/writes throw on non-OK (no mock fallback)', m2Threw === 3);
+
+  // --- M2 Slice 3: render a validated source anchor + job-scoped artifact reads -------------------
+  check('composeSourceAnchorRenderResult parses status/bundle/origin/artifacts', (() => {
+    const v = composeSourceAnchorRenderResult({
+      status: 'SUCCEEDED', bundle_id: 'cp-x-human-confirmed-source-anchor-abc123',
+      bundle_origin: 'HUMAN_CONFIRMED_SOURCE_ANCHOR', artifact_count: 1,
+      source_anchor_ids: ['sa-1'],
+      artifacts: [{ log_id: 'sa-1', path: 'artifacts/sa-1/sa-1_s1_redline_stroke.png',
+                    sha256: 'a'.repeat(64), bytes: 9933, kind: 'FINAL_REDLINE_PNG' }],
+    });
+    return v.status === 'SUCCEEDED' && v.bundleOrigin === 'HUMAN_CONFIRMED_SOURCE_ANCHOR'
+      && v.artifactCount === 1 && v.sourceAnchorIds[0] === 'sa-1'
+      && v.artifacts.length === 1 && v.artifacts[0].kind === 'FINAL_REDLINE_PNG'
+      && v.artifacts[0].bytes === 9933;
+  })());
+  check('composeJobArtifacts honest-empty for empty doc', composeJobArtifacts({}).length === 0);
+
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ status: 'SUCCEEDED', bundle_id: 'b-1',
+      bundle_origin: 'HUMAN_CONFIRMED_SOURCE_ANCHOR', artifact_count: 1, source_anchor_ids: ['sa-1'],
+      artifacts: [] }) };
+  };
+  const rendered = await renderSourceAnchor('job-x', 'sa-1');
+  check('renderSourceAnchor POST render path + tenant header + result', (() => {
+    return wUrl === 'http://localhost:8000/v2/product/jobs/job-x/source-anchors/sa-1/render'
+      && wInit.method === 'POST' && wInit.headers['X-TL-Tenant'] === 'seed-project'
+      && rendered.status === 'SUCCEEDED' && rendered.bundleOrigin === 'HUMAN_CONFIRMED_SOURCE_ANCHOR';
+  })());
+
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ bundle_id: 'b-1', artifacts: [
+      { log_id: 'sa-1', path: 'artifacts/sa-1/sa-1_s1_redline_stroke.png', sha256: 'a'.repeat(64),
+        bytes: 9933, kind: 'FINAL_REDLINE_PNG' }] }) };
+  };
+  const jobArts = await fetchJobArtifacts('job-x');
+  check('fetchJobArtifacts GET job artifacts path + tenant header + parse',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/artifacts'
+      && wInit.headers['X-TL-Tenant'] === 'seed-project'
+      && jobArts.length === 1 && jobArts[0].path === 'artifacts/sa-1/sa-1_s1_redline_stroke.png');
+
+  const saPng = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+  let jbUrl = '';
+  let jbHeaders = {};
+  globalThis.fetch = async (url, init) => {
+    jbUrl = String(url);
+    jbHeaders = (init && init.headers) || {};
+    return { ok: true, blob: async () => saPng };
+  };
+  const jobBlob = await fetchJobArtifactBlob('job-x', 'artifacts/sa-1/sa-1_s1_redline_stroke.png');
+  check('fetchJobArtifactBlob GET artifact path + tenant header + Blob',
+    jbUrl === 'http://localhost:8000/v2/product/jobs/job-x/artifacts/artifacts/sa-1/sa-1_s1_redline_stroke.png'
+      && jbHeaders['X-TL-Tenant'] === 'seed-project' && jobBlob instanceof Blob);
+
+  globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}), blob: async () => saPng });
+  let s3Threw = 0;
+  for (const fn of [
+    () => renderSourceAnchor('job-x', 'sa-1'),
+    () => fetchJobArtifacts('job-x'),
+    () => fetchJobArtifactBlob('job-x', 'artifacts/sa-1/x.png'),
+  ]) {
+    try { await fn(); } catch { s3Threw += 1; }
+  }
+  check('M2 render + job-artifact reads throw on non-OK (no mock fallback)', s3Threw === 3);
 
   globalThis.fetch = realFetch;
   setEnv({});

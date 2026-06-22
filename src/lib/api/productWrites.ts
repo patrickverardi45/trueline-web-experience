@@ -562,3 +562,69 @@ export async function createSourceAnchor(
     notes: input.notes ?? null,
   }));
 }
+
+// --- M2 Slice 3: render a validated source anchor -> real redline bundle + job-scoped artifact reads --- //
+
+export interface JobArtifactRef {
+  readonly logId: string;
+  readonly path: string;
+  readonly sha256: string | null;
+  readonly bytes: number;
+  readonly kind: string;
+}
+
+export interface SourceAnchorRenderResult {
+  readonly status: string;            // SUCCEEDED on a real publish
+  readonly bundleId: string | null;
+  readonly bundleOrigin: string;      // HUMAN_CONFIRMED_SOURCE_ANCHOR
+  readonly artifactCount: number;
+  readonly sourceAnchorIds: readonly string[];
+  readonly artifacts: readonly JobArtifactRef[];
+}
+
+function composeArtifactRefList(value: unknown): JobArtifactRef[] {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null && !Array.isArray(a))
+    .map((a) => ({
+      logId: str(a.log_id), path: str(a.path), sha256: strOrNull(a.sha256),
+      bytes: int(a.bytes), kind: str(a.kind),
+    }));
+}
+
+export function composeSourceAnchorRenderResult(doc: unknown): SourceAnchorRenderResult {
+  const d = asRecord(doc, 'source-anchor-render');
+  return {
+    status: str(d.status),
+    bundleId: strOrNull(d.bundle_id),
+    bundleOrigin: str(d.bundle_origin),
+    artifactCount: int(d.artifact_count),
+    sourceAnchorIds: strList(d.source_anchor_ids),
+    artifacts: composeArtifactRefList(d.artifacts),
+  };
+}
+
+export function composeJobArtifacts(doc: unknown): JobArtifactRef[] {
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return [];
+  return composeArtifactRefList((doc as Record<string, unknown>).artifacts);
+}
+
+/** Render the job's VALIDATED source anchors into a real `mock_example:false` redline bundle (dashed,
+ *  human-adjustable) and set the job's output slots. Records human-confirmed geometry only — NOT automatic
+ *  engine placement. Throws on a failed live write (no mock fallback). */
+export async function renderSourceAnchor(
+  jobId: string, sourceAnchorId: string,
+): Promise<SourceAnchorRenderResult> {
+  return composeSourceAnchorRenderResult(
+    await postProductJson(`/v2/product/jobs/${jobId}/source-anchors/${sourceAnchorId}/render`, {}));
+}
+
+/** List a job's manifest-backed FINAL_REDLINE_PNG artifacts (job-scoped, unlike the configured-job gallery). */
+export async function fetchJobArtifacts(jobId: string): Promise<JobArtifactRef[]> {
+  return composeJobArtifacts(await getProductJson(`/v2/product/jobs/${jobId}/artifacts`));
+}
+
+/** Header-bearing fetch of ONE job artifact PNG -> Blob (a plain <img src> cannot send identity headers). */
+export async function fetchJobArtifactBlob(jobId: string, path: string): Promise<Blob> {
+  return getProductBlob(`/v2/product/jobs/${jobId}/artifacts/${path}`);
+}
