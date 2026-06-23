@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, CheckCircle2, ImageIcon, Layers, Upload } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ImageIcon, Layers } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 
@@ -40,13 +40,6 @@ const DEMO_CARDS: readonly DemoCard[] = [
     body: 'A bore that spans two plan sheets: the engine renders a REVIEW leg on each sheet with honest matchline caveats. Full coverage, still REVIEW — it does not claim automatic placement it cannot prove.',
     icon: Layers,
     cta: 'Generate a two-sheet candidate',
-  },
-  {
-    href: '/intake',
-    title: 'Upload Intake / Job Workspace',
-    body: 'The full operator workspace: create a job, upload plans + bore logs, and run the reviewed-bore-log gate to engine-ready. This is where a real package starts.',
-    icon: Upload,
-    cta: 'Open the workspace',
   },
 ];
 

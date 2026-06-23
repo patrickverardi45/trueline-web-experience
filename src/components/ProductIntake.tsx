@@ -1,17 +1,19 @@
 'use client';
 
-// Product-mode intake with TWO faces, switched by the URL so the GUIDED demo paths stay clean and a viewer
-// never sees the raw workbench by default:
-//   • /intake                 -> a "Choose a demo workflow" chooser (REVIEW / Cross-sheet / Internal)
+// Product-mode intake with THREE faces, switched by the URL so the guided demo never exposes the raw
+// workbench as a clickable path:
+//   • /intake                 -> a "Choose a demo workflow" chooser with ONLY the two guided REVIEW
+//                                workflows (NO visible link to the internal upload workspace)
 //   • /intake?job=<demo job>  -> a MINIMAL guided view: only that demo's one engine redline card
-//   • /intake?workspace=1     -> the full Internal upload workspace (job list / uploads / inventory /
-//                                reviewed-bore-log gate) — explicitly labeled, NOT the default demo path
+//   • /intake?workspace=1     -> the internal upload workspace, reachable ONLY by typing this URL (no card
+//                                links here from the demo UI). STORAGE/INTAKE ONLY — it stores files and
+//                                produces NO redline; the strong banner says so.
 // Product-mode gated (honest note when off); no mock fallback — connectivity failures show an honest state.
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, ArrowRight, CheckCircle2, Layers, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Layers } from 'lucide-react';
 
 import { productApiEnabled } from '@/lib/api/liveV2Product';
 import {
@@ -27,10 +29,8 @@ import {
 import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
-import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductRecognizedCorpusHandoff } from '@/components/ProductRecognizedCorpusHandoff';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
-import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapture';
 
 type Boot =
   | { phase: 'off' }
@@ -63,13 +63,6 @@ function defaultJobId(): string {
   return 'job-' + Math.random().toString(36).slice(2, 8);
 }
 
-function internalProofEnabled(): boolean {
-  // Manual source-anchor capture is an INTERNAL developer proof harness ONLY — never the customer/owner
-  // flow. A redline must come from the engine, not from hand-clicked route points. Hidden unless this
-  // explicit build-time opt-in is set; default = hidden (and only ever inside the internal workspace).
-  return process.env.NEXT_PUBLIC_TL2_INTERNAL_PROOF === '1';
-}
-
 export function ProductIntake() {
   // Reactive URL params (consistent SSR/client on this force-dynamic route). These pick the view.
   const searchParams = useSearchParams();
@@ -88,7 +81,7 @@ export function ProductIntake() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // Which redline path applies to the selected job: true = recognized corpus (automatic deterministic
-  // handoff), false = engine REVIEW lane, null = not yet checked.
+  // handoff), false = engine REVIEW lane, null = not yet checked. Drives the single guided card.
   const [recognized, setRecognized] = useState<boolean | null>(null);
   const uploadsKey = detail?.uploads.map((u) => u.uploadId).join('|') ?? '';
 
@@ -130,7 +123,7 @@ export function ProductIntake() {
     }
   }, []);
 
-  // Re-evaluate which redline path applies whenever the job/uploads change. Failed/!runnable -> REVIEW lane.
+  // Re-evaluate which redline path applies whenever the job/uploads change (used by the guided view).
   useEffect(() => {
     // Reset to "unknown" so a stale card never lingers; the resolved value comes from the awaited fetch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -151,7 +144,7 @@ export function ProductIntake() {
   }, [selectedJobId, uploadsKey]);
 
   // URL-driven selection: select the `?job=` job (a guided demo job, or any job in workspace mode) when it
-  // changes. Reactive to client-side nav, so moving between demo cards just works.
+  // changes. Reactive to client-side nav.
   useEffect(() => {
     if (boot.phase !== 'ready' || !jobParam || jobParam === selectedJobId) return;
     if (GUIDED_DEMO_JOBS[jobParam] || jobs.some((j) => j.jobId === jobParam)) {
@@ -217,8 +210,7 @@ export function ProductIntake() {
     );
   }
 
-  // ---- GUIDED demo view: a known demo job -> ONLY its one redline card. No job list, no uploads, no
-  //      inventory, no reviewed-bore-log gate, no create controls, no dev/source-anchor UI. ----
+  // ---- GUIDED demo view: a known demo job -> ONLY its one redline card. ----
   if (guidedJob) {
     const meta = GUIDED_DEMO_JOBS[guidedJob];
     const ready = selectedJobId === guidedJob && detail !== null;
@@ -245,7 +237,7 @@ export function ProductIntake() {
     );
   }
 
-  // ---- CHOOSER: default /intake. A clean "Choose a demo workflow" screen — NEVER the raw job list. ----
+  // ---- CHOOSER: default /intake. ONLY the two guided REVIEW workflows. No internal-workspace card. ----
   if (!workspaceMode) {
     return (
       <div className="mt-6">
@@ -295,45 +287,29 @@ export function ProductIntake() {
             </Card>
           </Link>
         </div>
-
-        {/* Internal workspace — explicitly NOT part of the guided demo. */}
-        <Card className="mt-4 border-dashed">
-          <div className="flex items-start gap-4">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-canvas text-ink-3">
-              <Upload className="size-5" strokeWidth={2} />
-            </span>
-            <div className="min-w-0">
-              <h3 className="font-semibold text-ink">Upload Workspace / Internal Intake</h3>
-              <p className="mt-1 text-sm leading-relaxed text-ink-3">
-                Not part of the guided demo. The raw operator workspace — create jobs, upload plans + bore
-                logs, and inspect stored files. Uploads are stored for intake; automatic parsing is not
-                enabled in this demo path.
-              </p>
-              <Link
-                href="/intake?workspace=1"
-                className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-ink-2 hover:text-ink">
-                Open internal workspace <ArrowRight className="size-4" />
-              </Link>
-            </div>
-          </div>
-        </Card>
       </div>
     );
   }
 
-  // ---- INTERNAL WORKSPACE: ?workspace=1. The full raw workbench, explicitly labeled, behind an explicit
-  //      route — never the default Hector path. ----
+  // ---- INTERNAL WORKSPACE: ?workspace=1 (typed-only; no card links here from the demo UI). STORAGE/INTAKE
+  //      ONLY — it stores files and produces NO redline. The banner says so plainly. ----
   return (
     <div className="mt-6">
-      <Link href="/intake" className="inline-flex items-center gap-1 text-sm font-medium text-ink-3 hover:text-ink">
-        <ArrowLeft className="size-4" /> Demo workflows
-      </Link>
-      <Card className="mt-3 border-dashed">
-        <h2 className="text-lg font-semibold text-ink">Internal upload workspace</h2>
-        <p className="mt-1 text-sm leading-relaxed text-ink-3">
-          Not part of the guided demo. Uploads are stored for intake; automatic parsing is not enabled in
-          this demo path.
-        </p>
+      <Card className="border-2 border-amber-400 bg-amber-50">
+        <h2 className="text-lg font-semibold text-amber-900">Internal upload workspace</h2>
+        <ul className="mt-2 space-y-1 text-sm font-medium text-amber-800">
+          <li>Not part of the guided demo.</li>
+          <li>
+            Uploads are stored for intake only. Automatic parsing and redline generation are{' '}
+            <span className="font-semibold">not enabled</span> from this workspace.
+          </li>
+          <li>Use the prepared REVIEW workflows for the guided redline demo.</li>
+        </ul>
+        <Link
+          href="/intake"
+          className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-amber-900 hover:underline">
+          <ArrowLeft className="size-4" /> Back to the guided demo workflows
+        </Link>
       </Card>
 
       {/* Project */}
@@ -402,7 +378,8 @@ export function ProductIntake() {
 
       {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
 
-      {/* Selected job: upload + inventory + gate + the one applicable redline card */}
+      {/* Selected job: upload + inventory ONLY. No reviewed-bore-log gate, no redline card, no source-anchor
+          — this workspace is storage/intake only; redlines come from the guided REVIEW workflows. */}
       {selectedJobId && detail && (
         <>
           <ProductUploadPanel
@@ -413,38 +390,11 @@ export function ProductIntake() {
             }}
           />
           <ProductUploadInventory job={detail} />
-          <ProductReviewedBoreLogGate
-            jobId={selectedJobId}
-            boreLogUploads={detail.uploads
-              .filter((u) => u.kind === 'BORE_LOG')
-              .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
-          />
-          {/* Exactly ONE redline path per job (recognized -> automatic handoff; otherwise -> engine REVIEW). */}
-          {recognized === true && (
-            <ProductRecognizedCorpusHandoff jobId={selectedJobId} refreshKey={uploadsKey} />
-          )}
-          {recognized === false && (
-            <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
-          )}
-
-          {/* INTERNAL DEV PROOF ONLY. Hidden unless NEXT_PUBLIC_TL2_INTERNAL_PROOF=1, and collapsed. */}
-          {internalProofEnabled() && detail.uploads.some((u) => u.kind === 'PLAN_PDF') && (
-            <details className="mt-4 rounded-lg border border-amber-400 bg-amber-50 p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-amber-800">
-                Internal developer proof tool — not customer workflow
-              </summary>
-              <p className="mt-1 text-xs text-amber-700">
-                Draws a dashed redline from hand-clicked control points to exercise the renderer/bundle path
-                only. Not the product flow — the customer workflow ends at the honest handoff blocker above.
-              </p>
-              <ProductSourceAnchorCapture
-                jobId={selectedJobId}
-                planUploads={detail.uploads
-                  .filter((u) => u.kind === 'PLAN_PDF')
-                  .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
-              />
-            </details>
-          )}
+          <p className="mt-3 rounded-lg border border-line bg-canvas/60 px-3 py-2 text-xs text-ink-3">
+            Files are stored for intake only — no parsing, no engine run, and no redline is produced from this
+            workspace (the parser/engine handoff is not wired here). Use the prepared REVIEW workflows for the
+            guided redline demo.
+          </p>
         </>
       )}
     </div>
