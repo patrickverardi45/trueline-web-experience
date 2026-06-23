@@ -856,3 +856,106 @@ export async function rejectReviewCandidate(
   return composeReviewCandidate(
     await postProductJson(`/v2/product/jobs/${jobId}/review-candidates/${candidateId}/reject`, { reason }));
 }
+
+// ====================================================================================================
+// Phase 9 — product workflow orchestrator. ONE call chooses the correct redline path IN ORDER (recognized
+// deterministic -> uploaded REVIEW/AUTO -> abstain); a second call assembles the closeout/export package.
+// The redline PNG(s) are retrieved via the job-artifact reads above. Throws on failure (no mock fallback).
+// ====================================================================================================
+
+export interface WorkflowBlocker {
+  readonly source: string;                 // 'recognition' | 'engine'
+  readonly code: string;
+  readonly reason: string;
+}
+
+export interface ProductRedlineOutcome {
+  readonly path: string;                   // RECOGNIZED_DETERMINISTIC | UPLOADED_REVIEW | UPLOADED_AUTO | ABSTAIN
+  readonly runnable: boolean;
+  readonly rendered: boolean;
+  readonly provenance: string | null;      // DETERMINISTIC_AUTO | ENGINE_GENERATED_REVIEW_CANDIDATE | null
+  readonly recognizedCorpusId: string | null;
+  readonly deterministicLogId: string | null;
+  readonly renderCommit: string | null;
+  readonly candidateId: string | null;
+  readonly requiresAcceptance: boolean;    // true only for a UPLOADED_REVIEW candidate
+  readonly blockers: readonly WorkflowBlocker[];
+}
+
+function composeWorkflowBlockers(value: unknown): WorkflowBlocker[] {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
+    .map((b) => ({ source: str(b.source), code: str(b.code), reason: str(b.reason) }));
+}
+
+export function composeProductRedlineOutcome(doc: unknown): ProductRedlineOutcome {
+  const d = asRecord(doc, 'product-redline-outcome');
+  return {
+    path: str(d.path),
+    runnable: d.runnable === true,
+    rendered: d.rendered === true,
+    provenance: strOrNull(d.provenance),
+    recognizedCorpusId: strOrNull(d.recognized_corpus_id),
+    deterministicLogId: strOrNull(d.deterministic_log_id),
+    renderCommit: strOrNull(d.render_commit),
+    candidateId: strOrNull(d.candidate_id),
+    requiresAcceptance: d.requires_acceptance === true,
+    blockers: composeWorkflowBlockers(d.blockers),
+  };
+}
+
+/** Run the correct redline path for the job's uploaded package, IN ORDER: a recognized deterministic
+ *  package serves the EXISTING committed engine render (DETERMINISTIC_AUTO); else a supported uploaded
+ *  package produces an engine REVIEW candidate (never faked AUTO); else ABSTAIN with the SPECIFIC
+ *  recognition + engine reasons. A successful render advances the job to PLACED. Throws on failure. */
+export async function runProductRedline(jobId: string): Promise<ProductRedlineOutcome> {
+  return composeProductRedlineOutcome(
+    await postProductJson(`/v2/product/jobs/${jobId}/workflow/redline`, {}));
+}
+
+export interface CloseoutPackageResult {
+  readonly assembled: boolean;
+  readonly blocker: string | null;         // REVIEW_NOT_ACCEPTED | REVIEW_WAS_REJECTED | REVIEW_ABSTAINED | null
+  readonly reviewStatus: string | null;
+  readonly closeoutStatus: string | null;  // READY_FOR_APPROVAL | BLOCKED | ...
+  readonly exportStatus: string | null;    // READY | ASSEMBLED | BLOCKED | FINAL
+  readonly includedSections: readonly string[];
+  readonly omittedSections: readonly string[];
+  readonly kmzStatus: string | null;       // BLOCKED | EXPORTABLE
+  readonly kmzGeometryBasis: string | null; // UNSUPPORTED_PIXEL_ONLY | GEOSPATIAL_COORDINATES | ...
+  readonly kmzBlockers: readonly string[];
+}
+
+export function composeCloseoutPackageResult(doc: unknown): CloseoutPackageResult {
+  const d = asRecord(doc, 'closeout-package-result');
+  const view = typeof d.export_view === 'object' && d.export_view !== null && !Array.isArray(d.export_view)
+    ? (d.export_view as Record<string, unknown>)
+    : {};
+  return {
+    assembled: d.assembled === true,
+    blocker: strOrNull(d.blocker),
+    reviewStatus: strOrNull(d.review_status),
+    closeoutStatus: strOrNull(d.closeout_status),
+    exportStatus: strOrNull(d.export_status),
+    includedSections: strList(view.included_sections),
+    omittedSections: strList(view.omitted_sections),
+    kmzStatus: strOrNull(d.kmz_status),
+    kmzGeometryBasis: strOrNull(d.kmz_geometry_basis),
+    kmzBlockers: strList(d.kmz_blockers),
+  };
+}
+
+/** Drive the closeout/export chain for a job whose redline is placed: gate on REVIEW acceptance, advance to
+ *  CLOSEOUT_REVIEW, evaluate closeout + KMZ-export safety, and assemble the export-package descriptor. KMZ is
+ *  honestly BLOCKED for a pixel-only redline manifest (never faked). Throws on failure. */
+export async function assembleCloseoutPackage(jobId: string): Promise<CloseoutPackageResult> {
+  return composeCloseoutPackageResult(
+    await postProductJson(`/v2/product/jobs/${jobId}/workflow/closeout`, {}));
+}
+
+/** Header-bearing fetch of the job's redline KMZ -> Blob (download). Throws (409) when the redline manifest
+ *  is pixel-only / not geospatially exportable — there is no faked KMZ. */
+export async function downloadKmzExportBlob(jobId: string): Promise<Blob> {
+  return getProductBlob(`/v2/product/jobs/${jobId}/kmz-export/download`);
+}

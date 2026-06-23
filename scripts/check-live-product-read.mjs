@@ -50,6 +50,11 @@ import {
   getReviewCandidate,
   acceptReviewCandidate,
   rejectReviewCandidate,
+  composeProductRedlineOutcome,
+  composeCloseoutPackageResult,
+  runProductRedline,
+  assembleCloseoutPackage,
+  downloadKmzExportBlob,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -669,6 +674,73 @@ async function run() {
     try { await fn(); } catch { p6Threw += 1; }
   }
   check('REVIEW acceptance reads/writes throw on non-OK (no mock fallback)', p6Threw === 4);
+
+  // --- Phase 9: product workflow orchestrator (3-path redline + closeout/export assembly) ----------
+  check('composeProductRedlineOutcome parses a RECOGNIZED deterministic outcome', (() => {
+    const o = composeProductRedlineOutcome({
+      path: 'RECOGNIZED_DETERMINISTIC', runnable: true, rendered: true, provenance: 'DETERMINISTIC_AUTO',
+      recognized_corpus_id: 'recognized-corpus-001', deterministic_log_id: 'log9', render_commit: 'c19b565',
+      candidate_id: null, requires_acceptance: false, blockers: [] });
+    return o.path === 'RECOGNIZED_DETERMINISTIC' && o.rendered === true
+      && o.provenance === 'DETERMINISTIC_AUTO' && o.deterministicLogId === 'log9'
+      && o.renderCommit === 'c19b565' && o.requiresAcceptance === false;
+  })());
+  check('composeProductRedlineOutcome: ABSTAIN keeps per-source specific reasons (not a bare code)', (() => {
+    const o = composeProductRedlineOutcome({
+      path: 'ABSTAIN', runnable: false, rendered: false, provenance: null, candidate_id: null,
+      blockers: [{ source: 'recognition', code: 'UPLOADED_CORPUS_NOT_RECOGNIZED', reason: 'x' },
+                 { source: 'engine', code: 'NO_AUTHORED_BOX_MATCH_FOR_BORE_SPAN', reason: 'y' }] });
+    return o.path === 'ABSTAIN' && o.rendered === false && o.blockers.length === 2
+      && o.blockers[0].source === 'recognition' && o.blockers[1].source === 'engine';
+  })());
+  check('composeCloseoutPackageResult: pixel-only KMZ is honestly blocked + sections surfaced', (() => {
+    const p = composeCloseoutPackageResult({
+      assembled: true, blocker: null, review_status: null, closeout_status: 'READY_FOR_APPROVAL',
+      export_status: 'READY', kmz_status: 'BLOCKED', kmz_geometry_basis: 'UNSUPPORTED_PIXEL_ONLY',
+      kmz_blockers: ['UNSUPPORTED_PIXEL_ONLY'],
+      export_view: { included_sections: ['REDLINE_ARTIFACTS', 'REDLINE_MANIFEST'],
+                     omitted_sections: ['KMZ_EXPORT'] } });
+    return p.assembled === true && p.closeoutStatus === 'READY_FOR_APPROVAL' && p.exportStatus === 'READY'
+      && p.kmzStatus === 'BLOCKED' && p.kmzGeometryBasis === 'UNSUPPORTED_PIXEL_ONLY'
+      && p.includedSections.includes('REDLINE_ARTIFACTS') && p.omittedSections.includes('KMZ_EXPORT');
+  })());
+  check('composeCloseoutPackageResult: a pending REVIEW blocks packaging', (() => {
+    const p = composeCloseoutPackageResult({ assembled: false, blocker: 'REVIEW_NOT_ACCEPTED',
+      review_status: 'REVIEW_CANDIDATE', closeout_status: null, export_status: null });
+    return p.assembled === false && p.blocker === 'REVIEW_NOT_ACCEPTED';
+  })());
+
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ path: 'RECOGNIZED_DETERMINISTIC', runnable: true, rendered: true,
+      blockers: [], export_view: { included_sections: [], omitted_sections: [] } }) };
+  };
+  const WF = 'http://localhost:8000/v2/product/jobs/job-x/workflow';
+  await runProductRedline('job-x');
+  check('runProductRedline POSTs workflow/redline path + tenant header',
+    wUrl === `${WF}/redline` && wInit.method === 'POST' && wInit.headers['X-TL-Tenant'] === 'seed-project');
+  await assembleCloseoutPackage('job-x');
+  check('assembleCloseoutPackage POSTs workflow/closeout path',
+    wUrl === `${WF}/closeout` && wInit.method === 'POST');
+
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, blob: async () => ({ size: 1, type: 'application/vnd.google-earth.kmz' }) };
+  };
+  await downloadKmzExportBlob('job-x');
+  check('downloadKmzExportBlob GETs kmz-export/download path + tenant header',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/kmz-export/download'
+      && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  globalThis.fetch = async () => ({ ok: false, status: 409, json: async () => ({}) });
+  let p9Threw = 0;
+  for (const fn of [() => runProductRedline('job-x'), () => assembleCloseoutPackage('job-x'),
+                    () => downloadKmzExportBlob('job-x')]) {
+    try { await fn(); } catch { p9Threw += 1; }
+  }
+  check('workflow reads/writes throw on non-OK (no mock fallback)', p9Threw === 3);
 
   globalThis.fetch = realFetch;
   setEnv({});

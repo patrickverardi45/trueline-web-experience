@@ -32,6 +32,7 @@ import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductRecognizedCorpusHandoff } from '@/components/ProductRecognizedCorpusHandoff';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
+import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 
 type Boot =
   | { phase: 'off' }
@@ -300,17 +301,20 @@ export function ProductIntake() {
         <h2 className="text-lg font-semibold text-amber-900">Internal upload workspace — not part of the guided demo</h2>
         <ul className="mt-2 space-y-1.5 text-sm text-amber-800">
           <li>
-            For <span className="font-semibold">supported plan packages</span>, this workspace generates an
-            engine REVIEW candidate after the reviewed-bore-log gate passes.
+            A <span className="font-semibold">recognized deterministic package</span> serves the EXISTING
+            proven engine redline for the matched log (deterministic, engine-derived, not hand-drawn).
+          </li>
+          <li>
+            A <span className="font-semibold">supported uploaded package</span> produces an engine
+            <span className="font-semibold"> REVIEW</span> candidate to accept or reject — never relabeled AUTO.
+          </li>
+          <li>
+            An <span className="font-semibold">unsupported package</span> returns
+            <span className="font-semibold"> ABSTAIN</span> with specific reasons — no redline is invented.
           </li>
           <li>
             Automatic OCR/parsing from typed rows is <span className="font-semibold">not</span> claimed here —
             the engine parses the uploaded bore-log file; typed reviewed rows are a human sign-off gate.
-            (Human corrections driving geometry is a future lane.)
-          </li>
-          <li>
-            Unsupported packages return <span className="font-semibold">ABSTAIN</span> with blocker reasons —
-            no redline is invented.
           </li>
         </ul>
         <Link
@@ -386,8 +390,11 @@ export function ProductIntake() {
 
       {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
 
-      {/* Selected job: upload + inventory ONLY. No reviewed-bore-log gate, no redline card, no source-anchor
-          — this workspace is storage/intake only; redlines come from the guided REVIEW workflows. */}
+      {/* Selected job: upload -> reviewed-bore-log gate -> the Phase 9 redline workflow (recognized
+          deterministic / uploaded REVIEW / honest ABSTAIN) -> closeout & export. This typed-only internal
+          workspace is the full product path; the engine parses the uploaded PLAN_PDF + BORE_LOG file, and the
+          reviewed rows are a human SIGN-OFF gate, not the geometry source. Redlines are wired to the real
+          proven capability — no coordinates are invented. */}
       {selectedJobId && detail && (
         <>
           <ProductUploadPanel
@@ -398,17 +405,13 @@ export function ProductIntake() {
             }}
           />
           <ProductUploadInventory job={detail} />
-          {/* Productive path for SUPPORTED packages (typed-only internal workspace; not a Hector path).
-              Review-gate the uploaded bore-log, then run the engine REVIEW candidate. The engine parses the
-              uploaded PLAN_PDF + BORE_LOG file; the reviewed rows are a human SIGN-OFF gate, not the geometry
-              source. An unsupported plan -> the REVIEW card shows an honest ABSTAIN with blocker reasons. */}
           <ProductReviewedBoreLogGate
             jobId={selectedJobId}
             boreLogUploads={detail.uploads
               .filter((u) => u.kind === 'BORE_LOG')
               .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
           />
-          <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
+          <ProductWorkflowPanel jobId={selectedJobId} refreshKey={uploadsKey} />
         </>
       )}
     </div>
