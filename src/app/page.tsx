@@ -20,7 +20,7 @@ export default async function DashboardPage() {
     <div>
       <PageHeader
         title="Demo Project 001 — v2 staging"
-        sub="Read-only v2 staging · no upload / live render yet"
+        sub="Internal v2 staging · uploads stored · automatic redline for recognized project packages"
         actions={
           <Link
             href="/redlines"

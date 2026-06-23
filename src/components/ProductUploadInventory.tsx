@@ -2,7 +2,7 @@
 // stored uploads (from GET /jobs/{id}) and the EXACT named blockers for what is not automated yet. It
 // never invents redlines, proof artifacts, or exports for an uploaded job.
 
-import { AlertTriangle, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -13,14 +13,6 @@ function humanSize(bytes: number): string {
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
 }
-
-// True today regardless of job state — uploaded files are stored, never processed.
-const HONEST_BLOCKERS = [
-  'OCR / automatic bore-log extraction is NOT implemented — uploaded files are stored, never parsed.',
-  'Reviewed structured bore-log data is required before any engine handoff (a later slice).',
-  'Engine handoff from an uploaded corpus is NOT implemented yet — no redlines are produced for uploaded jobs.',
-  'KMZ / Google Earth export stays blocked unless verified geospatial geometry exists.',
-];
 
 export function ProductUploadInventory({ job }: { job: ProductJobDetail }) {
   return (
@@ -68,21 +60,6 @@ export function ProductUploadInventory({ job }: { job: ProductJobDetail }) {
           </table>
         </Card>
       )}
-
-      <div className="mt-4 rounded-lg border border-line bg-white p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <AlertTriangle className="size-4 text-ink-3" /> Honest processing status — not yet automated
-        </div>
-        <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-ink-2">
-          {HONEST_BLOCKERS.map((b) => (
-            <li key={b}>{b}</li>
-          ))}
-        </ul>
-        <p className="mt-2 text-xs text-ink-3">
-          Flow today: uploaded → stored → <span className="font-mono">queued</span>. No redlines, proof
-          artifacts, or export files are invented for uploaded jobs.
-        </p>
-      </div>
     </div>
   );
 }

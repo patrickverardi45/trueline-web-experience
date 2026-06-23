@@ -24,6 +24,13 @@ export const metadata: Metadata = {
     'Plans, bore logs, field evidence, redlines, and closeout in one clean workflow. Contract-first preview experience.',
 };
 
+// Render every route dynamically (per-request), never at build time. In product mode the server-data
+// pages call the live (Access-gated) product API, which can't be reached during static prerender — so a
+// production build (`next build`) must NOT statically generate them. This segment config cascades to all
+// nested routes. It also makes the production build viable, which is what gives us CONTENT-HASHED,
+// immutable chunk URLs — the real fix for stale dev chunks behind the Cloudflare edge.
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -36,7 +43,7 @@ export default function RootLayout({
         <div className="pl-60">
           <Topbar />
           <div className="border-b border-amber-200 bg-amber-50 px-6 py-1.5 text-center text-xs font-medium text-amber-800">
-            Read-only v2 staging · no upload / live render yet · some panels are UI demo only
+            Internal v2 staging · uploads stored · automatic redline available only for recognized project packages
           </div>
           <main className="mx-auto max-w-[1400px] p-6">{children}</main>
         </div>

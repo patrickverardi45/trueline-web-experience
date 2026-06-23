@@ -13,12 +13,10 @@ import {
   addReviewedRows,
   createReviewedBoreLog,
   defineSegmentGroup,
-  fetchEngineHandoffReadiness,
   fetchReviewQueue,
   fetchReviewedBoreLog,
   reviewReviewedRow,
   setGroupingStatus,
-  type EngineHandoffReadinessView,
   type ManualRowInput,
   type ReviewedBoreLogView,
   type ReviewQueueView,
@@ -40,14 +38,6 @@ function gid(): string {
   return 'grp-' + Math.random().toString(36).slice(2, 8);
 }
 
-const HONEST = [
-  'Raw bore-log uploads are stored but NOT OCR’d or parsed.',
-  'These reviewed rows are human-supplied / corrected structured input — not OCR.',
-  'engine_ready means the review gate passed — it does NOT mean redlines were generated.',
-  'Engine handoff from an uploaded corpus is not implemented in this slice (no redlines for uploaded jobs).',
-  'KMZ export stays blocked unless verified geospatial geometry exists.',
-];
-
 export function ProductReviewedBoreLogGate({
   jobId,
   boreLogUploads,
@@ -61,14 +51,15 @@ export function ProductReviewedBoreLogGate({
   const [queue, setQueue] = useState<ReviewQueueView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [startStation, setStartStation] = useState('');
-  const [endStation, setEndStation] = useState('');
+  // Initialize the row form to the default station span as REAL state (not just placeholder text). The Add
+  // button is gated on non-empty start/end; the same-valued placeholders previously made the form LOOK
+  // filled while controlled state stayed '' → the button was wrongly disabled until the reviewer happened
+  // to type. These are normal editable defaults (the handler uses this same state, never a blank fallback).
+  const [startStation, setStartStation] = useState('0+00');
+  const [endStation, setEndStation] = useState('2+99');
   const [note, setNote] = useState('');
   const [members, setMembers] = useState<Record<string, boolean>>({});
   const [relation, setRelation] = useState<SegmentRelation>('SEPARATE_BORE');
-  const [handoff, setHandoff] = useState<EngineHandoffReadinessView | null>(null);
-  const [handoffErr, setHandoffErr] = useState<string | null>(null);
-  const [handoffBusy, setHandoffBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -90,6 +81,16 @@ export function ProductReviewedBoreLogGate({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Keep the selected source bore-log upload valid as the upload inventory loads or the job changes. The
+  // select's initial value was captured before the BORE_LOG upload arrived, which left `sourceUploadId`
+  // blank (the select visually showed the first option, but state stayed '') and the create button wrongly
+  // disabled. Re-sync to the first available upload whenever the upload-id set changes (stable string dep).
+  const boreLogIds = boreLogUploads.map((u) => u.uploadId).join('|');
+  useEffect(() => {
+    const ids = boreLogIds ? boreLogIds.split('|') : [];
+    setSourceUploadId((prev) => (prev && ids.includes(prev) ? prev : (ids[0] ?? '')));
+  }, [boreLogIds]);
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -131,19 +132,10 @@ export function ProductReviewedBoreLogGate({
     setMembers({});
   }
 
-  async function onCheckHandoff() {
-    setHandoffBusy(true);
-    setHandoffErr(null);
-    try {
-      setHandoff(await fetchEngineHandoffReadiness(jobId));
-    } catch (e) {
-      setHandoffErr(e instanceof Error ? e.message : 'check failed');
-    } finally {
-      setHandoffBusy(false);
-    }
-  }
-
   const passedRows = (rbl?.rows ?? []).filter((r) => PASS.has(r.reviewStatus));
+  // Explicit selection OR first available BORE_LOG upload — never a blank/stale id (the sync effect keeps
+  // `sourceUploadId` valid; this also covers the first render before that effect runs).
+  const effectiveSourceUploadId = sourceUploadId || boreLogUploads[0]?.uploadId || '';
 
   return (
     <div className="mt-8">
@@ -175,7 +167,7 @@ export function ProductReviewedBoreLogGate({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <label className="text-xs text-ink-3">Source bore-log upload</label>
             <select
-              value={sourceUploadId}
+              value={effectiveSourceUploadId}
               onChange={(e) => setSourceUploadId(e.target.value)}
               className="rounded-md border border-line px-2 py-1 text-sm text-ink">
               {boreLogUploads.map((u) => (
@@ -185,8 +177,8 @@ export function ProductReviewedBoreLogGate({
               ))}
             </select>
             <button
-              onClick={() => sourceUploadId && act(() => createReviewedBoreLog(jobId, RBL_ID, sourceUploadId))}
-              disabled={busy || !sourceUploadId}
+              onClick={() => effectiveSourceUploadId && act(() => createReviewedBoreLog(jobId, RBL_ID, effectiveSourceUploadId))}
+              disabled={busy || !effectiveSourceUploadId}
               className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
               Create reviewed bore-log
             </button>
@@ -336,8 +328,8 @@ export function ProductReviewedBoreLogGate({
               </dl>
               {queue.engineReady && (
                 <p className="mt-2 text-xs text-ink-3">
-                  Gate passed — this does NOT mean redlines were generated. Engine handoff from an uploaded
-                  corpus is not implemented in this slice.
+                  Gate passed. For a recognized project package, the automatic redline handoff below can now
+                  render the engine redline; arbitrary uploaded corpora are not auto-handled.
                 </p>
               )}
             </Card>
@@ -346,68 +338,6 @@ export function ProductReviewedBoreLogGate({
       )}
 
       {error && phase === 'ready' && <p className="mt-2 text-sm text-red-600">{error}</p>}
-
-      {/* Engine handoff readiness (read-only — runs nothing, creates nothing) */}
-      <Card className="mt-4">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="font-medium text-ink">Engine handoff readiness</h4>
-          <button
-            onClick={onCheckHandoff}
-            disabled={handoffBusy}
-            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-2 hover:text-ink disabled:opacity-50">
-            {handoffBusy ? 'Checking…' : 'Check engine handoff'}
-          </button>
-        </div>
-        {handoffErr && <p className="mt-2 text-sm text-red-600">{handoffErr}</p>}
-        {handoff ? (
-          <div className="mt-2">
-            <p className="text-sm">
-              <span className="font-mono text-ink">status: {handoff.status}</span>
-              <span className="ml-2 font-mono text-ink-3">runnable: {String(handoff.runnable)}</span>
-            </p>
-            <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <dt className="text-ink-3">PLAN_PDF present</dt>
-                <dd className="font-mono text-ink">{handoff.hasPlanPdf ? 'yes' : 'no'}</dd>
-              </div>
-              <div>
-                <dt className="text-ink-3">engine-ready reviewed bore log</dt>
-                <dd className="font-mono text-ink">{handoff.hasEngineReadyReviewedBoreLog ? 'yes' : 'no'}</dd>
-              </div>
-            </dl>
-            <p className="mt-2 text-xs font-medium text-ink-2">Blockers</p>
-            <ul className="mt-1 list-disc space-y-1 pl-6 text-xs text-ink-2">
-              {handoff.blockers.map((b) => (
-                <li key={b.code}>
-                  <span className="font-mono">{b.code}</span> — {b.reason}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-xs text-ink-3">
-              engine_ready means the review gate passed — NOT that redlines were generated. Uploaded-corpus
-              engine handoff is not implemented; this check created no artifacts, slots, or redlines.
-            </p>
-          </div>
-        ) : (
-          !handoffErr && (
-            <p className="mt-2 text-sm text-ink-3">
-              Check whether this job’s uploaded inputs could be handed to the engine. Read-only — runs
-              nothing and creates nothing.
-            </p>
-          )
-        )}
-      </Card>
-
-      <div className="mt-4 rounded-lg border border-line bg-white p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <AlertTriangle className="size-4 text-ink-3" /> Honest status — what this slice does and does not do
-        </div>
-        <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-ink-2">
-          {HONEST.map((h) => (
-            <li key={h}>{h}</li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 }

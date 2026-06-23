@@ -628,3 +628,79 @@ export async function fetchJobArtifacts(jobId: string): Promise<JobArtifactRef[]
 export async function fetchJobArtifactBlob(jobId: string, path: string): Promise<Blob> {
   return getProductBlob(`/v2/product/jobs/${jobId}/artifacts/${path}`);
 }
+
+// ====================================================================================================
+// Recognized-corpus AUTOMATIC handoff — positive sha256 recognition -> the EXISTING deterministic engine
+// render, served as a job-local FINAL_REDLINE_PNG bundle. NO manual point-clicking. Throws on failure.
+// ====================================================================================================
+
+export interface RecognizedCorpusHandoffView {
+  readonly status: string;                 // RUNNABLE | BLOCKED
+  readonly runnable: boolean;
+  readonly recognizedCorpusId: string | null;       // generic id (NOT a customer/location/project name)
+  readonly recognizedPackageLabel: string | null;   // generic label, e.g. "Recognized uploaded project package"
+  readonly deterministicLogId: string | null;
+  readonly renderSheets: readonly number[];
+  readonly renderCommit: string | null;
+  readonly blockers: readonly EngineHandoffBlocker[];
+}
+
+export function composeRecognizedCorpusHandoff(doc: unknown): RecognizedCorpusHandoffView {
+  const d = asRecord(doc, 'recognized-corpus-handoff');
+  const rawBlockers = Array.isArray(d.blockers) ? d.blockers : [];
+  const blockers: EngineHandoffBlocker[] = rawBlockers
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
+    .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
+  const rawSheets = Array.isArray(d.render_sheets) ? d.render_sheets : [];
+  return {
+    status: str(d.status),
+    runnable: d.runnable === true,
+    recognizedCorpusId: strOrNull(d.recognized_corpus_id),
+    recognizedPackageLabel: strOrNull(d.recognized_package_label),
+    deterministicLogId: strOrNull(d.deterministic_log_id),
+    renderSheets: rawSheets.filter((n): n is number => typeof n === 'number'),
+    renderCommit: strOrNull(d.render_commit),
+    blockers,
+  };
+}
+
+/** Read-only recognized-corpus auto-handoff readiness. RUNNABLE only for a positively-recognized corpus. */
+export async function fetchRecognizedCorpusHandoff(jobId: string): Promise<RecognizedCorpusHandoffView> {
+  return composeRecognizedCorpusHandoff(
+    await getProductJson(`/v2/product/jobs/${jobId}/recognized-corpus-handoff`));
+}
+
+export interface RecognizedCorpusRenderResult {
+  readonly status: string;
+  readonly bundleId: string | null;
+  readonly bundleOrigin: string;           // DETERMINISTIC_RECOGNIZED_CORPUS
+  readonly recognizedCorpusId: string | null;
+  readonly recognizedPackageLabel: string | null;
+  readonly deterministicLogId: string | null;
+  readonly renderCommit: string | null;
+  readonly artifactCount: number;
+  readonly artifacts: readonly JobArtifactRef[];
+}
+
+export function composeRecognizedCorpusRenderResult(doc: unknown): RecognizedCorpusRenderResult {
+  const d = asRecord(doc, 'recognized-corpus-render');
+  return {
+    status: str(d.status),
+    bundleId: strOrNull(d.bundle_id),
+    bundleOrigin: str(d.bundle_origin),
+    recognizedCorpusId: strOrNull(d.recognized_corpus_id),
+    recognizedPackageLabel: strOrNull(d.recognized_package_label),
+    deterministicLogId: strOrNull(d.deterministic_log_id),
+    renderCommit: strOrNull(d.render_commit),
+    artifactCount: int(d.artifact_count),
+    artifacts: composeArtifactRefList(d.artifacts),
+  };
+}
+
+/** Run the recognized-corpus auto-handoff: publish the EXISTING deterministic engine render for the
+ *  recognized log as a job-local FINAL_REDLINE_PNG bundle (engine-derived, NOT human-clicked). Throws on a
+ *  failed live write (incl. 409 when not recognized/runnable). */
+export async function runRecognizedCorpusRender(jobId: string): Promise<RecognizedCorpusRenderResult> {
+  return composeRecognizedCorpusRenderResult(
+    await postProductJson(`/v2/product/jobs/${jobId}/recognized-corpus-handoff/render`, {}));
+}

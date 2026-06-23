@@ -77,6 +77,15 @@ export function ProductSourceAnchorCapture({
     }
   }, [jobId]);
 
+  // Keep the selected plan upload valid as inventory loads or the job changes. The initial value was
+  // captured from the first render's plan list; a stale id (e.g. after switching jobs) would 404 on
+  // plan-page metadata. Re-sync to the first available plan upload when the upload-id set changes.
+  const planUploadIds = planUploads.map((u) => u.uploadId).join('|');
+  useEffect(() => {
+    const ids = planUploadIds ? planUploadIds.split('|') : [];
+    setPlanUploadId((prev) => (prev && ids.includes(prev) ? prev : (ids[0] ?? '')));
+  }, [planUploadIds]);
+
   useEffect(() => {
     if (planUploadId) void loadMeta(planUploadId);
   }, [planUploadId, loadMeta]);
