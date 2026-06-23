@@ -21,6 +21,7 @@ import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductRecognizedCorpusHandoff } from '@/components/ProductRecognizedCorpusHandoff';
+import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapture';
 
 type Boot =
@@ -235,6 +236,15 @@ export function ProductIntake() {
               `refreshKey` is the upload-id set: it changes when the PLAN_PDF (or any file) is uploaded, so the
               card re-fetches recognition automatically instead of showing a stale pre-upload "not recognized". */}
           <ProductRecognizedCorpusHandoff
+            jobId={selectedJobId}
+            refreshKey={detail.uploads.map((u) => u.uploadId).join('|')}
+          />
+
+          {/* Phase 6 — the uploaded-corpus ENGINE REVIEW acceptance lane: the engine generates a
+              source-supported REVIEW redline candidate from this job's own plan + reviewed bore-log; the
+              owner accepts or rejects the engine candidate (no hand-drawing). REVIEW is a first-class
+              product output, never AUTO. */}
+          <ProductReviewCandidates
             jobId={selectedJobId}
             refreshKey={detail.uploads.map((u) => u.uploadId).join('|')}
           />

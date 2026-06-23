@@ -704,3 +704,155 @@ export async function runRecognizedCorpusRender(jobId: string): Promise<Recogniz
   return composeRecognizedCorpusRenderResult(
     await postProductJson(`/v2/product/jobs/${jobId}/recognized-corpus-handoff/render`, {}));
 }
+
+// ====================================================================================================
+// Phase 6 — REVIEW acceptance lane. The uploaded-corpus ENGINE generates a SOURCE-SUPPORTED REVIEW redline
+// candidate from the job's own plan + reviewed bore-log; a human ACCEPTS or REJECTS the engine candidate
+// WITHOUT drawing geometry. REVIEW is a first-class product output, never AUTO. The accepted FINAL_REDLINE_PNG
+// is retrieved via the job-artifact reads above. All reads/writes throw on failure (no mock fallback).
+// ====================================================================================================
+
+export interface ReviewCandidateBundle {
+  readonly bundleId: string | null;
+  readonly bundleOrigin: string;          // UPLOADED_CORPUS_ENGINE
+  readonly artifactCount: number;
+  readonly artifacts: readonly JobArtifactRef[];
+}
+
+export interface ReviewWhyNotAuto {
+  readonly autoBlocked: boolean;
+  readonly blockers: readonly string[];   // e.g. NO_PER_BORE_TERMINI, MATCHLINE_CONTINUATION_UNVERIFIED
+  readonly engineReason: string | null;
+}
+
+export interface ReviewCandidateView {
+  readonly candidateId: string | null;
+  readonly tier: string | null;           // REVIEW | AUTO | ABSTAIN
+  readonly status: string | null;         // REVIEW_CANDIDATE | REVIEW_ACCEPTED | REVIEW_REJECTED | ABSTAINED
+  readonly provenance: string | null;     // ENGINE_GENERATED_REVIEW_CANDIDATE | ENGINE_GENERATED_HUMAN_ACCEPTED_REVIEW
+  readonly placementStatus: string | null;
+  readonly engineReason: string | null;
+  readonly noManualGeometry: boolean;
+  readonly referencedSheets: readonly number[];
+  readonly renderSheets: readonly number[];
+  readonly caveats: readonly string[];
+  readonly matchlineContinuity: string | null;
+  readonly whyNotAuto: ReviewWhyNotAuto | null;
+  readonly rejectionReason: string | null;
+  readonly blockers: readonly EngineHandoffBlocker[];
+  readonly bundle: ReviewCandidateBundle | null;
+}
+
+export interface ReviewCandidateReport {
+  readonly tier: string | null;           // REVIEW | AUTO | ABSTAIN | null (not runnable)
+  readonly runnable: boolean;
+  readonly candidateId: string | null;
+  readonly record: ReviewCandidateView | null;
+  readonly blockers: readonly EngineHandoffBlocker[];
+}
+
+function numList(value: unknown): number[] {
+  return Array.isArray(value) ? value.filter((n): n is number => typeof n === 'number') : [];
+}
+
+function composeBlockerList(value: unknown): EngineHandoffBlocker[] {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
+    .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
+}
+
+function composeReviewBundle(value: unknown): ReviewCandidateBundle | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const b = value as Record<string, unknown>;
+  return {
+    bundleId: strOrNull(b.bundle_id),
+    bundleOrigin: str(b.bundle_origin),
+    artifactCount: int(b.artifact_count),
+    artifacts: composeArtifactRefList(b.artifacts),
+  };
+}
+
+function composeWhyNotAuto(value: unknown): ReviewWhyNotAuto | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const w = value as Record<string, unknown>;
+  return { autoBlocked: w.auto_blocked === true, blockers: strList(w.blockers),
+           engineReason: strOrNull(w.engine_reason) };
+}
+
+/** Compose ONE acceptance record (the shape returned by get/accept/reject and nested in the report). */
+export function composeReviewCandidate(doc: unknown): ReviewCandidateView {
+  const d = asRecord(doc, 'review-candidate');
+  return {
+    candidateId: strOrNull(d.candidate_id),
+    tier: strOrNull(d.tier),
+    status: strOrNull(d.status),
+    provenance: strOrNull(d.provenance),
+    placementStatus: strOrNull(d.placement_status),
+    engineReason: strOrNull(d.engine_reason),
+    noManualGeometry: d.no_manual_geometry === true,
+    referencedSheets: numList(d.referenced_sheets),
+    renderSheets: numList(d.render_sheets),
+    caveats: strList(d.caveats),
+    matchlineContinuity: strOrNull(d.matchline_continuity),
+    whyNotAuto: composeWhyNotAuto(d.why_not_auto),
+    rejectionReason: strOrNull(d.rejection_reason),
+    blockers: composeBlockerList(d.blockers),
+    bundle: composeReviewBundle(d.bundle),
+  };
+}
+
+/** Compose the generate() report ({ tier, runnable, candidate_id, record, blockers }). */
+export function composeReviewCandidateReport(doc: unknown): ReviewCandidateReport {
+  const d = asRecord(doc, 'review-candidate-report');
+  const hasRecord = typeof d.record === 'object' && d.record !== null && !Array.isArray(d.record);
+  return {
+    tier: strOrNull(d.tier),
+    runnable: d.runnable === true,
+    candidateId: strOrNull(d.candidate_id),
+    record: hasRecord ? composeReviewCandidate(d.record) : null,
+    blockers: composeBlockerList(d.blockers),
+  };
+}
+
+export function composeReviewCandidateList(doc: unknown): ReviewCandidateView[] {
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return [];
+  const list = (doc as Record<string, unknown>).review_candidates;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null && !Array.isArray(r))
+    .map((r) => composeReviewCandidate(r));
+}
+
+/** Ask the engine for this job's redline candidate + record its honest tier. A REVIEW candidate is rendered
+ *  (real FINAL_REDLINE_PNG) and held for human accept/reject; an engine ABSTAIN is recorded with its named
+ *  blocker; missing inputs report blockers with no record. Never promotes REVIEW to AUTO. Throws on failure. */
+export async function generateReviewCandidate(jobId: string): Promise<ReviewCandidateReport> {
+  return composeReviewCandidateReport(
+    await postProductJson(`/v2/product/jobs/${jobId}/review-candidates/generate`, {}));
+}
+
+export async function listReviewCandidates(jobId: string): Promise<ReviewCandidateView[]> {
+  return composeReviewCandidateList(await getProductJson(`/v2/product/jobs/${jobId}/review-candidates`));
+}
+
+export async function getReviewCandidate(jobId: string, candidateId: string): Promise<ReviewCandidateView> {
+  return composeReviewCandidate(
+    await getProductJson(`/v2/product/jobs/${jobId}/review-candidates/${candidateId}`));
+}
+
+/** ACCEPT the engine-generated REVIEW candidate as-is (no geometry drawn): -> REVIEW_ACCEPTED, provenance
+ *  ENGINE_GENERATED_HUMAN_ACCEPTED_REVIEW. The rendered artifacts are unchanged. Throws on failure. */
+export async function acceptReviewCandidate(jobId: string, candidateId: string): Promise<ReviewCandidateView> {
+  return composeReviewCandidate(
+    await postProductJson(`/v2/product/jobs/${jobId}/review-candidates/${candidateId}/accept`, {}));
+}
+
+/** REJECT the engine-generated REVIEW candidate (needs correction) with a required reason. A rejected
+ *  candidate stays rejected and can never be silently accepted. Throws on failure (400 if reason empty). */
+export async function rejectReviewCandidate(
+  jobId: string, candidateId: string, reason: string,
+): Promise<ReviewCandidateView> {
+  return composeReviewCandidate(
+    await postProductJson(`/v2/product/jobs/${jobId}/review-candidates/${candidateId}/reject`, { reason }));
+}

@@ -42,6 +42,14 @@ import {
   renderSourceAnchor,
   fetchJobArtifacts,
   fetchJobArtifactBlob,
+  composeReviewCandidate,
+  composeReviewCandidateReport,
+  composeReviewCandidateList,
+  generateReviewCandidate,
+  listReviewCandidates,
+  getReviewCandidate,
+  acceptReviewCandidate,
+  rejectReviewCandidate,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -577,6 +585,90 @@ async function run() {
     try { await fn(); } catch { s3Threw += 1; }
   }
   check('M2 render + job-artifact reads throw on non-OK (no mock fallback)', s3Threw === 3);
+
+  // --- Phase 6: REVIEW acceptance lane (engine candidate -> human accept/reject) ------------------
+  check('composeReviewCandidate parses a REVIEW_CANDIDATE record', (() => {
+    const v = composeReviewCandidate({
+      candidate_id: 'rc-rbl-1', tier: 'REVIEW', status: 'REVIEW_CANDIDATE',
+      provenance: 'ENGINE_GENERATED_REVIEW_CANDIDATE', placement_status: 'REVIEW',
+      engine_reason: 'DRAWN_EXTENT_COVERS_SPAN_NOT_TIGHT', no_manual_geometry: true,
+      referenced_sheets: [10, 11], render_sheets: [10, 11],
+      caveats: ['CROSS_SHEET_CONTINUATION_REVIEW', 'MATCHLINE_CONTINUATION_UNVERIFIED'],
+      matchline_continuity: 'UNVERIFIED',
+      why_not_auto: { auto_blocked: true, blockers: ['NO_PER_BORE_TERMINI'], engine_reason: 'x' },
+      blockers: [],
+      bundle: { bundle_id: 'b-1', bundle_origin: 'UPLOADED_CORPUS_ENGINE', artifact_count: 2,
+                artifacts: [{ log_id: 'rbl-1', path: 'artifacts/rbl-1/a.png', sha256: 'a'.repeat(64),
+                             bytes: 100, kind: 'FINAL_REDLINE_PNG' }] },
+    });
+    return v.candidateId === 'rc-rbl-1' && v.tier === 'REVIEW' && v.status === 'REVIEW_CANDIDATE'
+      && v.provenance === 'ENGINE_GENERATED_REVIEW_CANDIDATE' && v.noManualGeometry === true
+      && v.renderSheets.length === 2 && v.caveats.includes('MATCHLINE_CONTINUATION_UNVERIFIED')
+      && v.matchlineContinuity === 'UNVERIFIED' && v.whyNotAuto.blockers[0] === 'NO_PER_BORE_TERMINI'
+      && v.bundle.bundleOrigin === 'UPLOADED_CORPUS_ENGINE' && v.bundle.artifacts.length === 1;
+  })());
+  check('composeReviewCandidate: accepted record keeps human-accepted provenance (not AUTO)', (() => {
+    const v = composeReviewCandidate({ candidate_id: 'rc-rbl-1', tier: 'REVIEW', status: 'REVIEW_ACCEPTED',
+      provenance: 'ENGINE_GENERATED_HUMAN_ACCEPTED_REVIEW', placement_status: 'REVIEW' });
+    return v.status === 'REVIEW_ACCEPTED' && v.provenance === 'ENGINE_GENERATED_HUMAN_ACCEPTED_REVIEW'
+      && v.provenance !== 'DETERMINISTIC_AUTO';
+  })());
+  check('composeReviewCandidateReport parses report with nested record', (() => {
+    const r = composeReviewCandidateReport({ tier: 'REVIEW', runnable: true, candidate_id: 'rc-rbl-1',
+      record: { candidate_id: 'rc-rbl-1', status: 'REVIEW_CANDIDATE' }, blockers: [] });
+    return r.tier === 'REVIEW' && r.runnable === true && r.record && r.record.status === 'REVIEW_CANDIDATE';
+  })());
+  check('composeReviewCandidateReport: not-runnable report has no record + carries blockers', (() => {
+    const r = composeReviewCandidateReport({ tier: null, runnable: false, candidate_id: null, record: null,
+      blockers: [{ code: 'NO_PLAN_PDF_UPLOAD', reason: 'x' }] });
+    return r.runnable === false && r.record === null && r.blockers[0].code === 'NO_PLAN_PDF_UPLOAD';
+  })());
+  check('composeReviewCandidateList parses + honest-empty',
+    composeReviewCandidateList({ review_candidates: [{ candidate_id: 'rc-rbl-1', status: 'REVIEW_ACCEPTED' }] })
+      .length === 1 && composeReviewCandidateList({}).length === 0);
+
+  setEnv({
+    NEXT_PUBLIC_TL2_PRODUCT_API: '1',
+    NEXT_PUBLIC_TL2_API_BASE: 'http://localhost:8000',
+    NEXT_PUBLIC_TL2_TENANT: 'seed-project',
+    NEXT_PUBLIC_TL2_JOB_ID: 'seed-job-1',
+  });
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ tier: 'REVIEW', runnable: true, candidate_id: 'rc-rbl-1',
+      record: { candidate_id: 'rc-rbl-1', status: 'REVIEW_CANDIDATE' }, review_candidates: [], blockers: [] }) };
+  };
+  const RC = 'http://localhost:8000/v2/product/jobs/job-x/review-candidates';
+
+  await generateReviewCandidate('job-x');
+  check('generateReviewCandidate POSTs generate path + tenant header',
+    wUrl === `${RC}/generate` && wInit.method === 'POST' && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  await listReviewCandidates('job-x');
+  check('listReviewCandidates GETs path', wUrl === RC && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
+  await getReviewCandidate('job-x', 'rc-rbl-1');
+  check('getReviewCandidate GETs candidate path', wUrl === `${RC}/rc-rbl-1`);
+
+  await acceptReviewCandidate('job-x', 'rc-rbl-1');
+  check('acceptReviewCandidate POSTs accept path', wUrl === `${RC}/rc-rbl-1/accept` && wInit.method === 'POST');
+
+  await rejectReviewCandidate('job-x', 'rc-rbl-1', 'needs correction');
+  check('rejectReviewCandidate POSTs reject path + reason body',
+    wUrl === `${RC}/rc-rbl-1/reject` && JSON.parse(wInit.body).reason === 'needs correction');
+
+  globalThis.fetch = async () => ({ ok: false, status: 409, json: async () => ({}) });
+  let p6Threw = 0;
+  for (const fn of [
+    () => generateReviewCandidate('job-x'),
+    () => listReviewCandidates('job-x'),
+    () => acceptReviewCandidate('job-x', 'rc-rbl-1'),
+    () => rejectReviewCandidate('job-x', 'rc-rbl-1', 'r'),
+  ]) {
+    try { await fn(); } catch { p6Threw += 1; }
+  }
+  check('REVIEW acceptance reads/writes throw on non-OK (no mock fallback)', p6Threw === 4);
 
   globalThis.fetch = realFetch;
   setEnv({});
