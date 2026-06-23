@@ -29,6 +29,7 @@ import {
 import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
+import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductRecognizedCorpusHandoff } from '@/components/ProductRecognizedCorpusHandoff';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 
@@ -296,14 +297,21 @@ export function ProductIntake() {
   return (
     <div className="mt-6">
       <Card className="border-2 border-amber-400 bg-amber-50">
-        <h2 className="text-lg font-semibold text-amber-900">Internal upload workspace</h2>
-        <ul className="mt-2 space-y-1 text-sm font-medium text-amber-800">
-          <li>Not part of the guided demo.</li>
+        <h2 className="text-lg font-semibold text-amber-900">Internal upload workspace — not part of the guided demo</h2>
+        <ul className="mt-2 space-y-1.5 text-sm text-amber-800">
           <li>
-            Uploads are stored for intake only. Automatic parsing and redline generation are{' '}
-            <span className="font-semibold">not enabled</span> from this workspace.
+            For <span className="font-semibold">supported plan packages</span>, this workspace generates an
+            engine REVIEW candidate after the reviewed-bore-log gate passes.
           </li>
-          <li>Use the prepared REVIEW workflows for the guided redline demo.</li>
+          <li>
+            Automatic OCR/parsing from typed rows is <span className="font-semibold">not</span> claimed here —
+            the engine parses the uploaded bore-log file; typed reviewed rows are a human sign-off gate.
+            (Human corrections driving geometry is a future lane.)
+          </li>
+          <li>
+            Unsupported packages return <span className="font-semibold">ABSTAIN</span> with blocker reasons —
+            no redline is invented.
+          </li>
         </ul>
         <Link
           href="/intake"
@@ -390,11 +398,17 @@ export function ProductIntake() {
             }}
           />
           <ProductUploadInventory job={detail} />
-          <p className="mt-3 rounded-lg border border-line bg-canvas/60 px-3 py-2 text-xs text-ink-3">
-            Files are stored for intake only — no parsing, no engine run, and no redline is produced from this
-            workspace (the parser/engine handoff is not wired here). Use the prepared REVIEW workflows for the
-            guided redline demo.
-          </p>
+          {/* Productive path for SUPPORTED packages (typed-only internal workspace; not a Hector path).
+              Review-gate the uploaded bore-log, then run the engine REVIEW candidate. The engine parses the
+              uploaded PLAN_PDF + BORE_LOG file; the reviewed rows are a human SIGN-OFF gate, not the geometry
+              source. An unsupported plan -> the REVIEW card shows an honest ABSTAIN with blocker reasons. */}
+          <ProductReviewedBoreLogGate
+            jobId={selectedJobId}
+            boreLogUploads={detail.uploads
+              .filter((u) => u.kind === 'BORE_LOG')
+              .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
+          />
+          <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
         </>
       )}
     </div>

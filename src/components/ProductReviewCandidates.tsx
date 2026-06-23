@@ -33,10 +33,35 @@ function statusLabel(status: string | null): { text: string; tone: string } {
     case 'REVIEW_CANDIDATE':
       return { text: 'Awaiting your decision', tone: 'text-amber-700' };
     case 'ABSTAINED':
-      return { text: 'Engine abstained — no credible source evidence', tone: 'text-ink-3' };
+      return { text: 'Engine abstained — see the reasons below', tone: 'text-ink-3' };
     default:
       return { text: status ?? 'unknown', tone: 'text-ink-3' };
   }
+}
+
+// Plain-English copy for the engine's blocker / abstain codes. The raw code is still shown for traceability.
+const BLOCKER_COPY: Record<string, string> = {
+  NO_PLAN_DIALECT_RECOGNIZED:
+    'This plan format isn’t supported yet — the engine has no matching plan dialect for it.',
+  ENGINE_ABSTAINED: 'The engine abstained — it could not place a confident redline from the source.',
+  NO_DRAWN_BORE_OVER_SPAN: 'No drawn bore was found over the bore-log’s station span on the plan.',
+  INSUFFICIENT_DRAWN_COVERAGE: 'The drawn extent covers too little of the bore span to place confidently.',
+  NO_CALLOUTS_EXTRACTED: 'No bore callouts could be extracted from the plan.',
+  NO_PLAN_PDF_UPLOAD: 'No plan PDF has been uploaded to this job.',
+  NO_ENGINE_READY_REVIEWED_BORE_LOG:
+    'No engine-ready reviewed bore-log yet — pass the reviewed-bore-log gate above first.',
+  PLAN_PDF_FILE_NOT_AVAILABLE: 'The uploaded plan PDF file is not available on the server.',
+  BORE_LOG_FILE_NOT_AVAILABLE: 'The uploaded bore-log file is not available on the server.',
+  NO_PER_BORE_TERMINI:
+    'The plan draws one continuous alignment with no per-bore start/end — so the engine offers a REVIEW, not an automatic AUTO.',
+  MATCHLINE_CONTINUATION_UNVERIFIED:
+    'The cross-sheet continuation could not be verified from printed matchline stations.',
+  CROSS_SHEET_CONTINUATION_REVIEW:
+    'This bore spans multiple sheets; the legs are rendered per sheet, not assembled into one validated route.',
+};
+
+function blockerCopy(code: string): string | null {
+  return BLOCKER_COPY[code] ?? null;
 }
 
 export function ProductReviewCandidates({
@@ -84,7 +109,7 @@ export function ProductReviewCandidates({
       } else {
         // Not runnable (inputs missing) — surface the honest blockers; no candidate was created.
         setActionError(
-          report.blockers.map((b) => `${b.code}: ${b.reason}`).join(' · ') ||
+          report.blockers.map((b) => blockerCopy(b.code) ?? `${b.code}: ${b.reason}`).join(' · ') ||
             'The engine could not produce a candidate for this job yet.',
         );
         setBoot({ phase: 'ready', candidate: null });
@@ -220,7 +245,10 @@ export function ProductReviewCandidates({
               source-tight per-bore evidence to place this automatically.
               <ul className="mt-1 list-disc pl-5">
                 {candidate.whyNotAuto.blockers.map((b) => (
-                  <li key={b} className="font-mono">{b}</li>
+                  <li key={b}>
+                    {blockerCopy(b) ?? b}{' '}
+                    <span className="font-mono text-[10px] text-amber-700">({b})</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -252,7 +280,10 @@ export function ProductReviewCandidates({
           {isAbstain && candidate.blockers.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-xs text-ink-2">
               {candidate.blockers.map((b) => (
-                <li key={b.code}><span className="font-mono">{b.code}</span> — {b.reason}</li>
+                <li key={b.code}>
+                  {blockerCopy(b.code) ?? b.reason}{' '}
+                  <span className="font-mono text-[10px] text-ink-3">({b.code})</span>
+                </li>
               ))}
             </ul>
           )}
