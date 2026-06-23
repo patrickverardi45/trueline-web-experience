@@ -1,18 +1,23 @@
+import { Suspense } from 'react';
+
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ProductIntake } from '@/components/ProductIntake';
 
-export const metadata = { title: 'Intake — v2 product' };
+export const metadata = { title: 'Demo workflows' };
 
-// Real product intake (product mode). Create a job, upload real files, see honest stored status/blockers.
-// Not a seed demo and NOT /redlines — this is the start of the real start-to-finish workflow.
+// Guided demo intake. By default this is a "Choose a demo workflow" chooser; `?job=<demo>` opens a single
+// minimal guided workflow; `?workspace=1` opens the internal upload workspace. ProductIntake reads the
+// query via useSearchParams, so it is wrapped in a Suspense boundary.
 export default function IntakePage() {
   return (
     <div>
       <PageHeader
-        title="Project intake"
-        sub="Create a job, upload real files (PDF / KMZ / KML / bore logs / photos), and see honest stored status. No OCR or engine run yet — uploads are stored, never parsed."
+        title="Demo workflows"
+        sub="Run the engine on a prepared redline workflow. The raw upload workspace is available separately, off the guided path."
       />
-      <ProductIntake />
+      <Suspense fallback={<p className="mt-6 text-sm text-ink-3">Loading…</p>}>
+        <ProductIntake />
+      </Suspense>
     </div>
   );
 }

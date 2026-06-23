@@ -1,10 +1,17 @@
 'use client';
 
-// Product-mode intake orchestrator: create/load the tenant's project, list + create + select jobs, and
-// drive uploads + inventory for the selected job. Product-mode gated (renders an honest note when off);
-// no mock fallback — connectivity failures show an honest "unavailable" state, never fake projects/jobs.
+// Product-mode intake with TWO faces, switched by the URL so the GUIDED demo paths stay clean and a viewer
+// never sees the raw workbench by default:
+//   • /intake                 -> a "Choose a demo workflow" chooser (REVIEW / Cross-sheet / Internal)
+//   • /intake?job=<demo job>  -> a MINIMAL guided view: only that demo's one engine redline card
+//   • /intake?workspace=1     -> the full Internal upload workspace (job list / uploads / inventory /
+//                                reviewed-bore-log gate) — explicitly labeled, NOT the default demo path
+// Product-mode gated (honest note when off); no mock fallback — connectivity failures show an honest state.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { ArrowLeft, ArrowRight, CheckCircle2, Layers, Upload } from 'lucide-react';
 
 import { productApiEnabled } from '@/lib/api/liveV2Product';
 import {
@@ -31,6 +38,26 @@ type Boot =
   | { phase: 'error'; message: string }
   | { phase: 'ready' };
 
+// The known GUIDED demo jobs. A `/intake?job=<id>` that is one of these renders the minimal guided view
+// (only the relevant redline card) — never the raw workbench. Generic ids only; no customer/place names.
+const GUIDED_DEMO_JOBS: Record<string, { title: string; blurb: string }> = {
+  'demo-review-acceptance': {
+    title: 'Live REVIEW Acceptance Workflow',
+    blurb:
+      'The engine generates a source-backed redline candidate from this job’s own plan + reviewed bore-log. Generate it, then accept or reject — no hand-drawing.',
+  },
+  'demo-cross-sheet-review': {
+    title: 'Cross-Sheet REVIEW Workflow',
+    blurb:
+      'A bore that spans two plan sheets: the engine renders a REVIEW leg on each sheet with honest matchline caveats. Full coverage, still REVIEW — never AUTO.',
+  },
+  'completed-redline-showcase': {
+    title: 'Completed Redline Showcase',
+    blurb:
+      'A recognized package: the existing deterministic engine render is served as the automatic redline handoff.',
+  },
+};
+
 function defaultJobId(): string {
   // Browser-only convenience; the backend re-validates the id (^[a-z0-9][a-z0-9_-]{0,62}$).
   return 'job-' + Math.random().toString(36).slice(2, 8);
@@ -39,11 +66,17 @@ function defaultJobId(): string {
 function internalProofEnabled(): boolean {
   // Manual source-anchor capture is an INTERNAL developer proof harness ONLY — never the customer/owner
   // flow. A redline must come from the engine, not from hand-clicked route points. Hidden unless this
-  // explicit build-time opt-in is set; default = hidden.
+  // explicit build-time opt-in is set; default = hidden (and only ever inside the internal workspace).
   return process.env.NEXT_PUBLIC_TL2_INTERNAL_PROOF === '1';
 }
 
 export function ProductIntake() {
+  // Reactive URL params (consistent SSR/client on this force-dynamic route). These pick the view.
+  const searchParams = useSearchParams();
+  const jobParam = searchParams.get('job');
+  const workspaceMode = searchParams.get('workspace') === '1';
+  const guidedJob = jobParam && GUIDED_DEMO_JOBS[jobParam] ? jobParam : null;
+
   const [boot, setBoot] = useState<Boot>(() =>
     productApiEnabled() ? { phase: 'loading' } : { phase: 'off' },
   );
@@ -55,10 +88,8 @@ export function ProductIntake() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // Which redline path applies to the selected job: true = recognized corpus (automatic deterministic
-  // handoff), false = engine REVIEW lane, null = not yet checked. Keeps the two redline cards mutually
-  // exclusive so a job never shows a card that does not apply to it.
+  // handoff), false = engine REVIEW lane, null = not yet checked.
   const [recognized, setRecognized] = useState<boolean | null>(null);
-  const deepLinkApplied = useRef(false);
   const uploadsKey = detail?.uploads.map((u) => u.uploadId).join('|') ?? '';
 
   const loadProjectAndJobs = useCallback(async () => {
@@ -71,6 +102,9 @@ export function ProductIntake() {
   useEffect(() => {
     if (!productApiEnabled()) return;
     let active = true;
+    // setBoot fires only after the awaited fetch resolves (in .then/.catch), not synchronously — the same
+    // sanctioned data-fetch-on-mount pattern as the effects below.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProjectAndJobs()
       .then(() => active && setBoot({ phase: 'ready' }))
       .catch((err: unknown) =>
@@ -85,23 +119,20 @@ export function ProductIntake() {
     setDetail(await fetchProductJobDetail(jobId));
   }, []);
 
-  async function onSelectJob(jobId: string) {
+  const onSelectJob = useCallback(async (jobId: string) => {
     setSelectedJobId(jobId);
     setActionError(null);
     try {
-      await refreshDetail(jobId);
+      setDetail(await fetchProductJobDetail(jobId));
     } catch (e) {
       setDetail(null);
       setActionError(e instanceof Error ? e.message : 'failed to load job');
     }
-  }
+  }, []);
 
-  // Re-evaluate which redline path applies whenever the job changes OR its uploads change (a newly uploaded
-  // plan may become a recognized corpus). A failed/!runnable check is non-fatal: default to the engine
-  // REVIEW lane (the general case). recognized === null while the check is in flight -> show neither card.
+  // Re-evaluate which redline path applies whenever the job/uploads change. Failed/!runnable -> REVIEW lane.
   useEffect(() => {
-    // Reset to "unknown" the moment the job/uploads change so a stale card never lingers; the resolved
-    // value comes from the awaited fetch below (this is the only synchronous setState — a sanctioned reset).
+    // Reset to "unknown" so a stale card never lingers; the resolved value comes from the awaited fetch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRecognized(null);
     if (!selectedJobId || !detail) return;
@@ -119,23 +150,16 @@ export function ProductIntake() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedJobId, uploadsKey]);
 
-  // One-time deep link: /intake?job=<id> auto-selects that job once it appears in the loaded list, so the
-  // landing-page cards land directly on the right job. Only ever selects a job that actually exists.
+  // URL-driven selection: select the `?job=` job (a guided demo job, or any job in workspace mode) when it
+  // changes. Reactive to client-side nav, so moving between demo cards just works.
   useEffect(() => {
-    if (boot.phase !== 'ready' || deepLinkApplied.current || typeof window === 'undefined') return;
-    const wanted = new URLSearchParams(window.location.search).get('job');
-    if (!wanted) {
-      deepLinkApplied.current = true;
-      return;
-    }
-    if (jobs.some((j) => j.jobId === wanted)) {
-      deepLinkApplied.current = true;
-      // One-time deep-link selection in reaction to the loaded jobs list (sanctioned data -> action).
+    if (boot.phase !== 'ready' || !jobParam || jobParam === selectedJobId) return;
+    if (GUIDED_DEMO_JOBS[jobParam] || jobs.some((j) => j.jobId === jobParam)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      void onSelectJob(wanted);
+      void onSelectJob(jobParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boot.phase, jobs]);
+  }, [boot.phase, jobParam, jobs]);
 
   async function onCreateProject() {
     setBusy(true);
@@ -193,10 +217,127 @@ export function ProductIntake() {
     );
   }
 
+  // ---- GUIDED demo view: a known demo job -> ONLY its one redline card. No job list, no uploads, no
+  //      inventory, no reviewed-bore-log gate, no create controls, no dev/source-anchor UI. ----
+  if (guidedJob) {
+    const meta = GUIDED_DEMO_JOBS[guidedJob];
+    const ready = selectedJobId === guidedJob && detail !== null;
+    return (
+      <div className="mt-6">
+        <Link href="/intake" className="inline-flex items-center gap-1 text-sm font-medium text-ink-3 hover:text-ink">
+          <ArrowLeft className="size-4" /> Demo workflows
+        </Link>
+        <Card className="mt-3">
+          <h2 className="text-lg font-semibold text-ink">{meta.title}</h2>
+          <p className="mt-1 text-sm leading-relaxed text-ink-3">{meta.blurb}</p>
+        </Card>
+        {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
+        {!ready ? (
+          <p className="mt-4 text-sm text-ink-3">Loading the demo…</p>
+        ) : recognized === true ? (
+          <ProductRecognizedCorpusHandoff jobId={guidedJob} refreshKey={uploadsKey} />
+        ) : recognized === false ? (
+          <ProductReviewCandidates jobId={guidedJob} refreshKey={uploadsKey} />
+        ) : (
+          <p className="mt-4 text-sm text-ink-3">Preparing the workflow…</p>
+        )}
+      </div>
+    );
+  }
+
+  // ---- CHOOSER: default /intake. A clean "Choose a demo workflow" screen — NEVER the raw job list. ----
+  if (!workspaceMode) {
+    return (
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold text-ink">Choose a demo workflow</h2>
+        <p className="mt-1 text-sm text-ink-3">
+          Each guided workflow runs the real engine on a prepared job. Pick one to begin.
+        </p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Link href="/intake?job=demo-review-acceptance" className="group">
+            <Card className="h-full transition-shadow group-hover:shadow-md">
+              <div className="flex items-start gap-4">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-strong">
+                  <CheckCircle2 className="size-5" strokeWidth={2} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-ink group-hover:text-accent-strong">
+                    {GUIDED_DEMO_JOBS['demo-review-acceptance'].title}
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-3">
+                    {GUIDED_DEMO_JOBS['demo-review-acceptance'].blurb}
+                  </p>
+                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-accent-strong">
+                    Open <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                </div>
+              </div>
+            </Card>
+          </Link>
+          <Link href="/intake?job=demo-cross-sheet-review" className="group">
+            <Card className="h-full transition-shadow group-hover:shadow-md">
+              <div className="flex items-start gap-4">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-strong">
+                  <Layers className="size-5" strokeWidth={2} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-ink group-hover:text-accent-strong">
+                    {GUIDED_DEMO_JOBS['demo-cross-sheet-review'].title}
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-3">
+                    {GUIDED_DEMO_JOBS['demo-cross-sheet-review'].blurb}
+                  </p>
+                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-accent-strong">
+                    Open <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                </div>
+              </div>
+            </Card>
+          </Link>
+        </div>
+
+        {/* Internal workspace — explicitly NOT part of the guided demo. */}
+        <Card className="mt-4 border-dashed">
+          <div className="flex items-start gap-4">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-canvas text-ink-3">
+              <Upload className="size-5" strokeWidth={2} />
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-ink">Upload Workspace / Internal Intake</h3>
+              <p className="mt-1 text-sm leading-relaxed text-ink-3">
+                Not part of the guided demo. The raw operator workspace — create jobs, upload plans + bore
+                logs, and inspect stored files. Uploads are stored for intake; automatic parsing is not
+                enabled in this demo path.
+              </p>
+              <Link
+                href="/intake?workspace=1"
+                className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-ink-2 hover:text-ink">
+                Open internal workspace <ArrowRight className="size-4" />
+              </Link>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // ---- INTERNAL WORKSPACE: ?workspace=1. The full raw workbench, explicitly labeled, behind an explicit
+  //      route — never the default Hector path. ----
   return (
-    <div>
+    <div className="mt-6">
+      <Link href="/intake" className="inline-flex items-center gap-1 text-sm font-medium text-ink-3 hover:text-ink">
+        <ArrowLeft className="size-4" /> Demo workflows
+      </Link>
+      <Card className="mt-3 border-dashed">
+        <h2 className="text-lg font-semibold text-ink">Internal upload workspace</h2>
+        <p className="mt-1 text-sm leading-relaxed text-ink-3">
+          Not part of the guided demo. Uploads are stored for intake; automatic parsing is not enabled in
+          this demo path.
+        </p>
+      </Card>
+
       {/* Project */}
-      <Card className="mt-6">
+      <Card className="mt-4">
         <h3 className="font-semibold text-ink">Project (this tenant)</h3>
         {projectExists ? (
           <p className="mt-1 text-sm text-ink-3">Project ready for this tenant. Create or select a job below.</p>
@@ -261,7 +402,7 @@ export function ProductIntake() {
 
       {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
 
-      {/* Selected job: upload + inventory */}
+      {/* Selected job: upload + inventory + gate + the one applicable redline card */}
       {selectedJobId && detail && (
         <>
           <ProductUploadPanel
@@ -278,14 +419,7 @@ export function ProductIntake() {
               .filter((u) => u.kind === 'BORE_LOG')
               .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
           />
-          {/* Exactly ONE redline path per job (kept mutually exclusive so no card is shown that does not
-              apply, and Hector never has to be told to "ignore this card"):
-              · recognized corpus  -> the AUTOMATIC deterministic redline handoff (runs the EXISTING engine
-                render, no manual clicks);
-              · otherwise          -> the Phase 6 engine REVIEW acceptance lane (the engine generates a
-                source-supported REVIEW candidate from this job's plan + reviewed bore-log; the owner accepts
-                or rejects it — no hand-drawing; REVIEW is first-class, never AUTO).
-              `refreshKey` re-fetches the card when uploads change. `recognized === null` = check in flight. */}
+          {/* Exactly ONE redline path per job (recognized -> automatic handoff; otherwise -> engine REVIEW). */}
           {recognized === true && (
             <ProductRecognizedCorpusHandoff jobId={selectedJobId} refreshKey={uploadsKey} />
           )}
@@ -293,9 +427,7 @@ export function ProductIntake() {
             <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
           )}
 
-          {/* INTERNAL DEV PROOF ONLY. Hidden unless NEXT_PUBLIC_TL2_INTERNAL_PROOF=1, and collapsed by
-              default. This manual source-anchor harness exists solely to exercise the renderer/bundle path;
-              it must NEVER be presented as how a customer/owner gets a redline. */}
+          {/* INTERNAL DEV PROOF ONLY. Hidden unless NEXT_PUBLIC_TL2_INTERNAL_PROOF=1, and collapsed. */}
           {internalProofEnabled() && detail.uploads.some((u) => u.kind === 'PLAN_PDF') && (
             <details className="mt-4 rounded-lg border border-amber-400 bg-amber-50 p-3">
               <summary className="cursor-pointer text-sm font-semibold text-amber-800">
