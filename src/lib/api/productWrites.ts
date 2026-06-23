@@ -959,3 +959,10 @@ export async function assembleCloseoutPackage(jobId: string): Promise<CloseoutPa
 export async function downloadKmzExportBlob(jobId: string): Promise<Blob> {
   return getProductBlob(`/v2/product/jobs/${jobId}/kmz-export/download`);
 }
+
+/** Download the job's closeout export bundle as a .zip Blob (the redline manifest + sha256-verified
+ *  FINAL_REDLINE_PNG bytes + closeout/export/KMZ status JSON + reviewed-bore-log metadata, and a valid KMZ
+ *  only when genuinely geospatial). Throws (409) when the job has no validated redline bundle yet. */
+export async function downloadExportBundleBlob(jobId: string): Promise<Blob> {
+  return getProductBlob(`/v2/product/jobs/${jobId}/export-package/download`);
+}

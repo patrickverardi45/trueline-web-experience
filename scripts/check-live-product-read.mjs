@@ -55,6 +55,7 @@ import {
   runProductRedline,
   assembleCloseoutPackage,
   downloadKmzExportBlob,
+  downloadExportBundleBlob,
 } from '../src/lib/api/productWrites.ts';
 
 let failures = 0;
@@ -734,13 +735,18 @@ async function run() {
     wUrl === 'http://localhost:8000/v2/product/jobs/job-x/kmz-export/download'
       && wInit.headers['X-TL-Tenant'] === 'seed-project');
 
+  await downloadExportBundleBlob('job-x');
+  check('downloadExportBundleBlob GETs export-package/download path + tenant header',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/export-package/download'
+      && wInit.headers['X-TL-Tenant'] === 'seed-project');
+
   globalThis.fetch = async () => ({ ok: false, status: 409, json: async () => ({}) });
   let p9Threw = 0;
   for (const fn of [() => runProductRedline('job-x'), () => assembleCloseoutPackage('job-x'),
-                    () => downloadKmzExportBlob('job-x')]) {
+                    () => downloadKmzExportBlob('job-x'), () => downloadExportBundleBlob('job-x')]) {
     try { await fn(); } catch { p9Threw += 1; }
   }
-  check('workflow reads/writes throw on non-OK (no mock fallback)', p9Threw === 3);
+  check('workflow reads/writes throw on non-OK (no mock fallback)', p9Threw === 4);
 
   globalThis.fetch = realFetch;
   setEnv({});

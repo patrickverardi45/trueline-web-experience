@@ -397,6 +397,19 @@ export function ProductIntake() {
           proven capability — no coordinates are invented. */}
       {selectedJobId && detail && (
         <>
+          <Card className="mt-4">
+            <h3 className="font-semibold text-ink">Workflow for job {selectedJobId}</h3>
+            <ol className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-ink-3">
+              {['1 · Upload plan + bore logs', '2 · Review bore-log gate', '3 · Detect / recognize',
+                '4 · Generate redline', '5 · Review / accept', '6 · Closeout', '7 · Download export']
+                .map((s, i) => (
+                  <li key={s} className="flex items-center gap-2">
+                    <span className="rounded bg-paper px-1.5 py-0.5 font-mono">{s}</span>
+                    {i < 6 && <span aria-hidden>→</span>}
+                  </li>
+                ))}
+            </ol>
+          </Card>
           <ProductUploadPanel
             jobId={selectedJobId}
             onUploaded={() => {

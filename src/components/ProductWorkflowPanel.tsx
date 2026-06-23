@@ -17,6 +17,7 @@ import { Card } from '@/components/ui/Card';
 import {
   acceptReviewCandidate,
   assembleCloseoutPackage,
+  downloadExportBundleBlob,
   fetchJobArtifactBlob,
   fetchJobArtifacts,
   rejectReviewCandidate,
@@ -182,6 +183,26 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
     }
   }
 
+  async function onDownload() {
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = await downloadExportBundleBlob(jobId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `redline_export_${jobId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'failed to download the export package');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const path = outcome?.path ?? '';
   const pathCopy = PATH_COPY[path];
   const isReview = path === 'UPLOADED_REVIEW';
@@ -317,6 +338,19 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
                   </span>
                 )}
               </p>
+              {pkg.assembled && (
+                <div className="mt-2 border-t border-line pt-2">
+                  <button
+                    onClick={onDownload}
+                    disabled={busy}
+                    className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+                    {busy ? 'Preparing…' : 'Download closeout package (.zip)'}
+                  </button>
+                  <p className="mt-1 text-[11px] text-ink-3">
+                    Real redline PNG(s) + manifest + closeout/export/KMZ status + reviewed bore-log metadata.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
