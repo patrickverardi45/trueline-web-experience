@@ -1,97 +1,121 @@
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle2, ImageIcon, Ruler, ShieldCheck } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ImageIcon, Layers, Upload } from 'lucide-react';
 
-import { api } from '@/lib/api';
 import { Card } from '@/components/ui/Card';
-import { KpiStat } from '@/components/ui/KpiStat';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { ProductJobStatusStrip } from '@/components/ProductJobStatusStrip';
-import { ProductArtifactGallery } from '@/components/ProductArtifactGallery';
 
-export const metadata = { title: 'Demo Project 001 — v2 staging' };
+export const metadata = { title: 'FieldRoute — gated staging demo' };
 
-// Single-project, read-only v2 staging summary. Numbers come from the committed durable
-// redline manifest (real engine truth), not from the mock portfolio fixtures.
-export default async function DashboardPage() {
-  const manifest = await api.reviews.engineRedlineManifest();
-  const { totals, bundleId, renderCommit, frontier, artifactCount } = manifest;
+// Demo-safe landing page. INTENTIONALLY static: it performs NO server-side data fetch, so it returns 200
+// even behind the Cloudflare Access gate (a server fetch to the gated API would receive the Access login
+// HTML and crash with a 500). Every card links to a path whose data is read CLIENT-side (the browser
+// carries the Access cookie same-origin). No KPI fetch, no stale dashboard panels, no "nothing uploaded
+// yet" copy — just a guided front door to the capabilities that exist today.
 
+interface DemoCard {
+  readonly href: string;
+  readonly title: string;
+  readonly body: string;
+  readonly icon: typeof ImageIcon;
+  readonly cta: string;
+}
+
+const DEMO_CARDS: readonly DemoCard[] = [
+  {
+    href: '/showcase',
+    title: 'Completed Redline Showcase',
+    body: 'Finished output quality — real drawn red redline strokes on real plan sheets, from deterministic redline data. This is what a completed package looks like.',
+    icon: ImageIcon,
+    cta: 'View the finished redlines',
+  },
+  {
+    href: '/intake?job=demo-review-acceptance',
+    title: 'Live REVIEW Acceptance Workflow',
+    body: 'The engine generates a source-backed redline candidate from a job’s own plan + reviewed bore-log. You accept or reject it — no hand-drawing. REVIEW is a first-class output, never relabeled as automatic.',
+    icon: CheckCircle2,
+    cta: 'Generate → accept a candidate',
+  },
+  {
+    href: '/intake?job=demo-cross-sheet-review',
+    title: 'Cross-Sheet REVIEW Workflow',
+    body: 'A bore that spans two plan sheets: the engine renders a REVIEW leg on each sheet with honest matchline caveats. Full coverage, still REVIEW — it does not claim automatic placement it cannot prove.',
+    icon: Layers,
+    cta: 'Generate a two-sheet candidate',
+  },
+  {
+    href: '/intake',
+    title: 'Upload Intake / Job Workspace',
+    body: 'The full operator workspace: create a job, upload plans + bore logs, and run the reviewed-bore-log gate to engine-ready. This is where a real package starts.',
+    icon: Upload,
+    cta: 'Open the workspace',
+  },
+];
+
+export default function HomePage() {
   return (
     <div>
-      <PageHeader
-        title="Demo Project 001 — v2 staging"
-        sub="Internal v2 staging · uploads stored · automatic redline for recognized project packages"
-        actions={
-          <Link
-            href="/redlines"
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
-            Open redline review →
-          </Link>
-        }
-      />
-
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <KpiStat label="Bore logs" value={String(totals.total)} sub={`frontier ${frontier}`} icon={Ruler} tone="accent" />
-        <KpiStat label="Drawn redlines" value={String(totals.drawn)} sub={`of ${totals.total} accounted`} icon={CheckCircle2} />
-        <KpiStat label="Covered" value={String(totals.covered)} sub="already on the plan" icon={ShieldCheck} />
-        <KpiStat label="Blocked" value={String(totals.blocked)} sub="owner / source-gated" icon={AlertTriangle} />
+      {/* Hero */}
+      <div className="rounded-2xl border border-line bg-gradient-to-br from-navy-900 to-navy-800 px-7 py-8 text-white">
+        <p className="text-xs font-semibold uppercase tracking-wider text-accent-soft">
+          FieldRoute · gated staging preview
+        </p>
+        <h1 className="mt-2 max-w-2xl text-2xl font-semibold tracking-tight">
+          Automatic OSP redline handoff — from plan + bore log to drawn red strokes.
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+          Pick a starting point below. Each one is a real proof of a capability that exists today — finished
+          deterministic redlines, the live engine-REVIEW accept/reject workflow, and the operator intake
+          workspace. Start with the showcase, then walk the live workflow.
+        </p>
       </div>
 
-      <ProductJobStatusStrip />
-
-      <ProductArtifactGallery />
-
-      <div className="mt-8 grid gap-4 lg:grid-cols-3">
-        <Link href="/redlines" className="group lg:col-span-2">
-          <Card className="h-full transition-shadow group-hover:shadow-md">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="font-semibold text-ink group-hover:text-accent-strong">
-                  v2 durable redline manifest
-                </h3>
-                <p className="mt-1 max-w-xl text-sm leading-relaxed text-ink-3">
-                  Real engine output — {totals.drawn} drawn · {totals.covered} covered · {totals.blocked}{' '}
-                  blocked of {totals.total} bore logs, {artifactCount} final redline artifacts. Read-only;
-                  nothing is uploaded or live-rendered in this staging build.
-                </p>
-              </div>
-              <ImageIcon className="size-6 shrink-0 text-accent" />
-            </div>
-            <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm">
-              <div>
-                <dt className="text-ink-3">Bundle</dt>
-                <dd className="truncate font-mono text-ink">{bundleId}</dd>
-              </div>
-              <div>
-                <dt className="text-ink-3">Render / source</dt>
-                <dd className="font-mono text-ink">{renderCommit}</dd>
-              </div>
-            </dl>
-            <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent-strong">
-              Open the redline review →
-            </span>
-          </Card>
-        </Link>
-
-        <Card>
-          <h3 className="font-semibold text-ink">What is real vs demo</h3>
-          <ul className="mt-2 space-y-2 text-sm leading-relaxed text-ink-3">
-            <li>
-              <span className="font-semibold text-ink">Real:</span> the v2 durable redline manifest on{' '}
-              <Link href="/redlines" className="font-medium text-accent-strong underline">
-                /redlines
-              </Link>{' '}
-              (bundle <span className="font-mono">{bundleId}</span>, render{' '}
-              <span className="font-mono">{renderCommit}</span>).
-            </li>
-            <li>
-              <span className="font-semibold text-ink">UI demo only — not engine data:</span> map, field
-              feed, evidence, plans, packet, closeout, and the review queue use placeholder data.
-            </li>
-            <li>No upload or live engine processing yet — that is a later backend / job-runner lane.</li>
-          </ul>
-        </Card>
+      {/* Demo entry cards */}
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {DEMO_CARDS.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Link key={card.href} href={card.href} className="group">
+              <Card className="h-full transition-shadow group-hover:shadow-md">
+                <div className="flex items-start gap-4">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-strong">
+                    <Icon className="size-5" strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-ink group-hover:text-accent-strong">{card.title}</h3>
+                    <p className="mt-1 text-sm leading-relaxed text-ink-3">{card.body}</p>
+                    <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-accent-strong">
+                      {card.cta}
+                      <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            </Link>
+          );
+        })}
       </div>
+
+      {/* How to read this demo */}
+      <Card className="mt-6">
+        <h3 className="font-semibold text-ink">How to read this demo</h3>
+        <ul className="mt-2 space-y-2 text-sm leading-relaxed text-ink-3">
+          <li>
+            <span className="font-semibold text-ink">Completed Redline Showcase</span> = finished output
+            quality from real deterministic redline data.
+          </li>
+          <li>
+            <span className="font-semibold text-ink">Live REVIEW Workflow</span> = an engine-generated
+            redline candidate that a human accepts or rejects.
+          </li>
+          <li>
+            <span className="font-semibold text-ink">REVIEW</span> means the engine found a source-backed
+            candidate, but the source documents do not prove a full automatic placement.
+          </li>
+          <li>
+            The app <span className="font-semibold text-ink">does not guess</span> when the source evidence
+            is missing — it abstains or asks for review instead of inventing geometry.
+          </li>
+        </ul>
+      </Card>
     </div>
   );
 }

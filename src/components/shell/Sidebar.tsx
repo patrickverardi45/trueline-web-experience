@@ -2,32 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  Activity,
-  ClipboardCheck,
-  FileText,
-  FolderKanban,
-  LayoutDashboard,
-  Map,
-  Package,
-  PenLine,
-  Settings,
-  ShieldCheck,
-  Upload,
-} from 'lucide-react';
+import { Home, ImageIcon, Upload } from 'lucide-react';
 
+// Demo nav = ONLY the demo-safe routes. The other contract-preview routes (map / plans / redlines /
+// evidence / feed / closeout / packet / projects / settings) either SSR-fetch the Access-gated API (a 500
+// behind the gate) or render placeholder/mock data, so they are intentionally hidden from the gated demo
+// rather than shown as broken/junk click paths. They still exist by URL; they are just not advertised.
 const NAV = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/', label: 'Home', icon: Home },
+  { href: '/showcase', label: 'Redline Showcase', icon: ImageIcon },
   { href: '/intake', label: 'Intake', icon: Upload },
-  { href: '/projects/demo-project-001', label: 'Projects', icon: FolderKanban, match: '/projects' },
-  { href: '/map', label: 'Hero Map', icon: Map },
-  { href: '/plans', label: 'Plan Viewer', icon: FileText },
-  { href: '/redlines', label: 'Redline Review', icon: PenLine },
-  { href: '/evidence', label: 'Evidence Explorer', icon: ShieldCheck },
-  { href: '/feed', label: 'Field Feed', icon: Activity },
-  { href: '/closeout', label: 'Closeout', icon: ClipboardCheck },
-  { href: '/packet', label: 'Packet Builder', icon: Package },
-  { href: '/settings', label: 'Settings', icon: Settings },
 ] as const;
 
 export function Sidebar() {
@@ -78,11 +62,11 @@ export function Sidebar() {
       </nav>
       <div className="border-t border-navy-700 px-5 py-4">
         <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-          Engine connection
+          Environment
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
-          <span className="size-1.5 rounded-full bg-amber-400" />
-          Contract mock — v2 pending
+          <span className="size-1.5 rounded-full bg-emerald-400" />
+          Gated staging · product API
         </div>
       </div>
     </aside>

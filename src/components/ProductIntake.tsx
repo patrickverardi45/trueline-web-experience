@@ -4,13 +4,14 @@
 // drive uploads + inventory for the selected job. Product-mode gated (renders an honest note when off);
 // no mock fallback — connectivity failures show an honest "unavailable" state, never fake projects/jobs.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { productApiEnabled } from '@/lib/api/liveV2Product';
 import {
   createProductJob,
   createProductProject,
   fetchProductJobDetail,
+  fetchRecognizedCorpusHandoff,
   listProductJobs,
   productProjectExists,
   type ProductJobDetail,
@@ -53,6 +54,12 @@ export function ProductIntake() {
   const [newJobId, setNewJobId] = useState<string>(defaultJobId());
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Which redline path applies to the selected job: true = recognized corpus (automatic deterministic
+  // handoff), false = engine REVIEW lane, null = not yet checked. Keeps the two redline cards mutually
+  // exclusive so a job never shows a card that does not apply to it.
+  const [recognized, setRecognized] = useState<boolean | null>(null);
+  const deepLinkApplied = useRef(false);
+  const uploadsKey = detail?.uploads.map((u) => u.uploadId).join('|') ?? '';
 
   const loadProjectAndJobs = useCallback(async () => {
     const list = await listProductJobs(); // connectivity gate: throws on backend-down (honest error)
@@ -88,6 +95,47 @@ export function ProductIntake() {
       setActionError(e instanceof Error ? e.message : 'failed to load job');
     }
   }
+
+  // Re-evaluate which redline path applies whenever the job changes OR its uploads change (a newly uploaded
+  // plan may become a recognized corpus). A failed/!runnable check is non-fatal: default to the engine
+  // REVIEW lane (the general case). recognized === null while the check is in flight -> show neither card.
+  useEffect(() => {
+    // Reset to "unknown" the moment the job/uploads change so a stale card never lingers; the resolved
+    // value comes from the awaited fetch below (this is the only synchronous setState — a sanctioned reset).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRecognized(null);
+    if (!selectedJobId || !detail) return;
+    let active = true;
+    fetchRecognizedCorpusHandoff(selectedJobId)
+      .then((view) => {
+        if (active) setRecognized(Boolean(view.runnable) || view.recognizedCorpusId != null);
+      })
+      .catch(() => {
+        if (active) setRecognized(false);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedJobId, uploadsKey]);
+
+  // One-time deep link: /intake?job=<id> auto-selects that job once it appears in the loaded list, so the
+  // landing-page cards land directly on the right job. Only ever selects a job that actually exists.
+  useEffect(() => {
+    if (boot.phase !== 'ready' || deepLinkApplied.current || typeof window === 'undefined') return;
+    const wanted = new URLSearchParams(window.location.search).get('job');
+    if (!wanted) {
+      deepLinkApplied.current = true;
+      return;
+    }
+    if (jobs.some((j) => j.jobId === wanted)) {
+      deepLinkApplied.current = true;
+      // One-time deep-link selection in reaction to the loaded jobs list (sanctioned data -> action).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void onSelectJob(wanted);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot.phase, jobs]);
 
   async function onCreateProject() {
     setBusy(true);
@@ -230,24 +278,20 @@ export function ProductIntake() {
               .filter((u) => u.kind === 'BORE_LOG')
               .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
           />
-          {/* Normal product path: the recognized-corpus AUTOMATIC redline handoff. For a POSITIVELY-recognized
-              known corpus it runs the EXISTING deterministic engine render (no manual clicks); for an
-              unrecognized upload it shows the honest named blockers. A redline must come from the engine.
-              `refreshKey` is the upload-id set: it changes when the PLAN_PDF (or any file) is uploaded, so the
-              card re-fetches recognition automatically instead of showing a stale pre-upload "not recognized". */}
-          <ProductRecognizedCorpusHandoff
-            jobId={selectedJobId}
-            refreshKey={detail.uploads.map((u) => u.uploadId).join('|')}
-          />
-
-          {/* Phase 6 — the uploaded-corpus ENGINE REVIEW acceptance lane: the engine generates a
-              source-supported REVIEW redline candidate from this job's own plan + reviewed bore-log; the
-              owner accepts or rejects the engine candidate (no hand-drawing). REVIEW is a first-class
-              product output, never AUTO. */}
-          <ProductReviewCandidates
-            jobId={selectedJobId}
-            refreshKey={detail.uploads.map((u) => u.uploadId).join('|')}
-          />
+          {/* Exactly ONE redline path per job (kept mutually exclusive so no card is shown that does not
+              apply, and Hector never has to be told to "ignore this card"):
+              · recognized corpus  -> the AUTOMATIC deterministic redline handoff (runs the EXISTING engine
+                render, no manual clicks);
+              · otherwise          -> the Phase 6 engine REVIEW acceptance lane (the engine generates a
+                source-supported REVIEW candidate from this job's plan + reviewed bore-log; the owner accepts
+                or rejects it — no hand-drawing; REVIEW is first-class, never AUTO).
+              `refreshKey` re-fetches the card when uploads change. `recognized === null` = check in flight. */}
+          {recognized === true && (
+            <ProductRecognizedCorpusHandoff jobId={selectedJobId} refreshKey={uploadsKey} />
+          )}
+          {recognized === false && (
+            <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
+          )}
 
           {/* INTERNAL DEV PROOF ONLY. Hidden unless NEXT_PUBLIC_TL2_INTERNAL_PROOF=1, and collapsed by
               default. This manual source-anchor harness exists solely to exercise the renderer/bundle path;

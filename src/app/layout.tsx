@@ -43,7 +43,7 @@ export default function RootLayout({
         <div className="pl-60">
           <Topbar />
           <div className="border-b border-amber-200 bg-amber-50 px-6 py-1.5 text-center text-xs font-medium text-amber-800">
-            Internal v2 staging · uploads stored · automatic redline available only for recognized project packages
+            FieldRoute · gated staging preview — demonstration environment behind Cloudflare Access
           </div>
           <main className="mx-auto max-w-[1400px] p-6">{children}</main>
         </div>
