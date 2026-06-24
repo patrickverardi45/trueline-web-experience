@@ -27,12 +27,9 @@ import {
   type ProductJobSummary,
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
-import { ProductUploadPanel } from '@/components/ProductUploadPanel';
-import { ProductUploadInventory } from '@/components/ProductUploadInventory';
-import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductRecognizedCorpusHandoff } from '@/components/ProductRecognizedCorpusHandoff';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
-import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
+import { ProductWorkspace } from '@/components/ProductWorkspace';
 
 type Boot =
   | { phase: 'off' }
@@ -293,140 +290,26 @@ export function ProductIntake() {
     );
   }
 
-  // ---- INTERNAL WORKSPACE: ?workspace=1 (typed-only; no card links here from the demo UI). STORAGE/INTAKE
-  //      ONLY — it stores files and produces NO redline. The banner says so plainly. ----
+  // ---- INTERNAL WORKSPACE: ?workspace=1 (typed-only; NOT in the public/guided nav). A left-rail SECTION
+  //      workflow over the selected job (Job Summary / Uploads / Map / Bore Logs / Redlines / Review /
+  //      Closeout / Exports / Billing), reusing the proven Phase 9/10 routes. State is owned here and passed
+  //      in so the guided/chooser faces above are untouched. ----
   return (
-    <div className="mt-6">
-      <Card className="border-2 border-amber-400 bg-amber-50">
-        <h2 className="text-lg font-semibold text-amber-900">Internal upload workspace — not part of the guided demo</h2>
-        <ul className="mt-2 space-y-1.5 text-sm text-amber-800">
-          <li>
-            A <span className="font-semibold">recognized deterministic package</span> serves the EXISTING
-            proven engine redline for the matched log (deterministic, engine-derived, not hand-drawn).
-          </li>
-          <li>
-            A <span className="font-semibold">supported uploaded package</span> produces an engine
-            <span className="font-semibold"> REVIEW</span> candidate to accept or reject — never relabeled AUTO.
-          </li>
-          <li>
-            An <span className="font-semibold">unsupported package</span> returns
-            <span className="font-semibold"> ABSTAIN</span> with specific reasons — no redline is invented.
-          </li>
-          <li>
-            Automatic OCR/parsing from typed rows is <span className="font-semibold">not</span> claimed here —
-            the engine parses the uploaded bore-log file; typed reviewed rows are a human sign-off gate.
-          </li>
-        </ul>
-        <Link
-          href="/intake"
-          className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-amber-900 hover:underline">
-          <ArrowLeft className="size-4" /> Back to the guided demo workflows
-        </Link>
-      </Card>
-
-      {/* Project */}
-      <Card className="mt-4">
-        <h3 className="font-semibold text-ink">Project (this tenant)</h3>
-        {projectExists ? (
-          <p className="mt-1 text-sm text-ink-3">Project ready for this tenant. Create or select a job below.</p>
-        ) : (
-          <div className="mt-2">
-            <p className="text-sm text-ink-3">No project exists for this tenant yet.</p>
-            <button
-              onClick={onCreateProject}
-              disabled={busy}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-              Create project
-            </button>
-          </div>
-        )}
-      </Card>
-
-      {/* Jobs */}
-      <Card className="mt-4">
-        <h3 className="font-semibold text-ink">Jobs</h3>
-        {jobs.length === 0 ? (
-          <p className="mt-1 text-sm text-ink-3">No jobs yet.</p>
-        ) : (
-          <ul className="mt-2 divide-y divide-line">
-            {jobs.map((j) => (
-              <li key={j.jobId} className="flex items-center justify-between gap-3 py-2">
-                <div className="min-w-0">
-                  <span className="font-mono text-sm text-ink">{j.jobId}</span>
-                  <span className="ml-2 font-mono text-xs text-ink-3">
-                    {j.status} · {j.uploadCount} file(s)
-                  </span>
-                </div>
-                <button
-                  onClick={() => onSelectJob(j.jobId)}
-                  className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
-                    selectedJobId === j.jobId
-                      ? 'border-accent text-accent-strong'
-                      : 'border-line text-ink-2 hover:text-ink'
-                  }`}>
-                  {selectedJobId === j.jobId ? 'Selected' : 'Select'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <input
-            value={newJobId}
-            onChange={(e) => setNewJobId(e.target.value)}
-            placeholder="job id (a-z 0-9 _ -)"
-            className="rounded-md border border-line px-2.5 py-1.5 font-mono text-sm text-ink"
-          />
-          <button
-            onClick={onCreateJob}
-            disabled={busy || !projectExists || newJobId.trim().length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-            Create job
-          </button>
-          {!projectExists && <span className="text-xs text-ink-3">Create the project first.</span>}
-        </div>
-      </Card>
-
-      {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
-
-      {/* Selected job: upload -> reviewed-bore-log gate -> the Phase 9 redline workflow (recognized
-          deterministic / uploaded REVIEW / honest ABSTAIN) -> closeout & export. This typed-only internal
-          workspace is the full product path; the engine parses the uploaded PLAN_PDF + BORE_LOG file, and the
-          reviewed rows are a human SIGN-OFF gate, not the geometry source. Redlines are wired to the real
-          proven capability — no coordinates are invented. */}
-      {selectedJobId && detail && (
-        <>
-          <Card className="mt-4">
-            <h3 className="font-semibold text-ink">Workflow for job {selectedJobId}</h3>
-            <ol className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-ink-3">
-              {['1 · Upload plan + bore logs', '2 · Review bore-log gate', '3 · Detect / recognize',
-                '4 · Generate redline', '5 · Review / accept', '6 · Closeout', '7 · Download export']
-                .map((s, i) => (
-                  <li key={s} className="flex items-center gap-2">
-                    <span className="rounded bg-paper px-1.5 py-0.5 font-mono">{s}</span>
-                    {i < 6 && <span aria-hidden>→</span>}
-                  </li>
-                ))}
-            </ol>
-          </Card>
-          <ProductUploadPanel
-            jobId={selectedJobId}
-            onUploaded={() => {
-              void refreshDetail(selectedJobId);
-              void loadProjectAndJobs();
-            }}
-          />
-          <ProductUploadInventory job={detail} />
-          <ProductReviewedBoreLogGate
-            jobId={selectedJobId}
-            boreLogUploads={detail.uploads
-              .filter((u) => u.kind === 'BORE_LOG')
-              .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
-          />
-          <ProductWorkflowPanel jobId={selectedJobId} refreshKey={uploadsKey} />
-        </>
-      )}
-    </div>
+    <ProductWorkspace
+      projectExists={projectExists}
+      busy={busy}
+      jobs={jobs}
+      selectedJobId={selectedJobId}
+      detail={detail}
+      newJobId={newJobId}
+      setNewJobId={setNewJobId}
+      actionError={actionError}
+      uploadsKey={uploadsKey}
+      onCreateProject={onCreateProject}
+      onCreateJob={onCreateJob}
+      onSelectJob={onSelectJob}
+      refreshDetail={refreshDetail}
+      loadProjectAndJobs={loadProjectAndJobs}
+    />
   );
 }

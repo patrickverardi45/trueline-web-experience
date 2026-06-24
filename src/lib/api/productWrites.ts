@@ -29,10 +29,17 @@ export interface ProductUploadRecord {
   readonly extractionStatus: string;
 }
 
+export interface ProductJobSlots {
+  readonly redlineManifest: boolean;
+  readonly artifactBundle: boolean;
+  readonly exportPackage: boolean;
+}
+
 export interface ProductJobDetail {
   readonly jobId: string;
   readonly status: string;
   readonly uploads: readonly ProductUploadRecord[];
+  readonly slots: ProductJobSlots;
 }
 
 // --- config (read at call time; mirrors liveV2Product) --------------------------------------------- //
@@ -128,7 +135,14 @@ export function composeJobDetail(doc: unknown): ProductJobDetail {
       sha256: str(u.sha256),
       extractionStatus: str(u.extraction_status),
     }));
-  return { jobId: str(j.job_id), status: str(j.status), uploads };
+  const rawSlots = (typeof j.slots === 'object' && j.slots !== null && !Array.isArray(j.slots))
+    ? (j.slots as Record<string, unknown>) : {};
+  const slots: ProductJobSlots = {
+    redlineManifest: rawSlots.redline_manifest != null,
+    artifactBundle: rawSlots.artifact_bundle != null,
+    exportPackage: rawSlots.export_package != null,
+  };
+  return { jobId: str(j.job_id), status: str(j.status), uploads, slots };
 }
 
 // --- live reads/writes (throw on failure; never mock) ---------------------------------------------- //
@@ -974,4 +988,102 @@ export async function downloadExportBundleBlob(jobId: string): Promise<Blob> {
  *  no validated redline bundle yet (not ready). */
 export async function downloadCloseoutPdfBlob(jobId: string): Promise<Blob> {
   return getProductBlob(`/v2/product/jobs/${jobId}/export-package/pdf`);
+}
+
+// ====================================================================================================
+// Phase 11 — workspace reads: uploaded GIS route geometry (real WGS84, honest empty states) + light
+// closeout/export status for the Job Summary. All throw on a failed live read (no mock fallback); the
+// workspace treats a 404 as an honest "not yet" state (Promise.allSettled).
+// ====================================================================================================
+
+export interface GisRouteFeature {
+  readonly type: string;                       // LineString | Point | Polygon
+  readonly name: string | null;                // placemark <name>, verbatim from the file (never invented)
+  readonly coordinates: readonly (readonly number[])[];   // [[lon, lat], ...] (WGS84, altitude dropped)
+}
+
+export interface GisRouteView {
+  readonly present: boolean;                    // is a GIS_ROUTE upload present + parseable?
+  readonly reason: string | null;              // NO_GIS_ROUTE_UPLOADED | GIS_ROUTE_NOT_PARSEABLE | NO_COORDINATES_FOUND | ...
+  readonly features: readonly GisRouteFeature[];
+  readonly bbox: readonly number[] | null;     // [minLon, minLat, maxLon, maxLat]
+  readonly featureCount: number;
+  readonly uploadFilename: string | null;
+}
+
+function composeGisRouteFeature(value: unknown): GisRouteFeature | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const f = value as Record<string, unknown>;
+  const rawCoords = Array.isArray(f.coordinates) ? f.coordinates : [];
+  const coordinates = rawCoords
+    .filter((p): p is unknown[] => Array.isArray(p) && p.length >= 2)
+    .map((p) => [Number(p[0]), Number(p[1])])
+    .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  return { type: str(f.type), name: strOrNull(f.name), coordinates };
+}
+
+export function composeGisRoute(doc: unknown): GisRouteView {
+  const d = asRecord(doc, 'gis-route');
+  const rawFeatures = Array.isArray(d.features) ? d.features : [];
+  const features = rawFeatures.map(composeGisRouteFeature).filter((f): f is GisRouteFeature => f !== null);
+  const rawBbox = Array.isArray(d.bbox) ? d.bbox.map(Number) : null;
+  const bbox = rawBbox && rawBbox.length === 4 && rawBbox.every((n) => Number.isFinite(n)) ? rawBbox : null;
+  const upload = (typeof d.upload === 'object' && d.upload !== null && !Array.isArray(d.upload))
+    ? (d.upload as Record<string, unknown>) : {};
+  return {
+    present: d.present === true,
+    reason: strOrNull(d.reason),
+    features,
+    bbox,
+    featureCount: int(d.feature_count),
+    uploadFilename: strOrNull(upload.filename),
+  };
+}
+
+/** Read-only: the job's uploaded GIS_ROUTE (.kmz/.kml) parsed to real WGS84 geometry for the workspace map.
+ *  Throws on a failed live read; an honest no-upload/no-coords state comes back as `present:false` (200). */
+export async function fetchGisRoute(jobId: string): Promise<GisRouteView> {
+  return composeGisRoute(await getProductJson(`/v2/product/jobs/${jobId}/gis-route`));
+}
+
+export interface CloseoutStatusView {
+  readonly status: string | null;
+  readonly isBlocked: boolean;
+  readonly isApprovable: boolean;
+  readonly hardBlockerCodes: readonly string[];
+  readonly warningCodes: readonly string[];
+}
+
+/** Read-only closeout status + summary (404 if not evaluated yet — caller treats as "not yet"). */
+export async function fetchCloseoutStatus(jobId: string): Promise<CloseoutStatusView> {
+  const doc = await getProductJson(`/v2/product/jobs/${jobId}/closeout`);
+  const d = asRecord(doc, 'closeout');
+  const s = (typeof d.summary === 'object' && d.summary !== null && !Array.isArray(d.summary))
+    ? (d.summary as Record<string, unknown>) : {};
+  return {
+    status: strOrNull(s.status) ?? strOrNull(d.status),
+    isBlocked: s.is_blocked === true,
+    isApprovable: s.is_approvable === true,
+    hardBlockerCodes: strList(s.hard_blocker_codes),
+    warningCodes: strList(s.warning_codes),
+  };
+}
+
+export interface ExportStatusView {
+  readonly status: string | null;
+  readonly includedSections: readonly string[];
+  readonly omittedSections: readonly string[];
+}
+
+/** Read-only export-package status + section view (404 if not assembled yet — caller treats as "not yet"). */
+export async function fetchExportStatus(jobId: string): Promise<ExportStatusView> {
+  const doc = await getProductJson(`/v2/product/jobs/${jobId}/export-package`);
+  const d = asRecord(doc, 'export-package');
+  const v = (typeof d.view === 'object' && d.view !== null && !Array.isArray(d.view))
+    ? (d.view as Record<string, unknown>) : {};
+  return {
+    status: strOrNull(v.status) ?? strOrNull(d.status),
+    includedSections: strList(v.included_sections),
+    omittedSections: strList(v.omitted_sections),
+  };
 }
