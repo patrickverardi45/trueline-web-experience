@@ -1,18 +1,16 @@
 'use client';
 
-// Phase 11 — internal v2 product WORKSPACE (typed-only `/intake?workspace=1`; NOT in the public/guided nav).
-// Reorganizes the old single long workbench into a left-rail SECTION nav over the selected job, reusing the
-// existing Product* components and the proven Phase 9/10 redline + closeout/export routes. Every section
-// works on REAL data or shows an honest "not yet" state from real backend reads — no mock pages, no fakes.
-// State (project/jobs/selected job/detail + handlers) is owned by ProductIntake and passed in, so the
-// guided/chooser demo faces are untouched.
+// Phase 11 — internal v2 product WORKSPACE body (typed-only /intake?workspace=1; NOT in the public/guided
+// nav). The section workflow lives in the MAIN LEFT SIDEBAR (see shell/Sidebar.tsx); this component renders a
+// compact job header + the SINGLE selected section full-width. Section + job are URL-driven
+// (?workspace=1&job=<id>&section=<key>) so the sidebar and this body stay in sync. Every section works on
+// REAL data or shows an honest "not yet"/"not available" state — no mock pages, no fakes. Reuses the proven
+// Phase 9/10 components + routes.
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  ArrowLeft, CheckCircle2, ClipboardCheck, Download, Gauge, LayoutDashboard, Map as MapIcon,
-  PenLine, Receipt, Upload, XCircle,
-} from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
@@ -21,6 +19,7 @@ import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogG
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
+import { coerceSection, workspaceHref, type WorkspaceSectionKey } from '@/lib/workspaceSections';
 import {
   downloadCloseoutPdfBlob,
   downloadExportBundleBlob,
@@ -33,21 +32,6 @@ import {
 } from '@/lib/api/productWrites';
 
 const WORKSPACE_RBL_ID = 'rbl-main'; // the canonical reviewed-bore-log id the gate uses
-
-type SectionKey =
-  | 'summary' | 'uploads' | 'map' | 'borelogs' | 'redlines' | 'review' | 'closeout' | 'exports' | 'billing';
-
-const SECTIONS: { key: SectionKey; label: string; icon: typeof LayoutDashboard }[] = [
-  { key: 'summary', label: 'Job Summary', icon: LayoutDashboard },
-  { key: 'uploads', label: 'Uploads', icon: Upload },
-  { key: 'map', label: 'Map / Route', icon: MapIcon },
-  { key: 'borelogs', label: 'Bore Logs', icon: ClipboardCheck },
-  { key: 'redlines', label: 'Redlines', icon: PenLine },
-  { key: 'review', label: 'Review', icon: CheckCircle2 },
-  { key: 'closeout', label: 'Closeout', icon: Gauge },
-  { key: 'exports', label: 'Exports', icon: Download },
-  { key: 'billing', label: 'Billing', icon: Receipt },
-];
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -71,30 +55,38 @@ interface WorkspaceProps {
   actionError: string | null;
   uploadsKey: string;
   onCreateProject: () => void;
-  onCreateJob: () => void;
-  onSelectJob: (jobId: string) => void;
+  onCreateJob: () => Promise<void> | void;
   refreshDetail: (jobId: string) => void;
   loadProjectAndJobs: () => void;
 }
 
 export function ProductWorkspace(props: WorkspaceProps) {
   const { projectExists, busy, jobs, selectedJobId, detail, newJobId, setNewJobId, actionError, uploadsKey,
-          onCreateProject, onCreateJob, onSelectJob, refreshDetail, loadProjectAndJobs } = props;
-  const [section, setSection] = useState<SectionKey>('summary');
+          onCreateProject, onCreateJob, refreshDetail, loadProjectAndJobs } = props;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const section = coerceSection(searchParams.get('section'));
+
+  // Keep slot-gated sections (Closeout/Exports/Summary) fresh after a Generate/Assemble: re-read the job
+  // detail whenever the section changes (sidebar nav) or the job changes.
+  useEffect(() => {
+    if (selectedJobId) void refreshDetail(selectedJobId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, selectedJobId]);
 
   const boreLogUploads = (detail?.uploads ?? [])
     .filter((u) => u.kind === 'BORE_LOG')
     .map((u) => ({ uploadId: u.uploadId, filename: u.filename }));
 
-  // Navigate sections; refresh the job detail first so slot-gated sections (Closeout/Exports/Summary)
-  // reflect the latest server state after a Generate/Assemble in the Redlines section.
-  const goSection = (key: SectionKey) => {
-    if (selectedJobId) void refreshDetail(selectedJobId);
-    setSection(key);
-  };
+  async function onCreate() {
+    const id = newJobId.trim();
+    if (!id) return;
+    await onCreateJob();
+    router.push(workspaceHref(id, 'summary'));
+  }
 
   return (
-    <div className="mt-6">
+    <div className="mt-6 space-y-4">
       <Card className="border-2 border-amber-400 bg-amber-50">
         <h2 className="text-lg font-semibold text-amber-900">Internal product workspace — not part of the guided demo</h2>
         <p className="mt-1 text-sm text-amber-800">
@@ -108,7 +100,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
       </Card>
 
       {!projectExists && (
-        <Card className="mt-4">
+        <Card>
           <h3 className="font-semibold text-ink">Project (this tenant)</h3>
           <p className="mt-1 text-sm text-ink-3">No project exists for this tenant yet.</p>
           <button
@@ -120,112 +112,85 @@ export function ProductWorkspace(props: WorkspaceProps) {
         </Card>
       )}
 
-      {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-[18rem_1fr]">
-        {/* Left rail: job selector + section nav */}
-        <div className="space-y-4">
-          <Card>
-            <h3 className="font-semibold text-ink">Jobs</h3>
-            {jobs.length === 0 ? (
-              <p className="mt-1 text-sm text-ink-3">No jobs yet.</p>
-            ) : (
-              <ul className="mt-2 max-h-56 space-y-1 overflow-auto">
-                {jobs.map((j) => (
-                  <li key={j.jobId}>
-                    <button
-                      onClick={() => onSelectJob(j.jobId)}
-                      className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs ${
-                        selectedJobId === j.jobId ? 'bg-accent-soft text-accent-strong' : 'text-ink-2 hover:bg-paper'
-                      }`}>
-                      <span className="truncate font-mono">{j.jobId}</span>
-                      <span className="shrink-0 font-mono text-[10px] text-ink-3">{j.status}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-3 border-t border-line pt-3">
-              <input
-                value={newJobId}
-                onChange={(e) => setNewJobId(e.target.value)}
-                placeholder="job id (a-z 0-9 _ -)"
-                className="w-full rounded-md border border-line px-2.5 py-1.5 font-mono text-xs text-ink"
-              />
-              <button
-                onClick={onCreateJob}
-                disabled={busy || !projectExists || newJobId.trim().length === 0}
-                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-                Create job
-              </button>
-            </div>
-          </Card>
-
-          <Card flush>
-            <nav className="p-2">
-              {SECTIONS.map((s, i) => {
-                const Icon = s.icon;
-                const active = section === s.key;
-                const disabled = !selectedJobId || !detail;
-                return (
-                  <button
-                    key={s.key}
-                    onClick={() => goSection(s.key)}
-                    disabled={disabled}
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${
-                      active ? 'bg-accent-soft font-semibold text-accent-strong' : 'text-ink-2 hover:bg-paper'
-                    } disabled:cursor-not-allowed disabled:opacity-40`}>
-                    <span className="font-mono text-[10px] text-ink-3">{i + 1}</span>
-                    <Icon className="size-4" />
-                    {s.label}
-                  </button>
-                );
-              })}
-            </nav>
-          </Card>
-        </div>
-
-        {/* Main panel: the active section for the selected job */}
-        <div className="min-w-0">
-          {!selectedJobId || !detail ? (
-            <Card>
-              <h3 className="font-semibold text-ink">Select or create a job</h3>
-              <p className="mt-1 text-sm text-ink-3">
-                Pick a job on the left (or create one) to open its workflow: uploads, map/route, bore logs,
-                redlines, review, closeout, and exports.
-              </p>
-            </Card>
-          ) : section === 'summary' ? (
-            <JobSummarySection jobId={selectedJobId} detail={detail} refreshKey={uploadsKey} onNavigate={goSection} />
-          ) : section === 'uploads' ? (
-            <div className="space-y-4">
-              <UploadsChecklist detail={detail} />
-              <ProductUploadPanel
-                jobId={selectedJobId}
-                onUploaded={() => {
-                  void refreshDetail(selectedJobId);
-                  void loadProjectAndJobs();
-                }}
-              />
-              <ProductUploadInventory job={detail} />
-            </div>
-          ) : section === 'map' ? (
-            <ProductRouteMap jobId={selectedJobId} refreshKey={uploadsKey} />
-          ) : section === 'borelogs' ? (
-            <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
-          ) : section === 'redlines' ? (
-            <ProductWorkflowPanel jobId={selectedJobId} refreshKey={uploadsKey} />
-          ) : section === 'review' ? (
-            <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
-          ) : section === 'closeout' ? (
-            <CloseoutSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.redlineManifest} />
-          ) : section === 'exports' ? (
-            <ExportsSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
+      {/* Compact job header: pick the active job (drives ?job= so the sidebar workflow unlocks). */}
+      <Card>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="font-semibold text-ink">Job</h3>
+          {jobs.length === 0 ? (
+            <span className="text-sm text-ink-3">No jobs yet — create one.</span>
           ) : (
-            <BillingSection jobId={selectedJobId} refreshKey={uploadsKey} />
+            <div className="flex flex-wrap gap-1.5">
+              {jobs.map((j) => (
+                <button
+                  key={j.jobId}
+                  onClick={() => router.push(workspaceHref(j.jobId, section))}
+                  className={`rounded-md border px-2.5 py-1 font-mono text-xs ${
+                    selectedJobId === j.jobId
+                      ? 'border-accent bg-accent-soft text-accent-strong'
+                      : 'border-line text-ink-2 hover:text-ink'
+                  }`}>
+                  {j.jobId}
+                </button>
+              ))}
+            </div>
           )}
+          <div className="ml-auto flex items-center gap-2">
+            <input
+              value={newJobId}
+              onChange={(e) => setNewJobId(e.target.value)}
+              placeholder="job id (a-z 0-9 _ -)"
+              className="w-40 rounded-md border border-line px-2.5 py-1.5 font-mono text-xs text-ink"
+            />
+            <button
+              onClick={() => void onCreate()}
+              disabled={busy || !projectExists || newJobId.trim().length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+              Create job
+            </button>
+          </div>
         </div>
-      </div>
+        {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
+      </Card>
+
+      {/* The single selected section, full width. */}
+      {!selectedJobId || !detail ? (
+        <Card>
+          <h3 className="font-semibold text-ink">Select or create a job</h3>
+          <p className="mt-1 text-sm text-ink-3">
+            Pick a job above (or create one) to unlock the workflow sections in the left sidebar: Job Summary,
+            Uploads, Map/Route, Bore Logs, Redlines, Review, Closeout, Exports, and Billing.
+          </p>
+        </Card>
+      ) : section === 'summary' ? (
+        <JobSummarySection jobId={selectedJobId} detail={detail} refreshKey={uploadsKey}
+                           onNavigate={(k) => router.push(workspaceHref(selectedJobId, k))} />
+      ) : section === 'uploads' ? (
+        <div className="space-y-4">
+          <UploadsChecklist detail={detail} />
+          <ProductUploadPanel
+            jobId={selectedJobId}
+            onUploaded={() => {
+              void refreshDetail(selectedJobId);
+              void loadProjectAndJobs();
+            }}
+          />
+          <ProductUploadInventory job={detail} />
+        </div>
+      ) : section === 'map' ? (
+        <ProductRouteMap jobId={selectedJobId} refreshKey={uploadsKey} />
+      ) : section === 'borelogs' ? (
+        <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
+      ) : section === 'redlines' ? (
+        <ProductWorkflowPanel jobId={selectedJobId} refreshKey={uploadsKey} />
+      ) : section === 'review' ? (
+        <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
+      ) : section === 'closeout' ? (
+        <CloseoutSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
+      ) : section === 'exports' ? (
+        <ExportsSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
+      ) : (
+        <BillingSection jobId={selectedJobId} refreshKey={uploadsKey} />
+      )}
     </div>
   );
 }
@@ -264,7 +229,8 @@ function UploadsChecklist({ detail }: { detail: ProductJobDetail }) {
 }
 
 // --------------------------------------------------------------------------- //
-// Job Summary — composes existing reads; honest "not yet" on any unavailable piece.
+// Job Summary — composes existing reads; honest "not yet" on any unavailable piece. Slot-gated so a pristine
+// job makes no doomed 404 requests.
 // --------------------------------------------------------------------------- //
 interface SummaryState {
   artifactCount: number | null;
@@ -274,14 +240,14 @@ interface SummaryState {
 }
 
 function JobSummarySection({ jobId, detail, refreshKey, onNavigate }: {
-  jobId: string; detail: ProductJobDetail; refreshKey?: string; onNavigate: (s: SectionKey) => void;
+  jobId: string; detail: ProductJobDetail; refreshKey?: string; onNavigate: (s: WorkspaceSectionKey) => void;
 }) {
   const [s, setS] = useState<SummaryState>({ artifactCount: null, engineReady: null, closeoutStatus: null, exportStatus: null });
 
-  // Only probe endpoints that can exist yet (gated on the job's real slots / uploads) — a pristine job
-  // makes no doomed 404 requests; values fill in once each step produces server-authoritative state.
   const hasBundle = detail.slots.artifactBundle;
-  const hasManifest = detail.slots.redlineManifest;
+  // The closeout record + export_package slot are BOTH created by Assemble (not by Generate, which only sets
+  // the manifest/bundle) — so gate the closeout/export reads on hasExport to avoid a doomed 404 on a job
+  // that is generated (PLACED) but not yet assembled.
   const hasExport = detail.slots.exportPackage;
   const hasBoreLog = detail.uploads.some((u) => u.kind === 'BORE_LOG');
 
@@ -292,10 +258,10 @@ function JobSummarySection({ jobId, detail, refreshKey, onNavigate }: {
     let exportStatus: string | null = null;
     if (hasBundle) { try { artifactCount = (await fetchJobArtifacts(jobId)).length; } catch { artifactCount = null; } }
     if (hasBoreLog) { try { engineReady = (await fetchReviewQueue(jobId, WORKSPACE_RBL_ID)).engineReady; } catch { engineReady = null; } }
-    if (hasManifest) { try { closeoutStatus = (await fetchCloseoutStatus(jobId)).status; } catch { closeoutStatus = null; } }
+    if (hasExport) { try { closeoutStatus = (await fetchCloseoutStatus(jobId)).status; } catch { closeoutStatus = null; } }
     if (hasExport) { try { exportStatus = (await fetchExportStatus(jobId)).status; } catch { exportStatus = null; } }
     setS({ artifactCount, engineReady, closeoutStatus, exportStatus });
-  }, [jobId, hasBundle, hasManifest, hasExport, hasBoreLog]);
+  }, [jobId, hasBundle, hasExport, hasBoreLog]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -313,7 +279,7 @@ function JobSummarySection({ jobId, detail, refreshKey, onNavigate }: {
         <span className="font-mono text-xs text-ink-3">{jobId}</span>
       </div>
 
-      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
         <Stat label="Job status" value={detail.status} mono />
         <Stat label="Uploads" value={`${detail.uploads.length} file(s)`} />
         <Stat label="Plan PDF" value={yn(present.has('PLAN_PDF'))} />
@@ -328,7 +294,7 @@ function JobSummarySection({ jobId, detail, refreshKey, onNavigate }: {
       </dl>
 
       <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
-        {(['uploads', 'map', 'redlines', 'closeout', 'exports'] as SectionKey[]).map((k) => (
+        {(['uploads', 'map', 'redlines', 'closeout', 'exports'] as WorkspaceSectionKey[]).map((k) => (
           <button
             key={k}
             onClick={() => onNavigate(k)}

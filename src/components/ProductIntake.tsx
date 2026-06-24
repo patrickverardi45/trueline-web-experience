@@ -67,7 +67,9 @@ export function ProductIntake() {
   const searchParams = useSearchParams();
   const jobParam = searchParams.get('job');
   const workspaceMode = searchParams.get('workspace') === '1';
-  const guidedJob = jobParam && GUIDED_DEMO_JOBS[jobParam] ? jobParam : null;
+  // Guided view only OUTSIDE the workspace — in workspace mode any ?job= (incl. a demo job that also lives in
+  // the store) drives the workspace section workflow, never the guided card.
+  const guidedJob = !workspaceMode && jobParam && GUIDED_DEMO_JOBS[jobParam] ? jobParam : null;
 
   const [boot, setBoot] = useState<Boot>(() =>
     productApiEnabled() ? { phase: 'loading' } : { phase: 'off' },
@@ -307,7 +309,6 @@ export function ProductIntake() {
       uploadsKey={uploadsKey}
       onCreateProject={onCreateProject}
       onCreateJob={onCreateJob}
-      onSelectJob={onSelectJob}
       refreshDetail={refreshDetail}
       loadProjectAndJobs={loadProjectAndJobs}
     />

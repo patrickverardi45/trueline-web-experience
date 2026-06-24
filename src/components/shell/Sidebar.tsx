@@ -1,8 +1,14 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Home, ImageIcon, Upload } from 'lucide-react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import {
+  ArrowLeft, ClipboardCheck, Download, Gauge, Home, ImageIcon, LayoutDashboard, Lock, Map as MapIcon,
+  PenLine, Receipt, Upload, CheckCircle2,
+} from 'lucide-react';
+
+import { WORKSPACE_SECTIONS, coerceSection, workspaceHref, type WorkspaceSectionKey } from '@/lib/workspaceSections';
 
 // Demo nav = ONLY the demo-safe routes. The other contract-preview routes (map / plans / redlines /
 // evidence / feed / closeout / packet / projects / settings) either SSR-fetch the Access-gated API (a 500
@@ -14,8 +20,88 @@ const NAV = [
   { href: '/intake', label: 'Intake', icon: Upload },
 ] as const;
 
-export function Sidebar() {
+const SECTION_ICON: Record<WorkspaceSectionKey, typeof Home> = {
+  summary: LayoutDashboard,
+  uploads: Upload,
+  map: MapIcon,
+  borelogs: ClipboardCheck,
+  redlines: PenLine,
+  review: CheckCircle2,
+  closeout: Gauge,
+  exports: Download,
+  billing: Receipt,
+};
+
+const navLink = (active: boolean) =>
+  `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+    active ? 'bg-navy-700 text-white' : 'text-slate-400 hover:bg-navy-800 hover:text-slate-200'
+  }`;
+
+/** The reactive nav body. Reads the URL: in the internal workspace (/intake?workspace=1) it shows the job
+ *  workflow sections; everywhere else it shows the simple public demo nav. (useSearchParams -> wrapped in a
+ *  Suspense boundary by the Sidebar shell.) */
+function SidebarNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const workspace = pathname === '/intake' && searchParams.get('workspace') === '1';
+
+  if (workspace) {
+    const job = searchParams.get('job');
+    const active = coerceSection(searchParams.get('section'));
+    return (
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
+        <Link
+          href="/intake"
+          className="mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-slate-400 hover:bg-navy-800 hover:text-slate-200">
+          <ArrowLeft className="size-4 shrink-0" strokeWidth={1.75} /> Demo workflows
+        </Link>
+        <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          Workspace{job ? '' : ' · select a job'}
+        </div>
+        {WORKSPACE_SECTIONS.map(({ key, label }, i) => {
+          const Icon = SECTION_ICON[key];
+          if (!job) {
+            // Locked until a job is selected (sections need a job to show real data).
+            return (
+              <span
+                key={key}
+                aria-disabled="true"
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">
+                <span className="font-mono text-[10px] text-slate-600">{i + 1}</span>
+                <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
+                {label}
+                <Lock className="ml-auto size-3.5 shrink-0" strokeWidth={1.75} />
+              </span>
+            );
+          }
+          return (
+            <Link key={key} href={workspaceHref(job, key)} className={navLink(active === key)}>
+              <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
+              <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
+
+  return (
+    <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
+      {NAV.map(({ href, label, icon: Icon }) => {
+        const active = href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
+        return (
+          <Link key={href} href={href} className={navLink(active)}>
+            <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function Sidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-navy-900">
       <Link href="/" className="flex items-center gap-2.5 px-5 pb-5 pt-6">
@@ -39,27 +125,9 @@ export function Sidebar() {
           </span>
         </span>
       </Link>
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-        {NAV.map((item) => {
-          const { href, label, icon: Icon } = item;
-          const base = 'match' in item && item.match ? item.match : href;
-          const active =
-            href === '/' ? pathname === '/' : pathname === base || pathname.startsWith(`${base}/`);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-navy-700 text-white'
-                  : 'text-slate-400 hover:bg-navy-800 hover:text-slate-200'
-              }`}>
-              <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
+      <Suspense fallback={<nav className="flex-1 px-3 pb-4" />}>
+        <SidebarNav />
+      </Suspense>
       <div className="border-t border-navy-700 px-5 py-4">
         <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
           Environment
