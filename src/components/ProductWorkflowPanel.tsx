@@ -17,6 +17,7 @@ import { Card } from '@/components/ui/Card';
 import {
   acceptReviewCandidate,
   assembleCloseoutPackage,
+  downloadCloseoutPdfBlob,
   downloadExportBundleBlob,
   fetchJobArtifactBlob,
   fetchJobArtifacts,
@@ -203,6 +204,26 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
     }
   }
 
+  async function onDownloadPdf() {
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = await downloadCloseoutPdfBlob(jobId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `closeout_packet_${jobId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'failed to download the closeout PDF');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const path = outcome?.path ?? '';
   const pathCopy = PATH_COPY[path];
   const isReview = path === 'UPLOADED_REVIEW';
@@ -340,14 +361,24 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
               </p>
               {pkg.assembled && (
                 <div className="mt-2 border-t border-line pt-2">
-                  <button
-                    onClick={onDownload}
-                    disabled={busy}
-                    className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-                    {busy ? 'Preparing…' : 'Download closeout package (.zip)'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={onDownload}
+                      disabled={busy}
+                      className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+                      {busy ? 'Preparing…' : 'Download closeout package (.zip)'}
+                    </button>
+                    <button
+                      onClick={onDownloadPdf}
+                      disabled={busy}
+                      className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-1.5 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
+                      {busy ? 'Preparing…' : 'Download closeout PDF'}
+                    </button>
+                  </div>
                   <p className="mt-1 text-[11px] text-ink-3">
-                    Real redline PNG(s) + manifest + closeout/export/KMZ status + reviewed bore-log metadata.
+                    ZIP = redline PNG(s) + manifest + closeout/export/KMZ status + reviewed bore-log metadata.
+                    PDF = a customer-readable closeout packet (the same trusted data + embedded redline
+                    evidence; billing quantities only — no dollars unless server cost rules are configured).
                   </p>
                 </div>
               )}

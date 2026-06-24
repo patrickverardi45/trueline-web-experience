@@ -966,3 +966,12 @@ export async function downloadKmzExportBlob(jobId: string): Promise<Blob> {
 export async function downloadExportBundleBlob(jobId: string): Promise<Blob> {
   return getProductBlob(`/v2/product/jobs/${jobId}/export-package/download`);
 }
+
+/** Download the job's server-rendered closeout PACKET PDF as a Blob (a real PDF: FieldRoute header,
+ *  job/closeout summary, deliverable QUANTITIES, the sha256-verified redline PNG evidence embedded, artifact
+ *  metadata, reviewed-bore-log + export-package section summary, honest KMZ status, and billing dollars only
+ *  when server-computed from configured cost rules — else honestly omitted). Throws (409) when the job has
+ *  no validated redline bundle yet (not ready). */
+export async function downloadCloseoutPdfBlob(jobId: string): Promise<Blob> {
+  return getProductBlob(`/v2/product/jobs/${jobId}/export-package/pdf`);
+}
