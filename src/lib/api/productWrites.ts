@@ -758,6 +758,8 @@ export interface ReviewCandidateView {
   readonly dialect: string | null;        // 'generic' for the name-free fallback, else the named dialect
   readonly genericFallback: boolean;       // true => placed by the generic-geometry fallback (general upload)
   readonly confidence: ReviewConfidence | null;
+  readonly reviewedBoreLogId: string | null;  // seeds the human correction lane (which bore-log was placed)
+  readonly boreSpan: string | null;           // e.g. '14+20->15+38' — seeds the correction start/end stations
   readonly noManualGeometry: boolean;
   readonly referencedSheets: readonly number[];
   readonly renderSheets: readonly number[];
@@ -830,6 +832,8 @@ export function composeReviewCandidate(doc: unknown): ReviewCandidateView {
     dialect: strOrNull(d.dialect),
     genericFallback: d.generic_fallback === true,
     confidence: composeConfidence(d.confidence),
+    reviewedBoreLogId: strOrNull(d.reviewed_bore_log_id),
+    boreSpan: strOrNull(d.bore_span),
     noManualGeometry: d.no_manual_geometry === true,
     referencedSheets: numList(d.referenced_sheets),
     renderSheets: numList(d.render_sheets),

@@ -3,12 +3,16 @@
 // Phase 6 — REVIEW acceptance lane. The uploaded-corpus ENGINE generates a SOURCE-SUPPORTED REVIEW redline
 // candidate from the job's own plan + reviewed bore-log; the human ACCEPTS or REJECTS the engine candidate
 // WITHOUT drawing geometry. REVIEW is a first-class product output, never AUTO. This shows the rendered
-// candidate redline PNG(s), WHY it is REVIEW and not AUTO, its evidence/caveats, and Accept / Reject
-// buttons. It NEVER exposes manual point-clicking — the geometry is the engine's. No mock fallback.
+// candidate redline PNG(s), WHY it is REVIEW and not AUTO, its evidence/caveats, and Accept / Reject buttons.
+// The engine candidate is engine geometry only. When the automatic placement is UNCERTAIN (a generic
+// general-upload candidate that the engine itself flags LOW / correction-recommended — partial coverage or
+// several plausible drawn lines), a customer-understandable "Correct redline placement" step is offered: the
+// reviewer marks the real bore route on the plan and saves a human-confirmed REVIEW. No mock fallback.
 
 import { useCallback, useEffect, useState } from 'react';
 
 import { Card } from '@/components/ui/Card';
+import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapture';
 import {
   acceptReviewCandidate,
   fetchJobArtifactBlob,
@@ -78,21 +82,41 @@ function confidenceTone(band: string | null): { bg: string; text: string; label:
   }
 }
 
-// Plain-English copy for the generic-fallback confidence warning codes.
-const WARNING_COPY: Record<string, string> = {
-  MANY_RIVAL_RUNS: 'Several drawn lines compete near the alignment — the chosen run may not be the bore.',
+// Plain-English copy for the generic-fallback confidence warning codes. Several codes carry a dynamic value
+// (a coverage %, a rival count), so they are matched by prefix; the rest map exactly. CORRECTION_RECOMMENDED
+// is intentionally NOT shown as a bullet — it drives the "Correct redline placement" step below instead.
+const WARNING_STATIC: Record<string, string> = {
+  COMPETING_RUNS_NEAR_SCORE: 'Other drawn runs score almost as high — the selection is not clearly the bore.',
   NOISY_STATION_AXIS: 'The station labels fit the axis loosely, so the placement position is approximate.',
-  SHORT_DRAWN_EXTENT: 'The matched drawn run is shorter than the bore span — coverage is partial.',
+  RUN_LENGTH_UNLIKE_BORE_SPAN: 'The drawn run’s length is unlike the bore span — it may not be the bore.',
+  PLACED_ON_FULL_SHEET_ALIGNMENT_LINE:
+    'Placed on a full-sheet alignment line — the station location is right but the exact drawn line is unverified.',
   LOW_CONFIDENCE_REVIEW_VERIFY_PLACEMENT: 'Low overall confidence — review this placement carefully before use.',
 };
+
+const CORRECTION_RECOMMENDED = 'CORRECTION_RECOMMENDED';
+
+function warningCopy(code: string): string {
+  const partial = /^PARTIAL_SPAN_COVERAGE_(\d+)_PCT$/.exec(code);
+  if (partial) return `The drawn run covers only about ${partial[1]}% of the bore span — coverage is partial.`;
+  const rivals = /^MULTIPLE_PLAUSIBLE_RUNS_(\d+)$/.exec(code);
+  if (rivals)
+    return `${rivals[1]} drawn lines could each be the bore over this span — the automatic pick may not be the right line.`;
+  const ticks = /^SPARSE_STATION_LABELS_(\d+)$/.exec(code);
+  if (ticks) return `Only ${ticks[1]} station labels fit the axis here, so the placement position is approximate.`;
+  return WARNING_STATIC[code] ?? code;
+}
 
 export function ProductReviewCandidates({
   jobId,
   refreshKey,
+  planUploads,
 }: {
   jobId: string;
   // Changes when the job's uploads change so the lane re-reads the current candidate (if any).
   refreshKey?: string;
+  // The job's PLAN_PDF uploads — enables the "Correct redline placement" step when a placement is uncertain.
+  planUploads?: readonly { uploadId: string; filename: string }[];
 }) {
   const [boot, setBoot] = useState<Boot>({ phase: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -205,6 +229,12 @@ export function ProductReviewCandidates({
   const status = candidate ? statusLabel(candidate.status) : null;
   const isCandidate = candidate?.status === 'REVIEW_CANDIDATE';
   const isAbstain = candidate?.status === 'ABSTAINED';
+  // The engine itself flagged this generic placement as uncertain (LOW band, or an explicit
+  // correction-recommended warning) -> offer the human correction step instead of a confident accept.
+  const correctionRecommended =
+    candidate?.genericFallback === true &&
+    (candidate.confidence?.band === 'LOW' ||
+      (candidate.confidence?.warnings.includes(CORRECTION_RECOMMENDED) ?? false));
 
   return (
     <Card className="mt-4">
@@ -286,14 +316,16 @@ export function ProductReviewCandidates({
                   ))}
                 </ul>
               )}
-              {(candidate.confidence?.warnings.length ?? 0) > 0 && (
+              {candidate.confidence!.warnings.filter((w) => w !== CORRECTION_RECOMMENDED).length > 0 && (
                 <ul className="mt-1 list-disc pl-5 text-xs text-red-600">
-                  {candidate.confidence!.warnings.map((w) => (
-                    <li key={w}>
-                      {WARNING_COPY[w] ?? w}{' '}
-                      <span className="font-mono text-[10px] text-red-500">({w})</span>
-                    </li>
-                  ))}
+                  {candidate.confidence!.warnings
+                    .filter((w) => w !== CORRECTION_RECOMMENDED)
+                    .map((w) => (
+                      <li key={w}>
+                        {warningCopy(w)}{' '}
+                        <span className="font-mono text-[10px] text-red-500">({w})</span>
+                      </li>
+                    ))}
                 </ul>
               )}
             </div>
@@ -391,6 +423,37 @@ export function ProductReviewCandidates({
                   Reject / needs correction
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Correct redline placement — offered when the engine flags the automatic generic placement as
+              uncertain. The reviewer marks the real bore route on the plan (start, bends, end); the existing
+              human-confirmed source-anchor lane saves a dashed REVIEW redline that then flows to closeout/export.
+              This is NOT the engine candidate's geometry — it is the human's confirmed route. */}
+          {correctionRecommended && isCandidate && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+              <h4 className="text-sm font-semibold text-amber-900">Correct redline placement</h4>
+              <p className="mt-1 text-xs text-amber-800">
+                The automatic placement is uncertain
+                {candidate.boreSpan ? ` for bore ${candidate.boreSpan}` : ''} — the plan has more than one
+                plausible drawn line over these stations, so the engine is not confident which line is the
+                bore. Mark the real bore route on the plan below (click the start, any bends, then the end).
+                This saves a human-confirmed REVIEW redline you can then accept and export.
+              </p>
+              {planUploads && planUploads.length > 0 ? (
+                <div className="mt-3">
+                  <ProductSourceAnchorCapture
+                    jobId={jobId}
+                    planUploads={planUploads}
+                    reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                  />
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-amber-800">
+                  Open the Uploads section to confirm a plan PDF is attached, then return here to correct the
+                  placement.
+                </p>
+              )}
             </div>
           )}
         </div>

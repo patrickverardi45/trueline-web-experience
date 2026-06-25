@@ -183,7 +183,13 @@ export function ProductWorkspace(props: WorkspaceProps) {
       ) : section === 'redlines' ? (
         <ProductWorkflowPanel jobId={selectedJobId} refreshKey={uploadsKey} />
       ) : section === 'review' ? (
-        <ProductReviewCandidates jobId={selectedJobId} refreshKey={uploadsKey} />
+        <ProductReviewCandidates
+          jobId={selectedJobId}
+          refreshKey={uploadsKey}
+          planUploads={detail.uploads
+            .filter((u) => u.kind === 'PLAN_PDF')
+            .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
+        />
       ) : section === 'closeout' ? (
         <CloseoutSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
       ) : section === 'exports' ? (
