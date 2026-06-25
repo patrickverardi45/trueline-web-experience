@@ -64,6 +64,28 @@ function blockerCopy(code: string): string | null {
   return BLOCKER_COPY[code] ?? null;
 }
 
+// Confidence band -> badge tone (HIGH = strong, LOW = verify). REVIEW confidence is never AUTO.
+function confidenceTone(band: string | null): { bg: string; text: string; label: string } {
+  switch (band) {
+    case 'HIGH':
+      return { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'High confidence' };
+    case 'MEDIUM':
+      return { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Medium confidence' };
+    case 'LOW':
+      return { bg: 'bg-red-100', text: 'text-red-700', label: 'Low confidence — verify' };
+    default:
+      return { bg: 'bg-line', text: 'text-ink-2', label: 'Confidence not graded' };
+  }
+}
+
+// Plain-English copy for the generic-fallback confidence warning codes.
+const WARNING_COPY: Record<string, string> = {
+  MANY_RIVAL_RUNS: 'Several drawn lines compete near the alignment — the chosen run may not be the bore.',
+  NOISY_STATION_AXIS: 'The station labels fit the axis loosely, so the placement position is approximate.',
+  SHORT_DRAWN_EXTENT: 'The matched drawn run is shorter than the bore span — coverage is partial.',
+  LOW_CONFIDENCE_REVIEW_VERIFY_PLACEMENT: 'Low overall confidence — review this placement carefully before use.',
+};
+
 export function ProductReviewCandidates({
   jobId,
   refreshKey,
@@ -236,6 +258,45 @@ export function ProductReviewCandidates({
               provenance: <span className="font-mono">{candidate.provenance}</span>
               {candidate.noManualGeometry && ' · no manual geometry (engine-generated)'}
             </p>
+          )}
+
+          {/* Confidence — the general-upload (generic-geometry) REVIEW grade. Honest: a candidate, not
+              deterministic truth. The reasons explain the support; the warnings flag what to verify. */}
+          {candidate.genericFallback && (
+            <div className="mt-2 rounded-md border border-line bg-paper px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {(() => {
+                  const tone = confidenceTone(candidate.confidence?.band ?? null);
+                  return (
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tone.bg} ${tone.text}`}>
+                      {tone.label}
+                      {candidate.confidence?.score != null &&
+                        ` · ${Math.round(candidate.confidence.score * 100)}%`}
+                    </span>
+                  );
+                })()}
+                <span className="text-xs text-ink-3">
+                  Inferred from general plan evidence (station labels + drawn geometry). Review before use.
+                </span>
+              </div>
+              {(candidate.confidence?.reasons.length ?? 0) > 0 && (
+                <ul className="mt-2 list-disc pl-5 text-xs text-ink-2">
+                  {candidate.confidence!.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              )}
+              {(candidate.confidence?.warnings.length ?? 0) > 0 && (
+                <ul className="mt-1 list-disc pl-5 text-xs text-red-600">
+                  {candidate.confidence!.warnings.map((w) => (
+                    <li key={w}>
+                      {WARNING_COPY[w] ?? w}{' '}
+                      <span className="font-mono text-[10px] text-red-500">({w})</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
 
           {/* Why REVIEW and not AUTO — honest, never an AUTO claim. */}

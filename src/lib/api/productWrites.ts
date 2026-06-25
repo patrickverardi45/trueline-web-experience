@@ -739,6 +739,15 @@ export interface ReviewWhyNotAuto {
   readonly engineReason: string | null;
 }
 
+/** Graded REVIEW confidence for a general uploaded-project (generic-geometry) candidate. Null on the
+ *  named-dialect path (which carries no graded signal). A REVIEW candidate is NEVER AUTO -> score < 1.0. */
+export interface ReviewConfidence {
+  readonly band: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  readonly score: number | null;          // 0..1, capped below 1.0
+  readonly reasons: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export interface ReviewCandidateView {
   readonly candidateId: string | null;
   readonly tier: string | null;           // REVIEW | AUTO | ABSTAIN
@@ -746,6 +755,9 @@ export interface ReviewCandidateView {
   readonly provenance: string | null;     // ENGINE_GENERATED_REVIEW_CANDIDATE | ENGINE_GENERATED_HUMAN_ACCEPTED_REVIEW
   readonly placementStatus: string | null;
   readonly engineReason: string | null;
+  readonly dialect: string | null;        // 'generic' for the name-free fallback, else the named dialect
+  readonly genericFallback: boolean;       // true => placed by the generic-geometry fallback (general upload)
+  readonly confidence: ReviewConfidence | null;
   readonly noManualGeometry: boolean;
   readonly referencedSheets: readonly number[];
   readonly renderSheets: readonly number[];
@@ -794,6 +806,17 @@ function composeWhyNotAuto(value: unknown): ReviewWhyNotAuto | null {
            engineReason: strOrNull(w.engine_reason) };
 }
 
+function numOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function composeConfidence(value: unknown): ReviewConfidence | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const c = value as Record<string, unknown>;
+  const band = c.band === 'HIGH' || c.band === 'MEDIUM' || c.band === 'LOW' ? c.band : null;
+  return { band, score: numOrNull(c.score), reasons: strList(c.reasons), warnings: strList(c.warnings) };
+}
+
 /** Compose ONE acceptance record (the shape returned by get/accept/reject and nested in the report). */
 export function composeReviewCandidate(doc: unknown): ReviewCandidateView {
   const d = asRecord(doc, 'review-candidate');
@@ -804,6 +827,9 @@ export function composeReviewCandidate(doc: unknown): ReviewCandidateView {
     provenance: strOrNull(d.provenance),
     placementStatus: strOrNull(d.placement_status),
     engineReason: strOrNull(d.engine_reason),
+    dialect: strOrNull(d.dialect),
+    genericFallback: d.generic_fallback === true,
+    confidence: composeConfidence(d.confidence),
     noManualGeometry: d.no_manual_geometry === true,
     referencedSheets: numList(d.referenced_sheets),
     renderSheets: numList(d.render_sheets),
