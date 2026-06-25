@@ -21,6 +21,7 @@ import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
 import { coerceSection, workspaceHref, type WorkspaceSectionKey } from '@/lib/workspaceSections';
 import {
+  assembleCloseoutPackage,
   downloadCloseoutPdfBlob,
   downloadExportBundleBlob,
   fetchCloseoutStatus,
@@ -32,6 +33,20 @@ import {
 } from '@/lib/api/productWrites';
 
 const WORKSPACE_RBL_ID = 'rbl-main'; // the canonical reviewed-bore-log id the gate uses
+
+// Honest copy for the closeout-assembly review gate (a REVIEW redline must be human-accepted before packaging).
+function assembleBlockerCopy(blocker: string | null): string {
+  switch (blocker) {
+    case 'REVIEW_NOT_ACCEPTED':
+      return 'Accept the engine REVIEW candidate in the Review section first, then assemble.';
+    case 'REVIEW_WAS_REJECTED':
+      return 'The REVIEW candidate was rejected — correct it in the Review section before assembling.';
+    case 'REVIEW_ABSTAINED':
+      return 'The engine abstained — there is no placed redline to assemble.';
+    default:
+      return 'Cannot assemble the closeout package yet.';
+  }
+}
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -181,7 +196,13 @@ export function ProductWorkspace(props: WorkspaceProps) {
       ) : section === 'borelogs' ? (
         <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
       ) : section === 'redlines' ? (
-        <ProductWorkflowPanel jobId={selectedJobId} refreshKey={uploadsKey} />
+        <ProductWorkflowPanel
+          jobId={selectedJobId}
+          refreshKey={uploadsKey}
+          placed={detail.slots.redlineManifest}
+          assembled={detail.slots.exportPackage}
+          onChanged={() => void refreshDetail(selectedJobId)}
+        />
       ) : section === 'review' ? (
         <ProductReviewCandidates
           jobId={selectedJobId}
@@ -189,9 +210,16 @@ export function ProductWorkspace(props: WorkspaceProps) {
           planUploads={detail.uploads
             .filter((u) => u.kind === 'PLAN_PDF')
             .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
+          onChanged={() => void refreshDetail(selectedJobId)}
         />
       ) : section === 'closeout' ? (
-        <CloseoutSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
+        <CloseoutSection
+          jobId={selectedJobId}
+          refreshKey={uploadsKey}
+          placed={detail.slots.redlineManifest}
+          assembled={detail.slots.exportPackage}
+          onAssembled={() => void refreshDetail(selectedJobId)}
+        />
       ) : section === 'exports' ? (
         <ExportsSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
       ) : (
@@ -324,18 +352,26 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
 }
 
 // --------------------------------------------------------------------------- //
-// Closeout — read-only server-authoritative status (assemble happens in Redlines).
+// Closeout — OWNS the closeout assembly. Once a redline is PLACED (a recognized deterministic render OR an
+// accepted REVIEW candidate, from ANY panel), it offers "Assemble closeout package" here, driven by the
+// persisted job slots — NOT a transient Generate click. The backend review gate still enforces acceptance,
+// so a pending/rejected REVIEW surfaces a clear next step. Once assembled, it shows the server-authoritative
+// status and points to Exports. This is why the owner is never stranded after accepting a REVIEW candidate.
 // --------------------------------------------------------------------------- //
-function CloseoutSection({ jobId, refreshKey, ready }: { jobId: string; refreshKey?: string; ready: boolean }) {
+function CloseoutSection({ jobId, refreshKey, placed, assembled, onAssembled }: {
+  jobId: string; refreshKey?: string; placed: boolean; assembled: boolean; onAssembled: () => void;
+}) {
   const [status, setStatus] = useState<string | null>(null);
   const [blockers, setBlockers] = useState<readonly string[]>([]);
   const [warnings, setWarnings] = useState<readonly string[]>([]);
-  const [note, setNote] = useState<string>('Loading…');
+  const [note, setNote] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!ready) {
+    if (!assembled) {
       setStatus(null);
-      setNote('No closeout has been evaluated yet. Run Generate → Assemble in the Redlines section to create it.');
+      setNote('');
       return;
     }
     setNote('Loading…');
@@ -347,22 +383,59 @@ function CloseoutSection({ jobId, refreshKey, ready }: { jobId: string; refreshK
       setNote('');
     } catch {
       setStatus(null);
-      setNote('No closeout has been evaluated yet. Run Generate → Assemble in the Redlines section to create it.');
+      setNote('Closeout status unavailable — retry, or re-assemble.');
     }
-  }, [jobId, ready]);
+  }, [jobId, assembled]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load, refreshKey]);
 
+  async function onAssemble() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await assembleCloseoutPackage(jobId);
+      if (result.assembled) onAssembled();              // refresh detail -> assembled flips -> status loads
+      else setError(assembleBlockerCopy(result.blocker));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'failed to assemble the closeout package');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card>
       <h3 className="font-semibold text-ink">Closeout</h3>
-      {note && <p className="mt-1 text-sm text-ink-3">{note}</p>}
-      {status && (
+
+      {!placed && (
+        <p className="mt-1 text-sm text-ink-3">
+          No redline is placed yet. Generate one in the <span className="font-semibold">Redlines</span>{' '}
+          section (and accept the REVIEW candidate if prompted), then assemble the closeout package here.
+        </p>
+      )}
+
+      {placed && !assembled && (
+        <div className="mt-1">
+          <p className="text-sm text-ink-3">
+            A redline is placed for this job. Assemble the closeout &amp; export package to finish.
+          </p>
+          <button
+            onClick={onAssemble}
+            disabled={busy}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+            {busy ? 'Assembling…' : 'Assemble closeout package'}
+          </button>
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
+      )}
+
+      {assembled && (
         <div className="mt-2 text-sm">
-          <p>Status: <span className="font-mono text-emerald-700">{status}</span></p>
+          {note && <p className="text-ink-3">{note}</p>}
+          {status && <p>Status: <span className="font-mono text-emerald-700">{status}</span></p>}
           {blockers.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-red-600">
               {blockers.map((b) => <li key={b}>blocker: <span className="font-mono">{b}</span></li>)}
@@ -373,7 +446,10 @@ function CloseoutSection({ jobId, refreshKey, ready }: { jobId: string; refreshK
               {warnings.map((w) => <li key={w}>warning: <span className="font-mono">{w}</span></li>)}
             </ul>
           )}
-          <p className="mt-2 text-[11px] text-ink-3">Closeout status is server-authoritative. Approve/lock are deferred (await verified-role auth).</p>
+          <p className="mt-2 text-[11px] text-ink-3">
+            Closeout status is server-authoritative. Download the package in the Exports section. Approve/lock
+            are deferred (await verified-role auth).
+          </p>
         </div>
       )}
     </Card>

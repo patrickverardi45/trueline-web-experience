@@ -111,12 +111,16 @@ export function ProductReviewCandidates({
   jobId,
   refreshKey,
   planUploads,
+  onChanged,
 }: {
   jobId: string;
   // Changes when the job's uploads change so the lane re-reads the current candidate (if any).
   refreshKey?: string;
   // The job's PLAN_PDF uploads — enables the "Correct redline placement" step when a placement is uncertain.
   planUploads?: readonly { uploadId: string; filename: string }[];
+  // Ask the workspace to refresh the job detail (slots) after accept/reject, so the Redlines/Closeout sections
+  // recognize the accepted REVIEW candidate and offer Assemble — the user is never stranded after accepting.
+  onChanged?: () => void;
 }) {
   const [boot, setBoot] = useState<Boot>({ phase: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -173,6 +177,7 @@ export function ProductReviewCandidates({
     setActionError(null);
     try {
       setBoot({ phase: 'ready', candidate: await acceptReviewCandidate(jobId, candidate.candidateId) });
+      onChanged?.();                              // refresh slots so Redlines/Closeout offer Assemble
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'failed to accept');
     } finally {
@@ -194,6 +199,7 @@ export function ProductReviewCandidates({
         candidate: await rejectReviewCandidate(jobId, candidate.candidateId, reason.trim()),
       });
       setReason('');
+      onChanged?.();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'failed to reject');
     } finally {

@@ -922,7 +922,10 @@ export interface ProductRedlineOutcome {
   readonly deterministicLogId: string | null;
   readonly renderCommit: string | null;
   readonly candidateId: string | null;
-  readonly requiresAcceptance: boolean;    // true only for a UPLOADED_REVIEW candidate
+  readonly requiresAcceptance: boolean;    // true only for a UPLOADED_REVIEW candidate that is NOT yet accepted
+  readonly reviewStatus: string | null;    // REVIEW_CANDIDATE | REVIEW_ACCEPTED | REVIEW_REJECTED | null
+  readonly reviewAccepted: boolean;        // the existing REVIEW candidate is already human-accepted
+  readonly reviewRejected: boolean;        // the existing REVIEW candidate was rejected
   readonly blockers: readonly WorkflowBlocker[];
 }
 
@@ -945,6 +948,9 @@ export function composeProductRedlineOutcome(doc: unknown): ProductRedlineOutcom
     renderCommit: strOrNull(d.render_commit),
     candidateId: strOrNull(d.candidate_id),
     requiresAcceptance: d.requires_acceptance === true,
+    reviewStatus: strOrNull(d.review_status),
+    reviewAccepted: d.review_accepted === true,
+    reviewRejected: d.review_rejected === true,
     blockers: composeWorkflowBlockers(d.blockers),
   };
 }

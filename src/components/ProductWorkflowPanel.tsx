@@ -79,9 +79,37 @@ function copyFor(code: string): string | null {
   return BLOCKER_COPY[code] ?? null;
 }
 
+// Honest copy for the closeout-assembly review gate (a REVIEW redline must be human-accepted before packaging).
+function assembleBlockerCopy(blocker: string | null): string {
+  switch (blocker) {
+    case 'REVIEW_NOT_ACCEPTED':
+      return 'Accept the engine REVIEW candidate in the Review section first, then assemble.';
+    case 'REVIEW_WAS_REJECTED':
+      return 'The REVIEW candidate was rejected — correct it in the Review section before assembling.';
+    case 'REVIEW_ABSTAINED':
+      return 'The engine abstained — there is no placed redline to assemble.';
+    default:
+      return 'Cannot assemble the closeout package yet.';
+  }
+}
+
 type Img = { path: string; url: string };
 
-export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; refreshKey?: string }) {
+export function ProductWorkflowPanel({
+  jobId,
+  refreshKey,
+  placed = false,
+  assembled = false,
+  onChanged,
+}: {
+  jobId: string;
+  refreshKey?: string;
+  // Persisted truth from the job's slots, so this panel reflects redlines placed/assembled in ANOTHER panel
+  // (e.g. a REVIEW candidate accepted in the Review section) without a fresh Generate click in THIS panel.
+  placed?: boolean; // slots.redlineManifest — a redline candidate is placed (recognized OR uploaded)
+  assembled?: boolean; // slots.exportPackage — the closeout/export package is already assembled
+  onChanged?: () => void; // ask the workspace to refresh the job detail (slots) after accept/reject/assemble
+}) {
   const [outcome, setOutcome] = useState<ProductRedlineOutcome | null>(null);
   const [images, setImages] = useState<readonly Img[]>([]);
   const [pkg, setPkg] = useState<CloseoutPackageResult | null>(null);
@@ -122,6 +150,23 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
     };
   }, [images]);
 
+  // Rehydrate: a redline is already placed for this job (slots.redlineManifest) — e.g. a REVIEW candidate
+  // accepted in the Review section, or a prior generate — but this panel has no fresh Generate outcome and
+  // the package is not yet assembled. Load the placed PNG(s) so the panel offers Assemble directly; the
+  // owner is never stranded on "Generate" after accepting elsewhere.
+  const showRehydrated = placed && !assembled && !outcome;
+  useEffect(() => {
+    if (!showRehydrated) return;
+    let active = true;
+    loadImages()
+      .then((imgs) => active && setImages(imgs))
+      .catch(() => active && setImages([]));
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRehydrated, jobId, refreshKey]);
+
   async function onGenerate() {
     setBusy(true);
     setError(null);
@@ -131,6 +176,10 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
     try {
       const out = await runProductRedline(jobId);
       setOutcome(out);
+      // Reflect the candidate's PERSISTED acceptance (idempotent generate preserves a prior decision), so a
+      // re-run after accepting elsewhere shows "ready to assemble", not a fresh acceptance gate.
+      setReviewAccepted(out.reviewAccepted);
+      setReviewRejected(out.reviewRejected);
       setImages(out.rendered ? await loadImages() : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to run the redline workflow');
@@ -146,6 +195,7 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
     try {
       await acceptReviewCandidate(jobId, outcome.candidateId);
       setReviewAccepted(true);
+      onChanged?.();                                   // refresh slots so Closeout/Exports see the acceptance
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to accept');
     } finally {
@@ -165,6 +215,7 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
       await rejectReviewCandidate(jobId, outcome.candidateId, reason.trim());
       setReviewRejected(true);
       setReason('');
+      onChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to reject');
     } finally {
@@ -176,7 +227,15 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
     setBusy(true);
     setError(null);
     try {
-      setPkg(await assembleCloseoutPackage(jobId));
+      const result = await assembleCloseoutPackage(jobId);
+      if (result.assembled) {
+        setPkg(result);
+        onChanged?.();                                // refresh slots so Closeout/Exports reflect the package
+      } else {
+        // The backend review gate refused (pending/rejected REVIEW) — surface the honest next step.
+        setPkg(null);
+        setError(assembleBlockerCopy(result.blocker));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to assemble the closeout package');
     } finally {
@@ -248,6 +307,50 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
         supported uploaded package produces an engine REVIEW candidate to accept or reject; anything else
         honestly abstains with specific reasons. No coordinates are ever invented.
       </p>
+
+      {/* Rehydrated: a redline is ALREADY placed for this job (e.g. accepted in the Review section) and the
+          package is not yet assembled — offer Assemble directly so the owner is never stranded on "Generate".
+          The backend review gate still enforces acceptance; a pending/rejected REVIEW surfaces a clear next
+          step via onAssemble's error. */}
+      {showRehydrated && (
+        <div className="mt-3 rounded-lg border border-line bg-white p-3">
+          <p className="text-sm font-semibold text-emerald-700">A redline is already placed for this job.</p>
+          <p className="mt-1 text-xs text-ink-3">
+            It was placed in an earlier step (a recognized deterministic render or an accepted REVIEW
+            candidate). You don’t need to generate again — assemble the closeout &amp; export package here, or
+            from the <span className="font-semibold">Closeout</span> section.
+          </p>
+          {images.length > 0 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {images.map((img) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  key={img.path}
+                  src={img.url}
+                  alt={`Redline ${img.path}`}
+                  className="w-full rounded-lg border border-line bg-white"
+                />
+              ))}
+            </div>
+          )}
+          <div className="mt-3 border-t border-line pt-3">
+            <button
+              onClick={onAssemble}
+              disabled={busy}
+              className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm font-semibold text-ink-2 hover:text-ink disabled:opacity-50">
+              {busy && !pkg ? 'Assembling…' : 'Assemble closeout & export package'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Already assembled — point to Exports instead of a dead "Generate" landing on a finished job. */}
+      {assembled && !outcome && !pkg && (
+        <p className="mt-3 rounded-md bg-paper px-3 py-2 text-xs text-ink-2">
+          The closeout &amp; export package for this job is already assembled — download the ZIP / PDF in the{' '}
+          <span className="font-semibold">Exports</span> section.
+        </p>
+      )}
 
       {outcome && pathCopy && (
         <div className="mt-3 rounded-lg border border-line bg-white p-3">
@@ -338,50 +441,53 @@ export function ProductWorkflowPanel({ jobId, refreshKey }: { jobId: string; ref
             </div>
           )}
 
-          {pkg && (
-            <div className="mt-3 rounded-md bg-paper px-3 py-2 text-xs text-ink-2">
-              <p>
-                closeout: <span className="font-mono">{pkg.closeoutStatus}</span>
-                {' · '}export package: <span className="font-mono">{pkg.exportStatus}</span>
+        </div>
+      )}
+
+      {/* Closeout/export RESULT — panel-level so it shows after Assemble from EITHER the fresh-generate flow
+          or the rehydrated (already-placed) flow. */}
+      {pkg && (
+        <div className="mt-3 rounded-md bg-paper px-3 py-2 text-xs text-ink-2">
+          <p>
+            closeout: <span className="font-mono">{pkg.closeoutStatus}</span>
+            {' · '}export package: <span className="font-mono">{pkg.exportStatus}</span>
+          </p>
+          {pkg.includedSections.length > 0 && (
+            <p className="mt-1">included: <span className="font-mono">{pkg.includedSections.join(', ')}</span></p>
+          )}
+          {pkg.omittedSections.length > 0 && (
+            <p className="mt-1">omitted: <span className="font-mono">{pkg.omittedSections.join(', ')}</span></p>
+          )}
+          <p className="mt-1">
+            KMZ: <span className="font-mono">{pkg.kmzStatus}</span>
+            {pkg.kmzStatus === 'BLOCKED' && (
+              <span className="ml-1 text-ink-3">
+                — no geo-referenced coordinates on the pixel-space redline; the system refuses to fake
+                them ({pkg.kmzBlockers.join(', ') || pkg.kmzGeometryBasis})
+              </span>
+            )}
+          </p>
+          {pkg.assembled && (
+            <div className="mt-2 border-t border-line pt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={onDownload}
+                  disabled={busy}
+                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+                  {busy ? 'Preparing…' : 'Download closeout package (.zip)'}
+                </button>
+                <button
+                  onClick={onDownloadPdf}
+                  disabled={busy}
+                  className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-1.5 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
+                  {busy ? 'Preparing…' : 'Download closeout PDF'}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-ink-3">
+                ZIP = redline PNG(s) + manifest + closeout/export/KMZ status + reviewed bore-log metadata.
+                PDF = a customer-readable closeout packet (the same trusted data + embedded redline
+                evidence; billing quantities only — no dollars unless server cost rules are configured).
               </p>
-              {pkg.includedSections.length > 0 && (
-                <p className="mt-1">included: <span className="font-mono">{pkg.includedSections.join(', ')}</span></p>
-              )}
-              {pkg.omittedSections.length > 0 && (
-                <p className="mt-1">omitted: <span className="font-mono">{pkg.omittedSections.join(', ')}</span></p>
-              )}
-              <p className="mt-1">
-                KMZ: <span className="font-mono">{pkg.kmzStatus}</span>
-                {pkg.kmzStatus === 'BLOCKED' && (
-                  <span className="ml-1 text-ink-3">
-                    — no geo-referenced coordinates on the pixel-space redline; the system refuses to fake
-                    them ({pkg.kmzBlockers.join(', ') || pkg.kmzGeometryBasis})
-                  </span>
-                )}
-              </p>
-              {pkg.assembled && (
-                <div className="mt-2 border-t border-line pt-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={onDownload}
-                      disabled={busy}
-                      className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-                      {busy ? 'Preparing…' : 'Download closeout package (.zip)'}
-                    </button>
-                    <button
-                      onClick={onDownloadPdf}
-                      disabled={busy}
-                      className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-1.5 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
-                      {busy ? 'Preparing…' : 'Download closeout PDF'}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-[11px] text-ink-3">
-                    ZIP = redline PNG(s) + manifest + closeout/export/KMZ status + reviewed bore-log metadata.
-                    PDF = a customer-readable closeout packet (the same trusted data + embedded redline
-                    evidence; billing quantities only — no dollars unless server cost rules are configured).
-                  </p>
-                </div>
-              )}
             </div>
           )}
         </div>
