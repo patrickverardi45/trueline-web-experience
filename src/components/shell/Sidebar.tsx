@@ -1,14 +1,14 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, ClipboardCheck, Download, Gauge, Home, ImageIcon, LayoutDashboard, Lock, Map as MapIcon,
-  PenLine, Receipt, Upload, CheckCircle2,
+  PenLine, Upload, CheckCircle2,
 } from 'lucide-react';
 
-import { WORKSPACE_SECTIONS, coerceSection, workspaceHref, type WorkspaceSectionKey } from '@/lib/workspaceSections';
+import { WORKSPACE_SECTIONS, sectionAnchorId, type WorkspaceSectionKey } from '@/lib/workspaceSections';
 
 // Demo nav = ONLY the demo-safe routes. The other contract-preview routes (map / plans / redlines /
 // evidence / feed / closeout / packet / projects / settings) either SSR-fetch the Access-gated API (a 500
@@ -29,7 +29,6 @@ const SECTION_ICON: Record<WorkspaceSectionKey, typeof Home> = {
   review: CheckCircle2,
   closeout: Gauge,
   exports: Download,
-  billing: Receipt,
 };
 
 const navLink = (active: boolean) =>
@@ -37,17 +36,53 @@ const navLink = (active: boolean) =>
     active ? 'bg-navy-700 text-white' : 'text-slate-400 hover:bg-navy-800 hover:text-slate-200'
   }`;
 
-/** The reactive nav body. Reads the URL: in the internal workspace (/intake?workspace=1) it shows the job
- *  workflow sections; everywhere else it shows the simple public demo nav. (useSearchParams -> wrapped in a
- *  Suspense boundary by the Sidebar shell.) */
+/** The reactive nav body. In the internal workspace (/intake?workspace=1) the section links are SAME-PAGE
+ *  anchors (the body renders all sections stacked on one page) with an IntersectionObserver scroll-spy for
+ *  the active highlight; everywhere else it shows the simple public demo nav. (useSearchParams -> wrapped in
+ *  a Suspense boundary by the Sidebar shell.) */
 function SidebarNav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const workspace = pathname === '/intake' && searchParams.get('workspace') === '1';
+  const job = searchParams.get('job');
+
+  const [activeKey, setActiveKey] = useState<WorkspaceSectionKey>('summary');
+
+  // Scroll-spy: observe the body's <section id="ws-<key>"> elements (separate React tree -> read the DOM).
+  // Retries until the sections mount (job detail loads after this nav).
+  useEffect(() => {
+    if (!workspace || !job) return;
+    let observer: IntersectionObserver | null = null;
+    let timer = 0;
+    let tries = 0;
+    const attach = () => {
+      const els = WORKSPACE_SECTIONS
+        .map((s) => document.getElementById(sectionAnchorId(s.key)))
+        .filter((e): e is HTMLElement => e !== null);
+      if (els.length === 0) {
+        if (tries++ < 12) timer = window.setTimeout(attach, 300);
+        return;
+      }
+      observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+          if (visible[0]) {
+            const key = WORKSPACE_SECTIONS.find((s) => sectionAnchorId(s.key) === visible[0].target.id)?.key;
+            if (key) setActiveKey(key);
+          }
+        },
+        { rootMargin: '-25% 0px -65% 0px', threshold: [0, 0.5, 1] },
+      );
+      els.forEach((el) => observer!.observe(el));
+    };
+    timer = window.setTimeout(attach, 0);
+    return () => {
+      window.clearTimeout(timer);
+      observer?.disconnect();
+    };
+  }, [workspace, job]);
 
   if (workspace) {
-    const job = searchParams.get('job');
-    const active = coerceSection(searchParams.get('section'));
     return (
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
         <Link
@@ -56,12 +91,11 @@ function SidebarNav() {
           <ArrowLeft className="size-4 shrink-0" strokeWidth={1.75} /> Demo workflows
         </Link>
         <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-          Workspace{job ? '' : ' · select a job'}
+          Workflow{job ? '' : ' · select a project'}
         </div>
         {WORKSPACE_SECTIONS.map(({ key, label }, i) => {
           const Icon = SECTION_ICON[key];
           if (!job) {
-            // Locked until a job is selected (sections need a job to show real data).
             return (
               <span
                 key={key}
@@ -75,11 +109,19 @@ function SidebarNav() {
             );
           }
           return (
-            <Link key={key} href={workspaceHref(job, key)} className={navLink(active === key)}>
+            <a
+              key={key}
+              href={`#${sectionAnchorId(key)}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveKey(key);
+                document.getElementById(sectionAnchorId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className={navLink(activeKey === key)}>
               <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
               <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
               {label}
-            </Link>
+            </a>
           );
         })}
       </nav>
@@ -103,7 +145,7 @@ function SidebarNav() {
 
 export function Sidebar() {
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-navy-900">
+    <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-navy-900 print:hidden">
       <Link href="/" className="flex items-center gap-2.5 px-5 pb-5 pt-6">
         <span className="flex size-8 items-center justify-center rounded-lg bg-accent">
           <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">

@@ -115,6 +115,8 @@ export function ProductReviewCandidates({
   refreshKey,
   planUploads,
   onChanged,
+  hideGenerate = false,
+  placed = false,
 }: {
   jobId: string;
   // Changes when the job's uploads change so the lane re-reads the current candidate (if any).
@@ -124,6 +126,12 @@ export function ProductReviewCandidates({
   // Ask the workspace to refresh the job detail (slots) after accept/reject, so the Redlines/Closeout sections
   // recognize the accepted REVIEW candidate and offer Assemble — the user is never stranded after accepting.
   onChanged?: () => void;
+  // Single-page workspace: the SOLE Generate lives in the Redline section, so suppress this lane's own
+  // Generate button and, when no candidate exists yet, show a short pointer instead (default OFF preserves the
+  // standalone guided-demo usage, which DOES own its Generate).
+  hideGenerate?: boolean;
+  // Whether a redline is already placed (slots.redlineManifest) — drives the no-candidate hint copy.
+  placed?: boolean;
 }) {
   const [boot, setBoot] = useState<Boot>({ phase: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -278,13 +286,20 @@ export function ProductReviewCandidates({
         </p>
       )}
 
-      {boot.phase === 'ready' && !candidate && (
+      {boot.phase === 'ready' && !candidate && !hideGenerate && (
         <button
           onClick={onGenerate}
           disabled={busy}
           className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
           {busy ? 'Generating…' : 'Generate engine REVIEW candidate'}
         </button>
+      )}
+      {boot.phase === 'ready' && !candidate && hideGenerate && (
+        <p className="mt-3 rounded-md bg-paper px-3 py-2 text-sm text-ink-3">
+          {placed
+            ? 'No review needed — the redline was placed automatically. Continue to the Closeout review below.'
+            : 'Generate the redline in the Redline section above; the candidate to review and accept (or correct) will appear here.'}
+        </p>
       )}
 
       {candidate && status && (

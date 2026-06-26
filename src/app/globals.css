@@ -35,3 +35,26 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
+
+/* Print / Save closeout review: show ONLY the on-screen closeout review (#closeout-print) — the v1
+   "review before print" snapshot. Everything else (sidebar, topbar, banner, the other workspace sections,
+   the project picker) is hidden. The redline evidence images are already-loaded same-origin blob: URLs and
+   print fine. This is a secondary on-screen snapshot; the authoritative packet is the server closeout PDF. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #closeout-print,
+  #closeout-print * {
+    visibility: visible;
+  }
+  #closeout-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  #closeout-print details {
+    display: none; /* keep diagnostics out of the printed review */
+  }
+}

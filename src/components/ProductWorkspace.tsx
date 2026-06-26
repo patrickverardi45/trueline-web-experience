@@ -1,16 +1,17 @@
 'use client';
 
-// Phase 11 — internal v2 product WORKSPACE body (typed-only /intake?workspace=1; NOT in the public/guided
-// nav). The section workflow lives in the MAIN LEFT SIDEBAR (see shell/Sidebar.tsx); this component renders a
-// compact job header + the SINGLE selected section full-width. Section + job are URL-driven
-// (?workspace=1&job=<id>&section=<key>) so the sidebar and this body stay in sync. Every section works on
-// REAL data or shows an honest "not yet"/"not available" state — no mock pages, no fakes. Reuses the proven
-// Phase 9/10 components + routes.
+// Single-page job WORKSPACE (mirrors v1: one job, one understandable page). All sections render stacked in
+// order on ONE scrollable page — Overview (job header) / Project files / Map / Bore logs / Redline / Review &
+// correct / Closeout review / Export & print — each as <section id="ws-<key>"> so the left sidebar acts as
+// same-page anchors (scroll-spy), NOT separate routes. One owner per action: Redline=Generate, Review=Accept/
+// Correct, Closeout=Assemble, Export=Download/Print. Dev plumbing (raw slots/provenance/sha/codes/internal
+// statuses) is collapsed behind "Technical details / Diagnostics". Composed entirely from existing reads — no
+// new backend capability, no fakes.
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowRight, CheckCircle2, Printer, XCircle } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
@@ -19,23 +20,30 @@ import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogG
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
-import { coerceSection, workspaceHref, type WorkspaceSectionKey } from '@/lib/workspaceSections';
+import {
+  WORKSPACE_SECTIONS, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
+} from '@/lib/workspaceSections';
 import {
   assembleCloseoutPackage,
   downloadCloseoutPdfBlob,
   downloadExportBundleBlob,
   fetchCloseoutStatus,
   fetchExportStatus,
+  fetchJobArtifactBlob,
   fetchJobArtifacts,
   fetchReviewQueue,
+  fetchReviewedBoreLog,
+  listReviewCandidates,
+  type JobArtifactRef,
   type ProductJobDetail,
   type ProductJobSummary,
+  type ReviewedBoreLogView,
 } from '@/lib/api/productWrites';
 
-const WORKSPACE_RBL_ID = 'rbl-main'; // the canonical reviewed-bore-log id the gate uses
+const WORKSPACE_RBL_ID = 'rbl-main';
 
-// Friendly, understandable titles for the prepared sample jobs (the raw id stays as a muted technical
-// sub-label). A job the user creates falls back to its own id (which is the name they typed).
+// Friendly, understandable titles for the prepared sample jobs (the raw id stays a muted technical sub-label).
+// A job the user creates falls back to its own id (the name they typed).
 const JOB_TITLES: Record<string, string> = {
   'demo-general-upload': 'Uploaded project — clean placement',
   'demo-general-upload-ambiguous': 'Uploaded project — ambiguous (correct it)',
@@ -48,18 +56,35 @@ function jobTitle(id: string): string {
   return JOB_TITLES[id] ?? id;
 }
 
-// Honest copy for the closeout-assembly review gate (a REVIEW redline must be human-accepted before packaging).
-function assembleBlockerCopy(blocker: string | null): string {
-  switch (blocker) {
-    case 'REVIEW_NOT_ACCEPTED':
-      return 'Accept the engine REVIEW candidate in the Review section first, then assemble.';
-    case 'REVIEW_WAS_REJECTED':
-      return 'The REVIEW candidate was rejected — correct it in the Review section before assembling.';
-    case 'REVIEW_ABSTAINED':
-      return 'The engine abstained — there is no placed redline to assemble.';
-    default:
-      return 'Cannot assemble the closeout package yet.';
-  }
+const FRIENDLY_STAGE: Record<string, string> = {
+  CREATED: 'New project', UPLOADING: 'Uploading files', EXTRACTING: 'Processing',
+  AWAITING_REVIEW: 'Awaiting review', PLACING: 'Placing redline', PLACED: 'Redline placed',
+  CLOSEOUT_REVIEW: 'Closeout review', CLOSED: 'Closed', FAILED: 'Failed',
+};
+function friendlyStage(s: string): string {
+  return FRIENDLY_STAGE[s] ?? s;
+}
+function friendlyCloseout(s: string | null): string {
+  if (!s) return 'not assembled';
+  return s.replace(/_/g, ' ').toLowerCase();
+}
+
+const UPLOAD_KINDS: { kind: string; label: string; required: boolean; use: string }[] = [
+  { kind: 'PLAN_PDF', label: 'Plan PDF', required: true, use: 'The construction plan the engine draws the redline on.' },
+  { kind: 'BORE_LOG', label: 'Bore log', required: true, use: 'The bore stations the redline is placed against.' },
+  { kind: 'GIS_ROUTE', label: 'KMZ / KML route', required: false, use: 'Route context drawn on the Map section.' },
+  { kind: 'PHOTO', label: 'Photos', required: false, use: 'Field photos stored with the project.' },
+];
+
+// Plain-English copy for the closeout warning/blocker codes (raw code kept behind Diagnostics).
+const CLOSEOUT_CODE_COPY: Record<string, string> = {
+  KMZ_EXPORT_BLOCKED:
+    'A geo-referenced KMZ is not produced — the redline is pixel-only on the plan (no map coordinates), and the system will not fake them.',
+  REVIEW_NOT_ACCEPTED: 'The redline candidate still needs to be accepted (or corrected) in the Review section.',
+  REVIEW_WAS_REJECTED: 'The redline candidate was rejected — correct it in the Review section before assembling.',
+};
+function closeoutCodeCopy(code: string): string {
+  return CLOSEOUT_CODE_COPY[code] ?? code.replace(/_/g, ' ').toLowerCase();
 }
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -71,6 +96,11 @@ function triggerDownload(blob: Blob, filename: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function scrollToSection(key: WorkspaceSectionKey) {
+  if (typeof document === 'undefined') return;
+  document.getElementById(sectionAnchorId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 interface WorkspaceProps {
@@ -93,18 +123,27 @@ export function ProductWorkspace(props: WorkspaceProps) {
   const { projectExists, busy, jobs, selectedJobId, detail, newJobId, setNewJobId, actionError, uploadsKey,
           onCreateProject, onCreateJob, refreshDetail, loadProjectAndJobs } = props;
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const section = coerceSection(searchParams.get('section'));
 
-  // Keep slot-gated sections (Closeout/Exports/Summary) fresh after a Generate/Assemble: re-read the job
-  // detail whenever the section changes (sidebar nav) or the job changes.
+  // Any in-page action (generate / accept / correct / assemble) bumps this so every read section re-reads the
+  // now-current state — the single page stays in sync without separate-page navigation.
+  const [flowVersion, setFlowVersion] = useState(0);
+  const refreshKey = `${uploadsKey}:${flowVersion}`;
+  const onChanged = useCallback(() => {
+    if (selectedJobId) void refreshDetail(selectedJobId);
+    setFlowVersion((v) => v + 1);
+  }, [selectedJobId, refreshDetail]);
+
+  // Refresh the job detail on JOB change (one page now, so no per-section nav refresh).
   useEffect(() => {
     if (selectedJobId) void refreshDetail(selectedJobId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, selectedJobId]);
+  }, [selectedJobId]);
 
   const boreLogUploads = (detail?.uploads ?? [])
     .filter((u) => u.kind === 'BORE_LOG')
+    .map((u) => ({ uploadId: u.uploadId, filename: u.filename }));
+  const planUploads = (detail?.uploads ?? [])
+    .filter((u) => u.kind === 'PLAN_PDF')
     .map((u) => ({ uploadId: u.uploadId, filename: u.filename }));
 
   async function onCreate() {
@@ -114,18 +153,98 @@ export function ProductWorkspace(props: WorkspaceProps) {
     router.push(workspaceHref(id, 'summary'));
   }
 
+  function renderSection(key: WorkspaceSectionKey) {
+    if (!detail || !selectedJobId) return null;
+    switch (key) {
+      case 'summary':
+        return <JobHeaderBand jobId={selectedJobId} detail={detail} jobs={jobs} refreshKey={refreshKey} />;
+      case 'uploads':
+        return (
+          <SectionShell n={2} label="Project files">
+            <UploadsCards detail={detail} />
+            <ProductUploadPanel
+              jobId={selectedJobId}
+              onUploaded={() => { void refreshDetail(selectedJobId); void loadProjectAndJobs(); setFlowVersion((v) => v + 1); }}
+            />
+            <details className="rounded-lg border border-line bg-paper px-3 py-2">
+              <summary className="cursor-pointer text-xs text-ink-3">Technical details — stored file inventory</summary>
+              <div className="mt-1"><ProductUploadInventory job={detail} /></div>
+            </details>
+          </SectionShell>
+        );
+      case 'map':
+        return (
+          <SectionShell n={3} label="Map / route">
+            <ProductRouteMap jobId={selectedJobId} refreshKey={refreshKey} />
+          </SectionShell>
+        );
+      case 'borelogs':
+        return (
+          <SectionShell n={4} label="Bore logs">
+            <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
+          </SectionShell>
+        );
+      case 'redlines':
+        return (
+          <SectionShell n={5} label="Redline">
+            <ProductWorkflowPanel
+              jobId={selectedJobId}
+              refreshKey={refreshKey}
+              placed={detail.slots.redlineManifest}
+              onChanged={onChanged}
+              onGoToReview={() => scrollToSection('review')}
+              onGoToCloseout={() => scrollToSection('closeout')}
+            />
+          </SectionShell>
+        );
+      case 'review':
+        return (
+          <SectionShell n={6} label="Review &amp; correct">
+            <ProductReviewCandidates
+              jobId={selectedJobId}
+              refreshKey={refreshKey}
+              planUploads={planUploads}
+              placed={detail.slots.redlineManifest}
+              hideGenerate
+              onChanged={onChanged}
+            />
+          </SectionShell>
+        );
+      case 'closeout':
+        return (
+          <SectionShell n={7} label="Closeout review">
+            <CloseoutReviewSection
+              jobId={selectedJobId}
+              detail={detail}
+              refreshKey={refreshKey}
+              onAssembled={onChanged}
+              onGoToReview={() => scrollToSection('review')}
+              onGoToExports={() => scrollToSection('exports')}
+            />
+          </SectionShell>
+        );
+      case 'exports':
+        return (
+          <SectionShell n={8} label="Export &amp; print">
+            <ExportsSection jobId={selectedJobId} refreshKey={refreshKey} ready={detail.slots.exportPackage} />
+          </SectionShell>
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
     <div className="mt-6 space-y-4">
       <Card>
         <h2 className="text-lg font-semibold text-ink">Project workspace</h2>
         <p className="mt-1 text-sm text-ink-2">
-          Upload a plan PDF, KMZ/KML route, bore log, and photos; the engine places redlines on the plan;
-          review or correct the placement; then assemble and download the closeout package. Redlines come from
-          the real engine — no coordinates are invented, and an uncertain placement is flagged for your review
-          and correction rather than guessed.
+          One project, one page: upload files, see the route and bore logs, generate the redline, review or
+          correct the placement, then review and download the closeout package. Redlines come from the real
+          engine — nothing is invented, and an uncertain placement is flagged for your review rather than guessed.
         </p>
         <Link href="/intake" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink hover:underline">
-          <ArrowLeft className="size-3.5" /> Guided demo workflows
+          Guided demo workflows
         </Link>
       </Card>
 
@@ -142,18 +261,18 @@ export function ProductWorkspace(props: WorkspaceProps) {
         </Card>
       )}
 
-      {/* Compact job header: pick the active job (drives ?job= so the sidebar workflow unlocks). */}
+      {/* Job picker — pick or create the project to work on (stays above the page flow). */}
       <Card>
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="font-semibold text-ink">Job</h3>
+          <h3 className="font-semibold text-ink">Project</h3>
           {jobs.length === 0 ? (
-            <span className="text-sm text-ink-3">No jobs yet — create one.</span>
+            <span className="text-sm text-ink-3">No projects yet — create one.</span>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {jobs.map((j) => (
                 <button
                   key={j.jobId}
-                  onClick={() => router.push(workspaceHref(j.jobId, section))}
+                  onClick={() => router.push(workspaceHref(j.jobId, 'summary'))}
                   className={`rounded-md border px-2.5 py-1 text-left ${
                     selectedJobId === j.jobId
                       ? 'border-accent bg-accent-soft text-accent-strong'
@@ -169,149 +288,91 @@ export function ProductWorkspace(props: WorkspaceProps) {
             <input
               value={newJobId}
               onChange={(e) => setNewJobId(e.target.value)}
-              placeholder="job id (a-z 0-9 _ -)"
-              className="w-40 rounded-md border border-line px-2.5 py-1.5 font-mono text-xs text-ink"
+              placeholder="new project id (a-z 0-9 _ -)"
+              className="w-44 rounded-md border border-line px-2.5 py-1.5 font-mono text-xs text-ink"
             />
             <button
               onClick={() => void onCreate()}
               disabled={busy || !projectExists || newJobId.trim().length === 0}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-              Create job
+              Create project
             </button>
           </div>
         </div>
         {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
       </Card>
 
-      {/* The single selected section, full width. */}
       {!selectedJobId || !detail ? (
         <Card>
-          <h3 className="font-semibold text-ink">Select or create a job</h3>
+          <h3 className="font-semibold text-ink">Select or create a project</h3>
           <p className="mt-1 text-sm text-ink-3">
-            Pick a job above (or create one) to unlock the workflow sections in the left sidebar: Job Summary,
-            Uploads, Map/Route, Bore Logs, Redlines, Review, Closeout, Exports, and Billing.
+            Pick a project above (or create one) to open the full workflow on this page: files, map, bore logs,
+            redline, review, closeout, and export.
           </p>
         </Card>
-      ) : section === 'summary' ? (
-        <JobSummarySection jobId={selectedJobId} detail={detail} refreshKey={uploadsKey}
-                           onNavigate={(k) => router.push(workspaceHref(selectedJobId, k))} />
-      ) : section === 'uploads' ? (
-        <div className="space-y-4">
-          <UploadsChecklist detail={detail} />
-          <ProductUploadPanel
-            jobId={selectedJobId}
-            onUploaded={() => {
-              void refreshDetail(selectedJobId);
-              void loadProjectAndJobs();
-            }}
-          />
-          <ProductUploadInventory job={detail} />
-        </div>
-      ) : section === 'map' ? (
-        <ProductRouteMap jobId={selectedJobId} refreshKey={uploadsKey} />
-      ) : section === 'borelogs' ? (
-        <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
-      ) : section === 'redlines' ? (
-        <ProductWorkflowPanel
-          jobId={selectedJobId}
-          refreshKey={uploadsKey}
-          placed={detail.slots.redlineManifest}
-          assembled={detail.slots.exportPackage}
-          onChanged={() => void refreshDetail(selectedJobId)}
-        />
-      ) : section === 'review' ? (
-        <ProductReviewCandidates
-          jobId={selectedJobId}
-          refreshKey={uploadsKey}
-          planUploads={detail.uploads
-            .filter((u) => u.kind === 'PLAN_PDF')
-            .map((u) => ({ uploadId: u.uploadId, filename: u.filename }))}
-          onChanged={() => void refreshDetail(selectedJobId)}
-        />
-      ) : section === 'closeout' ? (
-        <CloseoutSection
-          jobId={selectedJobId}
-          refreshKey={uploadsKey}
-          placed={detail.slots.redlineManifest}
-          assembled={detail.slots.exportPackage}
-          onAssembled={() => void refreshDetail(selectedJobId)}
-        />
-      ) : section === 'exports' ? (
-        <ExportsSection jobId={selectedJobId} refreshKey={uploadsKey} ready={detail.slots.exportPackage} />
       ) : (
-        <BillingSection jobId={selectedJobId} refreshKey={uploadsKey} />
+        <div className="space-y-8">
+          {WORKSPACE_SECTIONS.map(({ key }) => (
+            <section key={key} id={sectionAnchorId(key)} className="scroll-mt-24">
+              {renderSection(key)}
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
 // --------------------------------------------------------------------------- //
-// Uploads — what exists vs what's missing (real, from the job's upload kinds).
+// A thin, numbered section marker so the scrollable flow reads in order (the sidebar anchors land here).
 // --------------------------------------------------------------------------- //
-const UPLOAD_KINDS: { kind: string; label: string; required: boolean }[] = [
-  { kind: 'PLAN_PDF', label: 'Plan PDF', required: true },
-  { kind: 'BORE_LOG', label: 'Bore log', required: true },
-  { kind: 'GIS_ROUTE', label: 'GIS route (KMZ/KML)', required: false },
-  { kind: 'PHOTO', label: 'Photos', required: false },
-];
-
-function UploadsChecklist({ detail }: { detail: ProductJobDetail }) {
-  const present = new Set(detail.uploads.map((u) => u.kind));
+function SectionShell({ n, label, children }: { n: number; label: string; children: React.ReactNode }) {
   return (
-    <Card>
-      <h3 className="font-semibold text-ink">Uploads — what this job has</h3>
-      <ul className="mt-2 space-y-1.5 text-sm">
-        {UPLOAD_KINDS.map((k) => {
-          const has = present.has(k.kind);
-          return (
-            <li key={k.kind} className="flex items-center gap-2">
-              {has ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-ink-3" />}
-              <span className={has ? 'text-ink' : 'text-ink-3'}>{k.label}</span>
-              {!has && k.required && <span className="text-xs text-amber-700">required</span>}
-              {!has && !k.required && <span className="text-xs text-ink-3">optional</span>}
-            </li>
-          );
-        })}
-      </ul>
-      <p className="mt-2 text-[11px] text-ink-3">Files are stored untrusted (no OCR/parsing on upload).</p>
-    </Card>
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="flex size-6 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-strong">{n}</span>
+        <h2 className="text-base font-semibold text-ink">{label}</h2>
+      </div>
+      {children}
+    </div>
   );
 }
 
 // --------------------------------------------------------------------------- //
-// Job Summary — composes existing reads; honest "not yet" on any unavailable piece. Slot-gated so a pristine
-// job makes no doomed 404 requests.
+// Job header band (Overview) — readable name, stage, files summary, redline + closeout status, and ONE
+// derived primary next action. Raw status matrix sits behind Diagnostics. Slot-gated reads (no doomed 404s).
 // --------------------------------------------------------------------------- //
-interface SummaryState {
-  artifactCount: number | null;
+interface HeaderFacts {
   engineReady: boolean | null;
+  artifactCount: number | null;
   closeoutStatus: string | null;
   exportStatus: string | null;
+  reviewStatus: string | null;
 }
 
-function JobSummarySection({ jobId, detail, refreshKey, onNavigate }: {
-  jobId: string; detail: ProductJobDetail; refreshKey?: string; onNavigate: (s: WorkspaceSectionKey) => void;
+function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
+  jobId: string; detail: ProductJobDetail; jobs: readonly ProductJobSummary[]; refreshKey?: string;
 }) {
-  const [s, setS] = useState<SummaryState>({ artifactCount: null, engineReady: null, closeoutStatus: null, exportStatus: null });
+  const [f, setF] = useState<HeaderFacts>({ engineReady: null, artifactCount: null, closeoutStatus: null, exportStatus: null, reviewStatus: null });
 
   const hasBundle = detail.slots.artifactBundle;
-  // The closeout record + export_package slot are BOTH created by Assemble (not by Generate, which only sets
-  // the manifest/bundle) — so gate the closeout/export reads on hasExport to avoid a doomed 404 on a job
-  // that is generated (PLACED) but not yet assembled.
   const hasExport = detail.slots.exportPackage;
   const hasBoreLog = detail.uploads.some((u) => u.kind === 'BORE_LOG');
+  const placed = detail.slots.redlineManifest;
 
   const load = useCallback(async () => {
-    let artifactCount: number | null = hasBundle ? null : 0;
     let engineReady: boolean | null = null;
+    let artifactCount: number | null = hasBundle ? null : 0;
     let closeoutStatus: string | null = null;
     let exportStatus: string | null = null;
-    if (hasBundle) { try { artifactCount = (await fetchJobArtifacts(jobId)).length; } catch { artifactCount = null; } }
+    let reviewStatus: string | null = null;
     if (hasBoreLog) { try { engineReady = (await fetchReviewQueue(jobId, WORKSPACE_RBL_ID)).engineReady; } catch { engineReady = null; } }
+    if (hasBundle) { try { artifactCount = (await fetchJobArtifacts(jobId)).length; } catch { artifactCount = null; } }
     if (hasExport) { try { closeoutStatus = (await fetchCloseoutStatus(jobId)).status; } catch { closeoutStatus = null; } }
     if (hasExport) { try { exportStatus = (await fetchExportStatus(jobId)).status; } catch { exportStatus = null; } }
-    setS({ artifactCount, engineReady, closeoutStatus, exportStatus });
-  }, [jobId, hasBundle, hasExport, hasBoreLog]);
+    if (placed) { try { const cs = await listReviewCandidates(jobId); reviewStatus = cs.length > 0 ? (cs[0].status ?? null) : null; } catch { reviewStatus = null; } }
+    setF({ engineReady, artifactCount, closeoutStatus, exportStatus, reviewStatus });
+  }, [jobId, hasBundle, hasExport, hasBoreLog, placed]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -319,93 +380,163 @@ function JobSummarySection({ jobId, detail, refreshKey, onNavigate }: {
   }, [load, refreshKey]);
 
   const present = new Set(detail.uploads.map((u) => u.kind));
-  const yn = (v: boolean) => (v ? 'yes' : 'no');
-  const orPending = (v: string | null, pending = 'not yet') => v ?? pending;
+  const hasPlan = present.has('PLAN_PDF');
+  const summary = jobs.find((j) => j.jobId === jobId);
+
+  // ONE derived primary next action (same detail the sections read -> never stale after an action).
+  const primary: { label: string; to: WorkspaceSectionKey } = (() => {
+    if (!hasPlan || !hasBoreLog) return { label: 'Upload the plan + bore log', to: 'uploads' };
+    if (hasBoreLog && f.engineReady === false) return { label: 'Review the bore log', to: 'borelogs' };
+    if (!placed) return { label: 'Generate the redline', to: 'redlines' };
+    if (f.reviewStatus === 'REVIEW_CANDIDATE') return { label: 'Accept or correct the redline', to: 'review' };
+    if (f.reviewStatus === 'REVIEW_REJECTED') return { label: 'Correct the rejected redline', to: 'review' };
+    if (!hasExport) return { label: 'Assemble the closeout package', to: 'closeout' };
+    return { label: 'Download / print the closeout package', to: 'exports' };
+  })();
+
+  const redlineStatus = !placed ? 'not placed'
+    : f.reviewStatus === 'REVIEW_ACCEPTED' ? 'placed · accepted'
+    : f.reviewStatus === 'REVIEW_SUPERSEDED' ? 'placed · corrected'
+    : f.reviewStatus === 'REVIEW_CANDIDATE' ? 'placed · awaiting review'
+    : f.reviewStatus === 'REVIEW_REJECTED' ? 'placed · rejected'
+    : 'placed';
 
   return (
     <Card>
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold text-ink">Job Summary</h3>
-        <span className="font-mono text-xs text-ink-3">{jobId}</span>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-ink">{jobTitle(jobId)}</h2>
+          <p className="mt-0.5 font-mono text-[11px] text-ink-3">{jobId}</p>
+        </div>
+        <span className="rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent-strong">
+          {friendlyStage(detail.status)}
+        </span>
       </div>
 
-      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
-        <Stat label="Job status" value={detail.status} mono />
-        <Stat label="Uploads" value={`${detail.uploads.length} file(s)`} />
-        <Stat label="Plan PDF" value={yn(present.has('PLAN_PDF'))} />
-        <Stat label="Bore log" value={yn(present.has('BORE_LOG'))} />
-        <Stat label="GIS route" value={yn(present.has('GIS_ROUTE'))} />
-        <Stat label="Reviewed bore-log ready" value={s.engineReady === null ? 'not yet' : yn(s.engineReady)} />
-        <Stat label="Redline manifest" value={yn(detail.slots.redlineManifest)} />
-        <Stat label="Redline artifacts" value={s.artifactCount === null ? '—' : String(s.artifactCount)} />
-        <Stat label="Export package" value={yn(detail.slots.exportPackage)} />
-        <Stat label="Closeout" value={orPending(s.closeoutStatus)} mono />
-        <Stat label="Export status" value={orPending(s.exportStatus)} mono />
-      </dl>
-
-      <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
-        {(['uploads', 'map', 'redlines', 'closeout', 'exports'] as WorkspaceSectionKey[]).map((k) => (
-          <button
-            key={k}
-            onClick={() => onNavigate(k)}
-            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-2 hover:text-ink">
-            Go to {k}
-          </button>
-        ))}
+      {/* Readable status strip. */}
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
+        <span className="text-ink-2"><span className="text-ink-3">Files:</span> {detail.uploads.length} ({UPLOAD_KINDS.filter((k) => present.has(k.kind)).map((k) => k.label).join(', ') || 'none'})</span>
+        <span className="text-ink-2"><span className="text-ink-3">Redline:</span> {redlineStatus}{f.artifactCount != null && placed ? ` · ${f.artifactCount} image(s)` : ''}</span>
+        <span className="text-ink-2"><span className="text-ink-3">Closeout:</span> {hasExport ? friendlyCloseout(f.closeoutStatus) : 'not assembled'}</span>
       </div>
-      <p className="mt-2 text-[11px] text-ink-3">All values are read from the live product API; “not yet” means the step hasn’t produced server-authoritative state.</p>
+
+      {/* ONE primary next action. */}
+      <button
+        onClick={() => scrollToSection(primary.to)}
+        className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
+        {primary.label} <ArrowRight className="size-4" />
+      </button>
+
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs text-ink-3">Diagnostics</summary>
+        <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-4">
+          <Diag label="job id" value={jobId} mono />
+          <Diag label="status" value={detail.status} mono />
+          <Diag label="created" value={summary?.createdAt ?? '—'} />
+          <Diag label="redline_manifest slot" value={String(detail.slots.redlineManifest)} mono />
+          <Diag label="artifact_bundle slot" value={String(detail.slots.artifactBundle)} mono />
+          <Diag label="export_package slot" value={String(detail.slots.exportPackage)} mono />
+          <Diag label="engine_ready" value={f.engineReady == null ? '—' : String(f.engineReady)} mono />
+          <Diag label="review status" value={f.reviewStatus ?? '—'} mono />
+          <Diag label="closeout status" value={f.closeoutStatus ?? '—'} mono />
+          <Diag label="export status" value={f.exportStatus ?? '—'} mono />
+          <Diag label="redline images" value={f.artifactCount == null ? '—' : String(f.artifactCount)} />
+        </dl>
+      </details>
     </Card>
   );
 }
 
-function Stat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Diag({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <dt className="text-xs text-ink-3">{label}</dt>
-      <dd className={`text-ink ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
+      <dt className="text-ink-3">{label}</dt>
+      <dd className={`text-ink-2 ${mono ? 'font-mono' : ''}`}>{value}</dd>
     </div>
   );
 }
 
 // --------------------------------------------------------------------------- //
-// Closeout — OWNS the closeout assembly. Once a redline is PLACED (a recognized deterministic render OR an
-// accepted REVIEW candidate, from ANY panel), it offers "Assemble closeout package" here, driven by the
-// persisted job slots — NOT a transient Generate click. The backend review gate still enforces acceptance,
-// so a pending/rejected REVIEW surfaces a clear next step. Once assembled, it shows the server-authoritative
-// status and points to Exports. This is why the owner is never stranded after accepting a REVIEW candidate.
+// Project files — clean cards: uploaded/missing, what it's for, next action.
 // --------------------------------------------------------------------------- //
-function CloseoutSection({ jobId, refreshKey, placed, assembled, onAssembled }: {
-  jobId: string; refreshKey?: string; placed: boolean; assembled: boolean; onAssembled: () => void;
+function UploadsCards({ detail }: { detail: ProductJobDetail }) {
+  const present = new Set(detail.uploads.map((u) => u.kind));
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {UPLOAD_KINDS.map((k) => {
+        const has = present.has(k.kind);
+        return (
+          <Card key={k.kind} className={has ? '' : 'border-dashed'}>
+            <div className="flex items-start gap-2">
+              {has ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <XCircle className="mt-0.5 size-5 shrink-0 text-ink-3" />}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-semibold text-ink">{k.label}</h4>
+                  {has ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">Uploaded</span>
+                  ) : (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${k.required ? 'bg-amber-100 text-amber-800' : 'bg-line text-ink-3'}`}>
+                      {k.required ? 'Required — missing' : 'Optional'}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-ink-3">{k.use}</p>
+                <p className="mt-1 text-xs text-ink-2">
+                  {has ? 'Ready.' : k.required ? 'Add this file below to enable redline placement.' : 'Add below (optional).'}
+                </p>
+              </div>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Closeout review (v1 review-before-print) — composed from existing reads. The SOLE Assemble owner. Wrapped
+// in id="closeout-print" so window.print() (in the Export section) can scope to just this review.
+// --------------------------------------------------------------------------- //
+type Img = { path: string; url: string };
+
+function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToReview, onGoToExports }: {
+  jobId: string; detail: ProductJobDetail; refreshKey?: string;
+  onAssembled: () => void; onGoToReview: () => void; onGoToExports: () => void;
 }) {
-  const [status, setStatus] = useState<string | null>(null);
-  const [blockers, setBlockers] = useState<readonly string[]>([]);
+  const placed = detail.slots.redlineManifest;
+  const assembled = detail.slots.exportPackage;
+  const [rbl, setRbl] = useState<ReviewedBoreLogView | null>(null);
+  const [images, setImages] = useState<readonly Img[]>([]);
+  const [closeoutStatus, setCloseoutStatus] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<readonly string[]>([]);
-  const [note, setNote] = useState<string>('');
+  const [blockers, setBlockers] = useState<readonly string[]>([]);
+  const [included, setIncluded] = useState<readonly string[]>([]);
+  const [omitted, setOmitted] = useState<readonly string[]>([]);
+  const [reviewStatus, setReviewStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!assembled) {
-      setStatus(null);
-      setNote('');
-      return;
-    }
-    setNote('Loading…');
-    try {
-      const v = await fetchCloseoutStatus(jobId);
-      setStatus(v.status);
-      setBlockers(v.hardBlockerCodes);
-      setWarnings(v.warningCodes);
-      setNote('');
-    } catch {
-      setStatus(null);
-      setNote('Closeout status unavailable — retry, or re-assemble.');
-    }
-  }, [jobId, assembled]);
+    try { setRbl(await fetchReviewedBoreLog(jobId, WORKSPACE_RBL_ID)); } catch { setRbl(null); }
+    try { const cs = await listReviewCandidates(jobId); setReviewStatus(cs.length ? (cs[0].status ?? null) : null); } catch { setReviewStatus(null); }
+    if (detail.slots.artifactBundle) {
+      try {
+        const refs: readonly JobArtifactRef[] = await fetchJobArtifacts(jobId);
+        const blobs = await Promise.all(refs.map((r) => fetchJobArtifactBlob(jobId, r.path)));
+        setImages(refs.map((r, i) => ({ path: r.path, url: URL.createObjectURL(blobs[i]) })));
+      } catch { setImages([]); }
+    } else setImages([]);
+    if (assembled) {
+      try { const c = await fetchCloseoutStatus(jobId); setCloseoutStatus(c.status); setWarnings(c.warningCodes); setBlockers(c.hardBlockerCodes); } catch { setCloseoutStatus(null); }
+      try { const e = await fetchExportStatus(jobId); setIncluded(e.includedSections); setOmitted(e.omittedSections); } catch { /* not assembled */ }
+    } else { setCloseoutStatus(null); setWarnings([]); setBlockers([]); setIncluded([]); setOmitted([]); }
+  }, [jobId, assembled, detail.slots.artifactBundle]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
+    return () => { for (const im of images) URL.revokeObjectURL(im.url); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, refreshKey]);
 
   async function onAssemble() {
@@ -413,8 +544,8 @@ function CloseoutSection({ jobId, refreshKey, placed, assembled, onAssembled }: 
     setError(null);
     try {
       const result = await assembleCloseoutPackage(jobId);
-      if (result.assembled) onAssembled();              // refresh detail -> assembled flips -> status loads
-      else setError(assembleBlockerCopy(result.blocker));
+      if (result.assembled) onAssembled();
+      else setError(closeoutCodeCopy(result.blocker ?? '') + (result.blocker === 'REVIEW_NOT_ACCEPTED' || result.blocker === 'REVIEW_WAS_REJECTED' ? '' : ''));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to assemble the closeout package');
     } finally {
@@ -422,84 +553,187 @@ function CloseoutSection({ jobId, refreshKey, placed, assembled, onAssembled }: 
     }
   }
 
-  return (
-    <Card>
-      <h3 className="font-semibold text-ink">Closeout</h3>
-
-      {!placed && (
+  if (!placed) {
+    return (
+      <Card>
+        <h3 className="font-semibold text-ink">Closeout review</h3>
         <p className="mt-1 text-sm text-ink-3">
-          No redline is placed yet. Generate one in the <span className="font-semibold">Redlines</span>{' '}
-          section (and accept the REVIEW candidate if prompted), then assemble the closeout package here.
+          No redline is placed yet. Generate one in the <span className="font-semibold">Redline</span> section
+          above (and accept or correct it in <span className="font-semibold">Review</span>), then assemble and
+          review the closeout package here.
         </p>
+      </Card>
+    );
+  }
+
+  const present = new Set(detail.uploads.map((u) => u.kind));
+  const redlineSummary = reviewStatus === 'REVIEW_ACCEPTED' ? 'Accepted REVIEW redline'
+    : reviewStatus === 'REVIEW_SUPERSEDED' ? 'Human-corrected REVIEW redline'
+    : reviewStatus === 'REVIEW_CANDIDATE' ? 'REVIEW candidate — not yet accepted'
+    : reviewStatus === 'REVIEW_REJECTED' ? 'Rejected — needs correction'
+    : 'Automatic (recognized) redline';
+
+  return (
+    <div id="closeout-print" className="space-y-4">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold text-ink">Closeout review</h3>
+          {assembled
+            ? <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Assembled — {friendlyCloseout(closeoutStatus)}</span>
+            : <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Not assembled</span>}
+        </div>
+        <p className="mt-1 text-sm text-ink-3">Review everything below before downloading or printing the closeout package.</p>
+
+        {!assembled && (
+          <div className="mt-3">
+            <button onClick={onAssemble} disabled={busy}
+              className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+              {busy ? 'Assembling…' : 'Assemble closeout package'}
+            </button>
+            {error && (
+              <p className="mt-2 text-sm text-red-600">
+                {error}{' '}
+                {(error.includes('accept') || error.includes('Review')) && (
+                  <button onClick={onGoToReview} className="font-semibold underline">Go to Review</button>
+                )}
+              </p>
+            )}
+          </div>
+        )}
+        {assembled && (
+          <p className="mt-3 text-sm text-ink-2">
+            The package is assembled. <button onClick={onGoToExports} className="font-semibold text-accent-strong hover:underline">Download or print it in Export &amp; print ↓</button>
+          </p>
+        )}
+      </Card>
+
+      {/* Job summary + files */}
+      <Card>
+        <h4 className="font-medium text-ink">Project summary</h4>
+        <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-3">
+          <Field label="Project" value={jobTitle(jobId)} />
+          <Field label="Stage" value={friendlyStage(detail.status)} />
+          <Field label="Redline" value={redlineSummary} />
+        </dl>
+        <h4 className="mt-4 font-medium text-ink">Uploaded files</h4>
+        <ul className="mt-2 space-y-1 text-sm">
+          {UPLOAD_KINDS.map((k) => (
+            <li key={k.kind} className="flex items-center gap-2">
+              {present.has(k.kind) ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-ink-3" />}
+              <span className={present.has(k.kind) ? 'text-ink' : 'text-ink-3'}>{k.label}</span>
+              {detail.uploads.filter((u) => u.kind === k.kind).map((u) => (
+                <span key={u.uploadId} className="text-xs text-ink-3">· {u.filename}</span>
+              ))}
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      {/* Redline evidence images */}
+      {images.length > 0 && (
+        <Card>
+          <h4 className="font-medium text-ink">Redline evidence</h4>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            {images.map((img) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img key={img.path} src={img.url} alt={`Redline ${img.path}`} className="w-full rounded-lg border border-line bg-white" />
+            ))}
+          </div>
+        </Card>
       )}
 
-      {placed && !assembled && (
-        <div className="mt-1">
-          <p className="text-sm text-ink-3">
-            A redline is placed for this job. Assemble the closeout &amp; export package to finish.
-          </p>
-          <button
-            onClick={onAssemble}
-            disabled={busy}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-            {busy ? 'Assembling…' : 'Assemble closeout package'}
-          </button>
-          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-        </div>
-      )}
+      {/* Bore-log rows */}
+      <Card>
+        <h4 className="font-medium text-ink">Bore-log rows</h4>
+        {(rbl?.rows.length ?? 0) === 0 ? (
+          <p className="mt-1 text-sm text-ink-3">No reviewed bore-log rows recorded.</p>
+        ) : (
+          <table className="mt-2 w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-ink-3">
+                <th className="py-1.5 pr-3 font-medium">Start → End station</th>
+                <th className="py-1.5 font-medium">Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rbl?.rows.map((r) => (
+                <tr key={r.rowId} className="border-b border-line/60 last:border-0">
+                  <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
+                  <td className="py-1.5 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
 
-      {assembled && (
-        <div className="mt-2 text-sm">
-          {note && <p className="text-ink-3">{note}</p>}
-          {status && <p>Status: <span className="font-mono text-emerald-700">{status}</span></p>}
-          {blockers.length > 0 && (
-            <ul className="mt-2 list-disc pl-5 text-red-600">
-              {blockers.map((b) => <li key={b}>blocker: <span className="font-mono">{b}</span></li>)}
+      {/* Quantities + warnings + package contents (assembled) */}
+      <Card>
+        <h4 className="font-medium text-ink">Quantities &amp; package</h4>
+        <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-3">
+          <Field label="Redline images" value={String(images.length)} />
+          <Field label="Reviewed rows" value={String(rbl?.rows.length ?? 0)} />
+          <Field label="Billing dollars" value="not shown (quantities only)" />
+        </dl>
+        <p className="mt-2 text-xs text-ink-3">
+          The full itemized deliverable quantities (drawn / total / blocked counts and footage when present)
+          and the review disclaimer are in the downloadable closeout PDF.
+        </p>
+
+        {assembled && (included.length > 0 || omitted.length > 0) && (
+          <div className="mt-3 border-t border-line pt-3 text-sm">
+            <p className="font-medium text-ink">Package contents</p>
+            {included.length > 0 && <p className="mt-1 text-ink-2">Included: {included.map((s) => s.replace(/_/g, ' ').toLowerCase()).join(', ')}</p>}
+            {omitted.length > 0 && <p className="mt-0.5 text-ink-3">Omitted: {omitted.map((s) => s.replace(/_/g, ' ').toLowerCase()).join(', ')}</p>}
+          </div>
+        )}
+
+        {assembled && (warnings.length > 0 || blockers.length > 0) && (
+          <div className="mt-3 border-t border-line pt-3 text-sm">
+            <p className="font-medium text-ink">Notes</p>
+            <ul className="mt-1 space-y-1">
+              {blockers.map((b) => (
+                <li key={b} className="text-red-600">{closeoutCodeCopy(b)} <span className="font-mono text-[10px] text-ink-3">({b})</span></li>
+              ))}
+              {warnings.map((w) => (
+                <li key={w} className="text-ink-3">{closeoutCodeCopy(w)} <span className="font-mono text-[10px] text-ink-3">({w})</span></li>
+              ))}
             </ul>
-          )}
-          {warnings.length > 0 && (
-            <ul className="mt-1 list-disc pl-5 text-ink-3">
-              {warnings.map((w) => <li key={w}>warning: <span className="font-mono">{w}</span></li>)}
-            </ul>
-          )}
-          <p className="mt-2 text-[11px] text-ink-3">
-            Closeout status is server-authoritative. Download the package in the Exports section. Approve/lock
-            are deferred (await verified-role auth).
-          </p>
-        </div>
-      )}
-    </Card>
+          </div>
+        )}
+
+        <p className="mt-3 rounded-md bg-paper px-3 py-2 text-xs text-ink-3">
+          Generated from the uploaded source evidence. This is a REVIEW deliverable — review it before
+          construction or use. Closeout status is server-authoritative; approve/lock are deferred.
+        </p>
+      </Card>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-ink-3">{label}</dt>
+      <dd className="text-ink">{value}</dd>
+    </div>
   );
 }
 
 // --------------------------------------------------------------------------- //
-// Exports — download ZIP + PDF (proven Phase 10) + the export section list.
+// Export & print — the SOLE Download owner + Print/Save (window.print of the closeout review).
 // --------------------------------------------------------------------------- //
 function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKey?: string; ready: boolean }) {
   const [status, setStatus] = useState<string | null>(null);
-  const [included, setIncluded] = useState<readonly string[]>([]);
-  const [omitted, setOmitted] = useState<readonly string[]>([]);
   const [note, setNote] = useState<string>('Loading…');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!ready) {
-      setStatus(null);
-      setNote('No export package assembled yet. Run Generate → Assemble in the Redlines section first.');
-      return;
-    }
+    if (!ready) { setStatus(null); setNote('No closeout package assembled yet. Assemble it in the Closeout review section above.'); return; }
     setNote('Loading…');
-    try {
-      const v = await fetchExportStatus(jobId);
-      setStatus(v.status);
-      setIncluded(v.includedSections);
-      setOmitted(v.omittedSections);
-      setNote('');
-    } catch {
-      setStatus(null);
-      setNote('No export package assembled yet. Run Generate → Assemble in the Redlines section first.');
-    }
+    try { setStatus((await fetchExportStatus(jobId)).status); setNote(''); }
+    catch { setStatus(null); setNote('No closeout package assembled yet. Assemble it in the Closeout review section above.'); }
   }, [jobId, ready]);
 
   useEffect(() => {
@@ -511,7 +745,7 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
     setBusy(true);
     setError(null);
     try {
-      if (kind === 'zip') triggerDownload(await downloadExportBundleBlob(jobId), `redline_export_${jobId}.zip`);
+      if (kind === 'zip') triggerDownload(await downloadExportBundleBlob(jobId), `closeout_data_${jobId}.zip`);
       else triggerDownload(await downloadCloseoutPdfBlob(jobId), `closeout_packet_${jobId}.pdf`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'download failed (assemble the closeout package first)');
@@ -522,70 +756,38 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
 
   return (
     <Card>
-      <h3 className="font-semibold text-ink">Exports</h3>
+      <h3 className="font-semibold text-ink">Export &amp; print</h3>
       {note && <p className="mt-1 text-sm text-ink-3">{note}</p>}
-      {status && (
-        <p className="mt-1 text-sm">Export status: <span className="font-mono">{status}</span></p>
-      )}
+      {status && <p className="mt-1 text-sm text-ink-2">Closeout package: <span className="font-medium">{ready ? 'ready' : friendlyCloseout(status)}</span></p>}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
-          onClick={() => void download('zip')}
-          disabled={busy}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-          {busy ? 'Preparing…' : 'Download closeout package (.zip)'}
+          onClick={() => window.print()}
+          disabled={!ready}
+          className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink-2 hover:text-ink disabled:opacity-50">
+          <Printer className="size-4" /> Print / Save this review
         </button>
         <button
           onClick={() => void download('pdf')}
-          disabled={busy}
-          className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-1.5 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
+          disabled={busy || !ready}
+          className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
           {busy ? 'Preparing…' : 'Download closeout PDF'}
         </button>
+        <button
+          onClick={() => void download('zip')}
+          disabled={busy || !ready}
+          className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-2 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
+          {busy ? 'Preparing…' : 'Download data package (.zip)'}
+        </button>
       </div>
+      <p className="mt-2 text-xs text-ink-3">
+        <span className="font-medium">Print / Save</span> opens your browser print dialog to print or save the
+        on-screen closeout review as a PDF. <span className="font-medium">Download closeout PDF</span> is the
+        server-generated packet (the official deliverable, with embedded redline evidence and itemized
+        quantities). <span className="font-medium">Data package (.zip)</span> = the redline images + manifest +
+        status files. No dollar amounts are shown — quantities only.
+      </p>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {included.length > 0 && (
-        <p className="mt-3 text-xs text-ink-3">included: <span className="font-mono">{included.join(', ')}</span></p>
-      )}
-      {omitted.length > 0 && (
-        <p className="mt-1 text-xs text-ink-3">omitted: <span className="font-mono">{omitted.join(', ')}</span></p>
-      )}
-    </Card>
-  );
-}
-
-// --------------------------------------------------------------------------- //
-// Billing — QUANTITIES only; no dollars until server cost rules are configured.
-// --------------------------------------------------------------------------- //
-function BillingSection({ jobId, refreshKey }: { jobId: string; refreshKey?: string }) {
-  const [artifactCount, setArtifactCount] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setArtifactCount((await fetchJobArtifacts(jobId)).length);
-    } catch {
-      setArtifactCount(null);
-    }
-  }, [jobId]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load, refreshKey]);
-
-  return (
-    <Card>
-      <h3 className="font-semibold text-ink">Billing</h3>
-      <p className="mt-1 text-sm text-ink-3">
-        Quantities only — <span className="font-semibold">no dollar amounts</span> are shown. Priced billing
-        appears only when server cost rules are configured (none configured on this deployment); the system
-        never shows operator-entered or client-side dollars.
-      </p>
-      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-        <Stat label="Redline PNG artifacts" value={artifactCount === null ? '—' : String(artifactCount)} />
-      </dl>
-      <p className="mt-2 text-[11px] text-ink-3">
-        The full deliverable-quantity breakdown (drawn/total/blocked log counts, footage when present) is in
-        the downloadable closeout PDF (Exports section).
-      </p>
     </Card>
   );
 }

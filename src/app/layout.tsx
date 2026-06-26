@@ -40,12 +40,16 @@ export default function RootLayout({
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full">
         <Sidebar />
-        <div className="pl-60">
-          <Topbar />
-          <div className="border-b border-amber-200 bg-amber-50 px-6 py-1.5 text-center text-xs font-medium text-amber-800">
+        <div className="pl-60 print:pl-0">
+          <div className="print:hidden">
+            <Topbar />
+          </div>
+          <div
+            data-staging-banner
+            className="border-b border-amber-200 bg-amber-50 px-6 py-1.5 text-center text-xs font-medium text-amber-800 print:hidden">
             FieldRoute · gated staging preview — demonstration environment behind Cloudflare Access
           </div>
-          <main className="mx-auto max-w-[1400px] p-6">{children}</main>
+          <main className="mx-auto max-w-[1400px] p-6 print:max-w-none print:p-0">{children}</main>
         </div>
       </body>
     </html>

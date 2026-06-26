@@ -138,12 +138,19 @@ export function ProductReviewedBoreLogGate({
   const effectiveSourceUploadId = sourceUploadId || boreLogUploads[0]?.uploadId || '';
 
   return (
-    <div className="mt-8">
-      <h3 className="font-semibold text-ink">Reviewed bore-log data (manual — not OCR)</h3>
-      <p className="mt-1 text-sm text-ink-3">
-        Human-supplied / corrected structured rows that must pass the review + grouping gate before the
-        engine could ever consider them. Nothing here runs OCR or the engine.
+    <div>
+      <p className="text-sm text-ink-3">
+        The bore stations the redline is placed against. Rows are reviewed (manual — not OCR) before the
+        engine uses them. {queue && !queue.engineReady && 'Some rows still need review — see the rows below.'}
       </p>
+      {queue && (
+        <div className="mt-2">
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${queue.engineReady ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+            {queue.engineReady ? <CheckCircle2 className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
+            {queue.engineReady ? 'Bore log reviewed & ready' : 'Bore log needs review'}
+          </span>
+        </div>
+      )}
 
       {boreLogUploads.length === 0 ? (
         <Card className="mt-3">
@@ -195,9 +202,7 @@ export function ProductReviewedBoreLogGate({
               <table className="mt-2 w-full text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-ink-3">
-                    <th className="py-1.5 pr-3 font-medium">Row</th>
-                    <th className="py-1.5 pr-3 font-medium">Start → End</th>
-                    <th className="py-1.5 pr-3 font-medium">Method</th>
+                    <th className="py-1.5 pr-3 font-medium">Start → End station</th>
                     <th className="py-1.5 pr-3 font-medium">Review</th>
                     <th className="py-1.5 font-medium">Actions</th>
                   </tr>
@@ -205,10 +210,8 @@ export function ProductReviewedBoreLogGate({
                 <tbody>
                   {rbl?.rows.map((r) => (
                     <tr key={r.rowId} className="border-b border-line/60 last:border-0">
-                      <td className="py-1.5 pr-3 font-mono text-xs text-ink-2">{r.rowId}</td>
                       <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
-                      <td className="py-1.5 pr-3 font-mono text-xs text-ink-3">{r.extractionMethod}</td>
-                      <td className="py-1.5 pr-3 font-mono text-xs text-ink-2">{r.reviewStatus}</td>
+                      <td className="py-1.5 pr-3 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
                       <td className="py-1.5">
                         <button
                           onClick={() => act(() => reviewReviewedRow(jobId, RBL_ID, r.rowId, { toStatus: 'CONFIRMED' }))}
@@ -253,6 +256,8 @@ export function ProductReviewedBoreLogGate({
             <p className="mt-1 text-xs text-ink-3">Manual reviewed/corrected input (extraction_method MANUAL_ENTRY) — not OCR.</p>
           </Card>
 
+          <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-ink-2">Review tools &amp; diagnostics (segment groups · engine-readiness)</summary>
           {/* Groups */}
           <Card className="mt-3">
             <h4 className="font-medium text-ink">Segment groups</h4>
@@ -328,12 +333,12 @@ export function ProductReviewedBoreLogGate({
               </dl>
               {queue.engineReady && (
                 <p className="mt-2 text-xs text-ink-3">
-                  Gate passed. For a recognized project package, the automatic redline handoff below can now
-                  render the engine redline; arbitrary uploaded corpora are not auto-handled.
+                  Ready — the redline can now be generated in the Redline section.
                 </p>
               )}
             </Card>
           )}
+          </details>
         </>
       )}
 
