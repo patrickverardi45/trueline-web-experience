@@ -34,6 +34,20 @@ import {
 
 const WORKSPACE_RBL_ID = 'rbl-main'; // the canonical reviewed-bore-log id the gate uses
 
+// Friendly, understandable titles for the prepared sample jobs (the raw id stays as a muted technical
+// sub-label). A job the user creates falls back to its own id (which is the name they typed).
+const JOB_TITLES: Record<string, string> = {
+  'demo-general-upload': 'Uploaded project — clean placement',
+  'demo-general-upload-ambiguous': 'Uploaded project — ambiguous (correct it)',
+  'recognized-log9': 'Recognized project — automatic redline',
+  'completed-redline-showcase': 'Finished redline showcase',
+  'demo-review-acceptance': 'Uploaded project — REVIEW acceptance',
+  'demo-cross-sheet-review': 'Uploaded project — cross-sheet REVIEW',
+};
+function jobTitle(id: string): string {
+  return JOB_TITLES[id] ?? id;
+}
+
 // Honest copy for the closeout-assembly review gate (a REVIEW redline must be human-accepted before packaging).
 function assembleBlockerCopy(blocker: string | null): string {
   switch (blocker) {
@@ -102,15 +116,16 @@ export function ProductWorkspace(props: WorkspaceProps) {
 
   return (
     <div className="mt-6 space-y-4">
-      <Card className="border-2 border-amber-400 bg-amber-50">
-        <h2 className="text-lg font-semibold text-amber-900">Internal product workspace — not part of the guided demo</h2>
-        <p className="mt-1 text-sm text-amber-800">
-          Typed-only internal workflow (recognized deterministic → uploaded REVIEW → honest ABSTAIN →
-          closeout/export). The engine parses the uploaded files; reviewed rows are a human sign-off gate, not
-          the geometry source. Redlines are wired to the real proven capability — no coordinates are invented.
+      <Card>
+        <h2 className="text-lg font-semibold text-ink">Project workspace</h2>
+        <p className="mt-1 text-sm text-ink-2">
+          Upload a plan PDF, KMZ/KML route, bore log, and photos; the engine places redlines on the plan;
+          review or correct the placement; then assemble and download the closeout package. Redlines come from
+          the real engine — no coordinates are invented, and an uncertain placement is flagged for your review
+          and correction rather than guessed.
         </p>
-        <Link href="/intake" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-amber-900 hover:underline">
-          <ArrowLeft className="size-4" /> Back to the guided demo workflows
+        <Link href="/intake" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink hover:underline">
+          <ArrowLeft className="size-3.5" /> Guided demo workflows
         </Link>
       </Card>
 
@@ -139,12 +154,13 @@ export function ProductWorkspace(props: WorkspaceProps) {
                 <button
                   key={j.jobId}
                   onClick={() => router.push(workspaceHref(j.jobId, section))}
-                  className={`rounded-md border px-2.5 py-1 font-mono text-xs ${
+                  className={`rounded-md border px-2.5 py-1 text-left ${
                     selectedJobId === j.jobId
                       ? 'border-accent bg-accent-soft text-accent-strong'
                       : 'border-line text-ink-2 hover:text-ink'
                   }`}>
-                  {j.jobId}
+                  <span className="block text-xs font-medium">{jobTitle(j.jobId)}</span>
+                  <span className="block font-mono text-[10px] text-ink-3">{j.jobId}</span>
                 </button>
               ))}
             </div>

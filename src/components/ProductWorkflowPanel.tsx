@@ -356,20 +356,35 @@ export function ProductWorkflowPanel({
         <div className="mt-3 rounded-lg border border-line bg-white p-3">
           <p className="text-sm">
             <span className={`font-semibold ${pathCopy.tone}`}>{pathCopy.title}</span>
-            <span className="ml-2 font-mono text-xs text-ink-3">{path}</span>
           </p>
           <p className="mt-1 text-xs text-ink-3">{pathCopy.blurb}</p>
-          <p className="mt-1 text-xs text-ink-3">
-            {outcome.provenance && (
-              <>provenance: <span className="font-mono">{outcome.provenance}</span></>
-            )}
-            {outcome.deterministicLogId && (
-              <span className="ml-2">log: <span className="font-mono">{outcome.deterministicLogId}</span></span>
-            )}
-            {outcome.renderCommit && (
-              <span className="ml-2">render: <span className="font-mono">{outcome.renderCommit}</span></span>
-            )}
-          </p>
+
+          {/* An uploaded REVIEW placement may be uncertain — point to the Review section where the confidence
+              grade + the "Correct redline placement" tool live, so a low-confidence pick is reviewed/corrected,
+              never blindly accepted here. */}
+          {isReview && (
+            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              This is a REVIEW placement. Open the <span className="font-semibold">Review</span> section to see
+              its confidence and accept it — or correct the route if the placement looks wrong — before
+              assembling.
+            </p>
+          )}
+
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-ink-3">Technical details</summary>
+            <p className="mt-1 text-xs text-ink-3">
+              path: <span className="font-mono">{path}</span>
+              {outcome.provenance && (
+                <span className="ml-2">provenance: <span className="font-mono">{outcome.provenance}</span></span>
+              )}
+              {outcome.deterministicLogId && (
+                <span className="ml-2">log: <span className="font-mono">{outcome.deterministicLogId}</span></span>
+              )}
+              {outcome.renderCommit && (
+                <span className="ml-2">render: <span className="font-mono">{outcome.renderCommit}</span></span>
+              )}
+            </p>
+          </details>
 
           {/* ABSTAIN — specific reasons grouped by source (recognition + engine), never a bare code. */}
           {isAbstain && outcome.blockers.length > 0 && (

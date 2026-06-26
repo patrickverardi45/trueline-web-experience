@@ -33,6 +33,9 @@ interface ProductSourceAnchorCaptureProps {
   readonly jobId: string;
   readonly planUploads: readonly PlanUploadRef[];
   readonly reviewedBoreLogId?: string;
+  // Called after a SUCCEEDED render — the corrected redline is now the job's placed redline, so the parent
+  // can refresh the candidate state (-> superseded) and the job slots (-> Redlines/Closeout offer Assemble).
+  readonly onChanged?: () => void;
 }
 
 function defaultAnchorId(): string {
@@ -44,6 +47,7 @@ export function ProductSourceAnchorCapture({
   jobId,
   planUploads,
   reviewedBoreLogId = 'rbl-main',
+  onChanged,
 }: ProductSourceAnchorCaptureProps) {
   const [planUploadId, setPlanUploadId] = useState<string>(planUploads[0]?.uploadId ?? '');
   const [pageNumber, setPageNumber] = useState(1);
@@ -125,7 +129,11 @@ export function ProductSourceAnchorCapture({
     setRenderError(null);
     setRenderResult(null);
     try {
-      setRenderResult(await renderSourceAnchor(jobId, sourceAnchorId));
+      const r = await renderSourceAnchor(jobId, sourceAnchorId);
+      setRenderResult(r);
+      // The corrected redline is now this job's placed redline. Tell the parent so the Review card reflects
+      // it (the engine candidate becomes superseded) and Redlines/Closeout offer Assemble without a reload.
+      if (r.status === 'SUCCEEDED') onChanged?.();
     } catch (e) {
       setRenderError(e instanceof Error ? e.message : 'failed to render source anchor');
     } finally {
@@ -164,12 +172,13 @@ export function ProductSourceAnchorCapture({
 
   return (
     <Card className="mt-4">
-      <h3 className="font-semibold text-ink">Source-anchor capture (human-confirmed route geometry)</h3>
+      <h3 className="font-semibold text-ink">Mark the bore route on the plan</h3>
       <p className="mt-1 text-sm text-ink-3">
         Click the bore route on the uploaded plan page: first click = start, last click = end, middle clicks
         = bends. This records <span className="font-semibold">human-confirmed</span> geometry on the real
-        PDF — it is not OCR, not automatic engine placement, and it does <span className="font-semibold">not</span>{' '}
-        render a redline yet. Rendering happens only in the next slice, after a source anchor validates.
+        PDF — not OCR, not automatic engine placement. Create the anchor, then{' '}
+        <span className="font-semibold">Render</span> to draw a dashed REVIEW redline from your confirmed
+        points — that becomes this job&apos;s placed redline, ready to assemble and export.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">

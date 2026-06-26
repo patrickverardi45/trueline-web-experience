@@ -16,6 +16,7 @@ import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapt
 import {
   acceptReviewCandidate,
   fetchJobArtifactBlob,
+  fetchJobArtifacts,
   generateReviewCandidate,
   listReviewCandidates,
   rejectReviewCandidate,
@@ -36,6 +37,8 @@ function statusLabel(status: string | null): { text: string; tone: string } {
       return { text: 'Rejected', tone: 'text-red-600' };
     case 'REVIEW_CANDIDATE':
       return { text: 'Awaiting your decision', tone: 'text-amber-700' };
+    case 'REVIEW_SUPERSEDED':
+      return { text: 'Corrected — human-confirmed placement saved', tone: 'text-emerald-700' };
     case 'ABSTAINED':
       return { text: 'Engine abstained — see the reasons below', tone: 'text-ink-3' };
     default:
@@ -207,25 +210,29 @@ export function ProductReviewCandidates({
     }
   }
 
-  // Load the candidate's rendered redline PNG(s) WITH identity headers (a plain <img src> can't send them).
+  // Load the rendered redline PNG(s) WITH identity headers (a plain <img src> can't send them). For a
+  // SUPERSEDED candidate (the human corrected it), show the CORRECTED redline from the job's current slot —
+  // not the engine candidate's now-superseded bundle. setImages is only called inside the async fn (never
+  // synchronously in the effect body), so an empty set resolves to [] without a sync setState.
   useEffect(() => {
-    // setImages is only called inside the async then/catch (never synchronously in the effect body), so an
-    // empty artifact set resolves Promise.all([]) -> [] -> clears the images without a sync setState.
-    const refs: readonly JobArtifactRef[] = candidate?.bundle?.artifacts ?? [];
     let active = true;
     const created: string[] = [];
-    Promise.all(refs.map((r) => fetchJobArtifactBlob(jobId, r.path)))
-      .then((blobs) => {
-        if (!active) return;
-        setImages(
-          refs.map((r, i) => {
-            const url = URL.createObjectURL(blobs[i]);
-            created.push(url);
-            return { path: r.path, url };
-          }),
-        );
-      })
-      .catch(() => active && setImages([]));
+    const loadImages = async () => {
+      const refs: readonly JobArtifactRef[] =
+        candidate?.status === 'REVIEW_SUPERSEDED'
+          ? await fetchJobArtifacts(jobId)
+          : (candidate?.bundle?.artifacts ?? []);
+      const blobs = await Promise.all(refs.map((r) => fetchJobArtifactBlob(jobId, r.path)));
+      if (!active) return;
+      setImages(
+        refs.map((r, i) => {
+          const url = URL.createObjectURL(blobs[i]);
+          created.push(url);
+          return { path: r.path, url };
+        }),
+      );
+    };
+    void loadImages().catch(() => active && setImages([]));
     return () => {
       active = false;
       for (const u of created) URL.revokeObjectURL(u);
@@ -284,16 +291,22 @@ export function ProductReviewCandidates({
         <div className="mt-3 rounded-lg border border-line bg-white p-3">
           <p className="text-sm">
             <span className={`font-semibold ${status.tone}`}>{status.text}</span>
-            {candidate.tier && <span className="ml-2 font-mono text-ink-3">tier: {candidate.tier}</span>}
-            {candidate.placementStatus && (
-              <span className="ml-2 font-mono text-ink-3">engine: {candidate.placementStatus}</span>
-            )}
           </p>
           {candidate.provenance && (
             <p className="mt-1 text-xs text-ink-3">
               provenance: <span className="font-mono">{candidate.provenance}</span>
               {candidate.noManualGeometry && ' · no manual geometry (engine-generated)'}
             </p>
+          )}
+
+          {/* Corrected: the human replaced the uncertain engine placement with a confirmed route. */}
+          {candidate.status === 'REVIEW_SUPERSEDED' && (
+            <div className="mt-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              <span className="font-semibold">Placement corrected.</span> Your human-confirmed redline is
+              saved and is now this job&apos;s placed redline (shown below). Assemble &amp; download it in the{' '}
+              <span className="font-semibold">Closeout</span> and <span className="font-semibold">Exports</span>{' '}
+              sections.
+            </div>
           )}
 
           {/* Confidence — the general-upload (generic-geometry) REVIEW grade. Honest: a candidate, not
@@ -353,26 +366,28 @@ export function ProductReviewCandidates({
             </div>
           )}
 
-          {/* Evidence / caveats. */}
-          {(candidate.caveats.length > 0 || candidate.matchlineContinuity) && (
-            <div className="mt-2 text-xs text-ink-2">
-              {candidate.matchlineContinuity && (
-                <p>
-                  matchline continuity:{' '}
-                  <span className="font-mono">{candidate.matchlineContinuity}</span>
-                </p>
-              )}
-              {candidate.renderSheets.length > 0 && (
-                <p>render sheet(s): <span className="font-mono">{candidate.renderSheets.join(', ')}</span></p>
-              )}
-              {candidate.caveats.length > 0 && (
-                <ul className="mt-1 list-disc pl-5">
-                  {candidate.caveats.map((c) => (
-                    <li key={c} className="font-mono">{c}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+          {/* Engine evidence / caveats — raw diagnostic codes, collapsed behind Details (not the headline). */}
+          {(candidate.caveats.length > 0 || candidate.matchlineContinuity || candidate.tier) && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-ink-3">Technical details</summary>
+              <div className="mt-1 text-xs text-ink-2">
+                {candidate.tier && <p>tier: <span className="font-mono">{candidate.tier}</span>
+                  {candidate.placementStatus && <span> · engine: <span className="font-mono">{candidate.placementStatus}</span></span>}</p>}
+                {candidate.matchlineContinuity && (
+                  <p>matchline continuity: <span className="font-mono">{candidate.matchlineContinuity}</span></p>
+                )}
+                {candidate.renderSheets.length > 0 && (
+                  <p>render sheet(s): <span className="font-mono">{candidate.renderSheets.join(', ')}</span></p>
+                )}
+                {candidate.caveats.length > 0 && (
+                  <ul className="mt-1 list-disc pl-5">
+                    {candidate.caveats.map((c) => (
+                      <li key={c} className="font-mono">{c}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </details>
           )}
 
           {/* Abstain / blockers. */}
@@ -452,6 +467,10 @@ export function ProductReviewCandidates({
                     jobId={jobId}
                     planUploads={planUploads}
                     reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                    onChanged={() => {
+                      void load();      // re-read the candidate -> SUPERSEDED (hides accept/correct, shows corrected)
+                      onChanged?.();    // refresh workspace slots -> Redlines/Closeout offer Assemble
+                    }}
                   />
                 </div>
               ) : (
