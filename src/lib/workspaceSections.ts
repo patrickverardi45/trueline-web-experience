@@ -6,6 +6,8 @@
 // The single job page renders ALL these sections in order (each as <section id="sec-<key>">); the sidebar
 // links are same-page anchors (#sec-<key>) with scroll-spy, NOT separate routes. 'summary' anchors the job
 // header at the top. Customer-readable labels (no dev framing).
+import { jobAlias } from '@/lib/jobLabels';
+
 export type WorkspaceSectionKey =
   | 'summary' | 'uploads' | 'map' | 'borelogs' | 'redlines' | 'review' | 'closeout' | 'exports';
 
@@ -32,10 +34,11 @@ export function coerceSection(v: string | null): WorkspaceSectionKey {
   return v !== null && KEYS.has(v) ? (v as WorkspaceSectionKey) : 'summary';
 }
 
-/** Canonical workspace URL for a given job + section (job omitted until one is selected). */
+/** Canonical workspace URL for a given job + section (job omitted until one is selected). The ?job= value is
+ *  the NEUTRAL alias (never the raw "demo-*" store slug); ProductIntake resolves it back for API calls. */
 export function workspaceHref(jobId: string | null, section: WorkspaceSectionKey): string {
   const params = new URLSearchParams({ workspace: '1' });
-  if (jobId) params.set('job', jobId);
+  if (jobId) params.set('job', jobAlias(jobId));
   params.set('section', section);
   return `/intake?${params.toString()}`;
 }

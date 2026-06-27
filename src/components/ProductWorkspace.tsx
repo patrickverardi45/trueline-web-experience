@@ -22,6 +22,7 @@ import { ProductRouteMap } from '@/components/ProductRouteMap';
 import {
   WORKSPACE_SECTIONS, coerceSection, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
 } from '@/lib/workspaceSections';
+import { jobTitle, jobAlias } from '@/lib/jobLabels';
 import {
   assembleCloseoutPackage,
   downloadCloseoutPdfBlob,
@@ -40,20 +41,8 @@ import {
 } from '@/lib/api/productWrites';
 
 const WORKSPACE_RBL_ID = 'rbl-main';
-
-// Friendly, understandable titles for the prepared sample jobs (the raw id stays a muted technical sub-label).
-// A job the user creates falls back to its own id (the name they typed).
-const JOB_TITLES: Record<string, string> = {
-  'demo-general-upload': 'Uploaded project — clean placement',
-  'demo-general-upload-ambiguous': 'Uploaded project — ambiguous (correct it)',
-  'recognized-log9': 'Recognized project — automatic redline',
-  'completed-redline-showcase': 'Finished redline showcase',
-  'demo-review-acceptance': 'Uploaded project — REVIEW acceptance',
-  'demo-cross-sheet-review': 'Uploaded project — cross-sheet REVIEW',
-};
-function jobTitle(id: string): string {
-  return JOB_TITLES[id] ?? id;
-}
+// jobTitle (readable product name) + jobAlias (neutral technical reference) come from @/lib/jobLabels so the
+// raw "demo-*" store slug is never displayed anywhere — including Diagnostics / Technical details / URLs.
 
 const FRIENDLY_STAGE: Record<string, string> = {
   CREATED: 'New project', UPLOADING: 'Uploading files', EXTRACTING: 'Processing',
@@ -449,7 +438,7 @@ function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
       <details className="mt-3">
         <summary className="cursor-pointer text-xs text-ink-3">Diagnostics</summary>
         <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-4">
-          <Diag label="job id" value={jobId} mono />
+          <Diag label="Project key" value={jobAlias(jobId)} mono />
           <Diag label="status" value={detail.status} mono />
           <Diag label="created" value={summary?.createdAt ?? '—'} />
           <Diag label="redline_manifest slot" value={String(detail.slots.redlineManifest)} mono />

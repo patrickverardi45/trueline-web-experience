@@ -6,7 +6,7 @@
 // only — honest "not configured" / "unavailable" states; never a mock fallback.
 
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { productApiEnabled } from '@/lib/api/liveV2Product';
 import {
@@ -20,6 +20,8 @@ import {
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
 import { ProductWorkspace } from '@/components/ProductWorkspace';
+import { jobAlias, resolveJobId } from '@/lib/jobLabels';
+import { coerceSection, workspaceHref } from '@/lib/workspaceSections';
 
 type Boot =
   | { phase: 'off' }
@@ -33,8 +35,10 @@ function defaultProjectId(): string {
 }
 
 export function ProductIntake() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const jobParam = searchParams.get('job');
+  const sectionParam = searchParams.get('section');
 
   const [boot, setBoot] = useState<Boot>(() =>
     productApiEnabled() ? { phase: 'loading' } : { phase: 'off' },
@@ -85,12 +89,27 @@ export function ProductIntake() {
     }
   }, []);
 
-  // URL-driven selection: select the ?job= project when it changes. Reactive to client-side nav.
+  // Normalize a raw-slug ?job= to its NEUTRAL alias in the URL so the address bar (and the hydration
+  // payload) never carry the internal "demo-*" store slug — even on a directly-typed/bookmarked raw URL.
+  // One-time: after the replace, jobParam === alias, so this no-ops (no redirect loop).
   useEffect(() => {
-    if (boot.phase !== 'ready' || !jobParam || jobParam === selectedJobId) return;
-    if (jobs.some((j) => j.jobId === jobParam)) {
+    if (!jobParam) return;
+    const realId = resolveJobId(jobParam);
+    const alias = jobAlias(realId);
+    if (jobParam !== alias) {
+      router.replace(workspaceHref(realId, coerceSection(sectionParam)));
+    }
+  }, [jobParam, sectionParam, router]);
+
+  // URL-driven selection: the ?job= value is a NEUTRAL alias (or a real id for a user-created project);
+  // resolve it back to the store id before selecting. Reactive to client-side nav.
+  useEffect(() => {
+    if (boot.phase !== 'ready' || !jobParam) return;
+    const realId = resolveJobId(jobParam);
+    if (realId === selectedJobId) return;
+    if (jobs.some((j) => j.jobId === realId)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      void onSelectJob(jobParam);
+      void onSelectJob(realId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot.phase, jobParam, jobs]);

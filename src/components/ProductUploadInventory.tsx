@@ -7,6 +7,7 @@ import { FileText } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import type { ProductJobDetail } from '@/lib/api/productWrites';
+import { jobAlias } from '@/lib/jobLabels';
 
 function humanSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -17,11 +18,12 @@ function humanSize(bytes: number): string {
 export function ProductUploadInventory({ job }: { job: ProductJobDetail }) {
   return (
     <div className="mt-6">
-      <h3 className="font-semibold text-ink">
-        Upload inventory — job <span className="font-mono">{job.jobId}</span>
-      </h3>
+      <h3 className="font-semibold text-ink">Upload inventory</h3>
+      <p className="mt-0.5 text-xs text-ink-3">
+        Internal reference <span className="font-mono text-ink-2">{jobAlias(job.jobId)}</span>
+      </p>
       <p className="mt-1 text-sm text-ink-3">
-        Job status <span className="font-mono text-ink-2">{job.status}</span> · {job.uploads.length} file(s) stored
+        Status <span className="font-mono text-ink-2">{job.status}</span> · {job.uploads.length} file(s) stored
       </p>
 
       {job.uploads.length === 0 ? (
