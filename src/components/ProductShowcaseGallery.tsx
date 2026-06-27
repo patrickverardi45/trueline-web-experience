@@ -2,8 +2,8 @@
 
 // Completed-redline SHOWCASE gallery (read-only). Lists + renders the deterministic showcase job's real
 // FINAL_REDLINE_PNG artifacts CLIENT-side (header-bearing blob -> object URL, the same pattern the rest of
-// the product UI uses), so it works behind the Cloudflare Access gate. It NEVER shows a placeholder / mock
-// image: product mode off -> honest note; failed read -> honest "unavailable"; no artifacts -> honest empty.
+// the product UI uses), so it works behind the Cloudflare Access gate. It NEVER shows a placeholder /
+// invented image: product mode off -> honest note; failed read -> honest "unavailable"; none -> honest empty.
 //
 // What is shown here is a REPRESENTATIVE slice of the finished deterministic package (the recognized
 // showcase corpus). The full deterministic package is larger — that fact is stated honestly below rather
@@ -100,8 +100,8 @@ export function ProductShowcaseGallery() {
         <h3 className="font-semibold text-ink">Representative finished output</h3>
         <p className="mt-1 text-sm leading-relaxed text-ink-3">
           The sheets below are real deterministic redline artifacts — drawn red strokes on the actual plan,
-          served straight from the engine bundle (no mock, no placeholder). They are a representative slice of
-          the finished package shown here for a clean, fast view.
+          served straight from the engine bundle (real engine output, never placeholders). They are a
+          representative slice of the finished package shown here for a clean, fast view.
         </p>
         <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm sm:grid-cols-4">
           <div>
@@ -143,7 +143,7 @@ export function ProductShowcaseGallery() {
         {state.phase === 'error' && (
           <p className="mt-2 text-sm text-ink-3">
             Redline artifacts unavailable — check the v2 product API connection / configuration
-            (NEXT_PUBLIC_TL2_*). No placeholder image is shown rather than mock data. ({state.message})
+            (NEXT_PUBLIC_TL2_*). No placeholder image is shown rather than invented data. ({state.message})
           </p>
         )}
         {state.phase === 'empty' && (
