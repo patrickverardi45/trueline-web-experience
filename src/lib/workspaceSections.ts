@@ -1,6 +1,6 @@
 // Phase 11 — the internal workspace's section workflow, shared by the main Sidebar nav and the workspace
 // body so the keys / labels / order never drift. Typed-only (/intake?workspace=1); NOT a public route and
-// NOT shown in the public/guided demo nav. State lives in the URL (?workspace=1&job=<id>&section=<key>) so
+// shown in the sidebar only inside the projects workspace. State lives in the URL (?workspace=1&job=<id>&section=<key>) so
 // the sidebar (in the layout) and the body (in the page) stay in sync without shared React state.
 
 // The single job page renders ALL these sections in order (each as <section id="sec-<key>">); the sidebar

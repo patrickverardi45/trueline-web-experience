@@ -4,20 +4,20 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, ClipboardCheck, Download, Gauge, Home, ImageIcon, LayoutDashboard, Lock, Map as MapIcon,
-  PenLine, Upload, CheckCircle2,
+  ClipboardCheck, Download, FolderOpen, FolderPlus, Gauge, Home, LayoutDashboard, Lock,
+  Map as MapIcon, PenLine, Upload, CheckCircle2,
 } from 'lucide-react';
 
 import { WORKSPACE_SECTIONS, sectionAnchorId, type WorkspaceSectionKey } from '@/lib/workspaceSections';
 
-// Demo nav = ONLY the demo-safe routes. The other contract-preview routes (map / plans / redlines /
-// evidence / feed / closeout / packet / projects / settings) either SSR-fetch the Access-gated API (a 500
-// behind the gate) or render placeholder/mock data, so they are intentionally hidden from the gated demo
-// rather than shown as broken/junk click paths. They still exist by URL; they are just not advertised.
+// Top-level product nav. Simple and real: Home, New project, Projects. (New project + Projects both open the
+// projects workspace at /intake — create from there, or pick an existing project.) The legacy contract-preview
+// routes (map / plans / redlines / evidence / feed / closeout / packet / settings) and the redline gallery are
+// reachable by URL but intentionally NOT advertised here — the nav stays product-clean.
 const NAV = [
   { href: '/', label: 'Home', icon: Home },
-  { href: '/showcase', label: 'Redline Showcase', icon: ImageIcon },
-  { href: '/intake', label: 'Intake', icon: Upload },
+  { href: '/intake?workspace=1', label: 'New project', icon: FolderPlus },
+  { href: '/intake?workspace=1', label: 'Projects', icon: FolderOpen },
 ] as const;
 
 const SECTION_ICON: Record<WorkspaceSectionKey, typeof Home> = {
@@ -38,12 +38,12 @@ const navLink = (active: boolean) =>
 
 /** The reactive nav body. In the internal workspace (/intake?workspace=1) the section links are SAME-PAGE
  *  anchors (the body renders all sections stacked on one page) with an IntersectionObserver scroll-spy for
- *  the active highlight; everywhere else it shows the simple public demo nav. (useSearchParams -> wrapped in
+ *  the active highlight; the simple top-level product nav is always shown above it. (useSearchParams -> wrapped in
  *  a Suspense boundary by the Sidebar shell.) */
 function SidebarNav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const workspace = pathname === '/intake' && searchParams.get('workspace') === '1';
+  const workspace = pathname === '/intake';   // the projects workspace (list + selected-project sections)
   const job = searchParams.get('job');
 
   const [activeKey, setActiveKey] = useState<WorkspaceSectionKey>('summary');
@@ -82,63 +82,62 @@ function SidebarNav() {
     };
   }, [workspace, job]);
 
-  if (workspace) {
-    return (
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-        <Link
-          href="/intake"
-          className="mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-slate-400 hover:bg-navy-800 hover:text-slate-200">
-          <ArrowLeft className="size-4 shrink-0" strokeWidth={1.75} /> Demo workflows
-        </Link>
-        <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-          Workflow{job ? '' : ' · select a project'}
-        </div>
-        {WORKSPACE_SECTIONS.map(({ key, label }, i) => {
-          const Icon = SECTION_ICON[key];
-          if (!job) {
-            return (
-              <span
-                key={key}
-                aria-disabled="true"
-                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">
-                <span className="font-mono text-[10px] text-slate-600">{i + 1}</span>
-                <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
-                {label}
-                <Lock className="ml-auto size-3.5 shrink-0" strokeWidth={1.75} />
-              </span>
-            );
-          }
-          return (
-            <a
-              key={key}
-              href={`#${sectionAnchorId(key)}`}
-              onClick={(e) => {
-                e.preventDefault();
-                setActiveKey(key);
-                document.getElementById(sectionAnchorId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-              className={navLink(activeKey === key)}>
-              <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
-              <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
-              {label}
-            </a>
-          );
-        })}
-      </nav>
-    );
-  }
-
   return (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
+      {/* Top-level product nav — always visible. */}
       {NAV.map(({ href, label, icon: Icon }) => {
-        const active = href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
+        // 'Home' is exact-match; query-bearing entries (New project / Projects) aren't highlighted by the
+        // simple matcher — the in-workspace section list below shows the active position instead.
+        const active = href === '/' ? pathname === '/'
+          : href.includes('?') ? false
+          : pathname === href || pathname.startsWith(`${href}/`);
         return (
-          <Link key={href} href={href} className={navLink(active)}>
+          <Link key={label} href={href} className={navLink(active)}>
             <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
             {label}
           </Link>
         );
       })}
+
+      {/* Inside the projects workspace: the selected project's single-page section anchors (scroll-spy). */}
+      {workspace && (
+        <>
+          <div className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Project workflow{job ? '' : ' · select a project'}
+          </div>
+          {WORKSPACE_SECTIONS.map(({ key, label }, i) => {
+            const Icon = SECTION_ICON[key];
+            if (!job) {
+              return (
+                <span
+                  key={key}
+                  aria-disabled="true"
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">
+                  <span className="font-mono text-[10px] text-slate-600">{i + 1}</span>
+                  <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
+                  {label}
+                  <Lock className="ml-auto size-3.5 shrink-0" strokeWidth={1.75} />
+                </span>
+              );
+            }
+            return (
+              <a
+                key={key}
+                href={`#${sectionAnchorId(key)}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setActiveKey(key);
+                  document.getElementById(sectionAnchorId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className={navLink(activeKey === key)}>
+                <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
+                <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
+                {label}
+              </a>
+            );
+          })}
+        </>
+      )}
     </nav>
   );
 }

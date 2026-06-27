@@ -21,7 +21,7 @@ import { productApiEnabled } from '@/lib/api/liveV2Product';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 
-// Generic demo job id (no customer/place/person name). Seeded in the staging-smoke product store; its
+// Generic showcase job id (no customer/place/person name). Seeded in the staging product store; its
 // recognized-corpus bundle is already published, so its artifacts list without any re-run.
 const SHOWCASE_JOB_ID = 'completed-redline-showcase';
 

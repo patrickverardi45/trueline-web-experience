@@ -22,6 +22,7 @@ type PanelState =
   | { phase: 'done'; count: number };
 
 const ACCEPT = '.pdf,.csv,.xlsx,.kmz,.kml,.jpg,.jpeg,.png,.webp';
+const CAT_LABEL: Record<UploadCategory, string> = { PLAN_PDF: 'Plan PDF', BORE_LOG: 'Bore log' };
 
 export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUploaded: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -31,6 +32,17 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
   async function onPick(files: FileList | null) {
     if (!files || files.length === 0) return;
     const picked = Array.from(files);
+
+    // Mis-filing guard (W1): the single category applies to EVERY .pdf in a pick, so selecting a plan PDF and
+    // a bore-log PDF together would silently file one as the wrong kind. Force one PDF per pick.
+    const pdfCount = picked.filter((f) => f.name.toLowerCase().endsWith('.pdf')).length;
+    if (pdfCount >= 2) {
+      setState({
+        phase: 'error',
+        message: `You selected ${pdfCount} PDFs at once. The “${CAT_LABEL[pdfCategory]}” category applies to every PDF in a pick, so a plan + bore-log PDF would be mis-filed. Upload PDFs one at a time, choosing the right category for each.`,
+      });
+      return;
+    }
 
     const unsupported = picked.filter((f) => inferUploadKind(f.name, pdfCategory) === null);
     if (unsupported.length > 0) {
@@ -62,15 +74,13 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
 
   return (
     <Card className="mt-4">
-      <h3 className="font-semibold text-ink">
-        Upload files to job <span className="font-mono">{jobId}</span>
-      </h3>
+      <h3 className="font-semibold text-ink">Upload project files</h3>
       <p className="mt-1 text-sm text-ink-3">
         PDF · CSV · XLSX · KMZ · KML · JPG · PNG · WEBP. Files are stored untrusted (no OCR, no parsing).
       </p>
 
       <fieldset className="mt-3">
-        <legend className="text-xs text-ink-3">PDF category (applies to .pdf files)</legend>
+        <legend className="text-xs text-ink-3">When you upload a .pdf, file it as:</legend>
         <div className="mt-1 flex gap-4 text-sm">
           {(['PLAN_PDF', 'BORE_LOG'] as UploadCategory[]).map((cat) => (
             <label key={cat} className="flex items-center gap-1.5">
@@ -80,10 +90,16 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
                 checked={pdfCategory === cat}
                 onChange={() => setPdfCategory(cat)}
               />
-              <span className="font-mono text-ink-2">{cat}</span>
+              <span className="text-ink-2">{CAT_LABEL[cat]}</span>
             </label>
           ))}
         </div>
+        <p className="mt-1.5 text-xs text-ink-3">
+          Upload the plan and the bore log in <span className="font-medium">separate picks</span> so each is
+          filed correctly. The bore log is <span className="font-medium">stored for your review, not auto-read</span>
+          {' '}(no OCR) — you confirm its stations in the <span className="font-medium">Bore logs</span> section
+          before the engine uses them.
+        </p>
       </fieldset>
 
       <div className="mt-3">

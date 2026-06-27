@@ -127,8 +127,8 @@ export function ProductReviewCandidates({
   // recognize the accepted REVIEW candidate and offer Assemble — the user is never stranded after accepting.
   onChanged?: () => void;
   // Single-page workspace: the SOLE Generate lives in the Redline section, so suppress this lane's own
-  // Generate button and, when no candidate exists yet, show a short pointer instead (default OFF preserves the
-  // standalone guided-demo usage, which DOES own its Generate).
+  // Generate button and, when no candidate exists yet, show a short pointer instead (default OFF preserves
+  // standalone usage where this lane owns its own Generate).
   hideGenerate?: boolean;
   // Whether a redline is already placed (slots.redlineManifest) — drives the no-candidate hint copy.
   placed?: boolean;

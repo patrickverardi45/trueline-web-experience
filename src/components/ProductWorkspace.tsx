@@ -8,9 +8,8 @@
 // statuses) is collapsed behind "Technical details / Diagnostics". Composed entirely from existing reads — no
 // new backend capability, no fakes.
 
-import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, CheckCircle2, Printer, XCircle } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
@@ -21,7 +20,7 @@ import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
 import {
-  WORKSPACE_SECTIONS, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
+  WORKSPACE_SECTIONS, coerceSection, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
 } from '@/lib/workspaceSections';
 import {
   assembleCloseoutPackage,
@@ -87,6 +86,12 @@ function closeoutCodeCopy(code: string): string {
   return CLOSEOUT_CODE_COPY[code] ?? code.replace(/_/g, ' ').toLowerCase();
 }
 
+// Product-friendly download filename slug from the readable project title (never the raw internal id), so a
+// saved file is e.g. "closeout_packet_uploaded-project-clean-placement.pdf", not the raw store id.
+function downloadSlug(jobId: string): string {
+  return jobTitle(jobId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || jobId;
+}
+
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -123,6 +128,8 @@ export function ProductWorkspace(props: WorkspaceProps) {
   const { projectExists, busy, jobs, selectedJobId, detail, newJobId, setNewJobId, actionError, uploadsKey,
           onCreateProject, onCreateJob, refreshDetail, loadProjectAndJobs } = props;
   const router = useRouter();
+  const sectionParam = useSearchParams().get('section');
+  const deepLinkedRef = useRef<string | null>(null);
 
   // Any in-page action (generate / accept / correct / assemble) bumps this so every read section re-reads the
   // now-current state — the single page stays in sync without separate-page navigation.
@@ -138,6 +145,19 @@ export function ProductWorkspace(props: WorkspaceProps) {
     if (selectedJobId) void refreshDetail(selectedJobId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedJobId]);
+
+  // Honor a ?section= deep-link: once the job's sections have mounted, scroll to the requested section (W5 —
+  // previously the URL carried ?section= but nothing read it). Once per job+section; 'summary' is the top.
+  useEffect(() => {
+    if (!selectedJobId || !detail) return;
+    const target = coerceSection(sectionParam);
+    if (target === 'summary') return;
+    const tag = `${selectedJobId}:${target}`;
+    if (deepLinkedRef.current === tag) return;
+    deepLinkedRef.current = tag;
+    const t = window.setTimeout(() => scrollToSection(target), 250);
+    return () => window.clearTimeout(t);
+  }, [selectedJobId, detail, sectionParam]);
 
   const boreLogUploads = (detail?.uploads ?? [])
     .filter((u) => u.kind === 'BORE_LOG')
@@ -243,20 +263,19 @@ export function ProductWorkspace(props: WorkspaceProps) {
           correct the placement, then review and download the closeout package. Redlines come from the real
           engine — nothing is invented, and an uncertain placement is flagged for your review rather than guessed.
         </p>
-        <Link href="/intake" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink hover:underline">
-          Guided demo workflows
-        </Link>
       </Card>
 
       {!projectExists && (
         <Card>
-          <h3 className="font-semibold text-ink">Project (this tenant)</h3>
-          <p className="mt-1 text-sm text-ink-3">No project exists for this tenant yet.</p>
+          <h3 className="font-semibold text-ink">First-time setup</h3>
+          <p className="mt-1 text-sm text-ink-3">
+            This workspace hasn’t been initialized yet. Set it up once, then create your first project below.
+          </p>
           <button
             onClick={onCreateProject}
             disabled={busy}
             className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-            Create project
+            Set up workspace
           </button>
         </Card>
       )}
@@ -279,7 +298,6 @@ export function ProductWorkspace(props: WorkspaceProps) {
                       : 'border-line text-ink-2 hover:text-ink'
                   }`}>
                   <span className="block text-xs font-medium">{jobTitle(j.jobId)}</span>
-                  <span className="block font-mono text-[10px] text-ink-3">{j.jobId}</span>
                 </button>
               ))}
             </div>
@@ -288,7 +306,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
             <input
               value={newJobId}
               onChange={(e) => setNewJobId(e.target.value)}
-              placeholder="new project id (a-z 0-9 _ -)"
+              placeholder="new project name (a-z 0-9 - _)"
               className="w-44 rounded-md border border-line px-2.5 py-1.5 font-mono text-xs text-ink"
             />
             <button
@@ -386,7 +404,9 @@ function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
   // ONE derived primary next action (same detail the sections read -> never stale after an action).
   const primary: { label: string; to: WorkspaceSectionKey } = (() => {
     if (!hasPlan || !hasBoreLog) return { label: 'Upload the plan + bore log', to: 'uploads' };
-    if (hasBoreLog && f.engineReady === false) return { label: 'Review the bore log', to: 'borelogs' };
+    // engine_ready must be explicitly true before Generate. null (just-uploaded, not yet reviewed) or false
+    // both mean "not ready" — point to the bore-log gate first so Generate never abstains in a loop (W2).
+    if (hasBoreLog && f.engineReady !== true && !placed) return { label: 'Review the bore log', to: 'borelogs' };
     if (!placed) return { label: 'Generate the redline', to: 'redlines' };
     if (f.reviewStatus === 'REVIEW_CANDIDATE') return { label: 'Accept or correct the redline', to: 'review' };
     if (f.reviewStatus === 'REVIEW_REJECTED') return { label: 'Correct the rejected redline', to: 'review' };
@@ -406,7 +426,6 @@ function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-ink">{jobTitle(jobId)}</h2>
-          <p className="mt-0.5 font-mono text-[11px] text-ink-3">{jobId}</p>
         </div>
         <span className="rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent-strong">
           {friendlyStage(detail.status)}
@@ -517,6 +536,9 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // Clear any stale assemble error: when this section re-reads (e.g. after the user accepts/corrects the
+    // candidate in Review and the refresh bus fires), a prior "needs to be accepted" block must not linger.
+    setError(null);
     try { setRbl(await fetchReviewedBoreLog(jobId, WORKSPACE_RBL_ID)); } catch { setRbl(null); }
     try { const cs = await listReviewCandidates(jobId); setReviewStatus(cs.length ? (cs[0].status ?? null) : null); } catch { setReviewStatus(null); }
     if (detail.slots.artifactBundle) {
@@ -573,6 +595,16 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
     : reviewStatus === 'REVIEW_REJECTED' ? 'Rejected — needs correction'
     : 'Automatic (recognized) redline';
 
+  // Positive completeness checklist — every row derived from a real server value (no fabricated ✓).
+  const reviewedOk = reviewStatus === 'REVIEW_ACCEPTED' || reviewStatus === 'REVIEW_SUPERSEDED' || (placed && reviewStatus === null);
+  const reviewLabel = reviewStatus === 'REVIEW_REJECTED' ? 'Placement rejected — correct it in Review'
+    : reviewStatus === 'REVIEW_CANDIDATE' ? 'Placement awaiting your review'
+    : reviewStatus === 'REVIEW_SUPERSEDED' ? 'Placement reviewed (human-corrected)'
+    : reviewStatus === 'REVIEW_ACCEPTED' ? 'Placement reviewed (accepted)'
+    : 'Placement reviewed (automatic — recognized)';
+  const boreReviewed = (rbl?.rows.length ?? 0) > 0 && (rbl?.rows.every((r) => r.reviewStatus === 'CONFIRMED') ?? false);
+  const kmzBlocked = warnings.includes('KMZ_EXPORT_BLOCKED');
+
   return (
     <div id="closeout-print" className="space-y-4">
       <Card>
@@ -617,7 +649,10 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
         </dl>
         <h4 className="mt-4 font-medium text-ink">Uploaded files</h4>
         <ul className="mt-2 space-y-1 text-sm">
-          {UPLOAD_KINDS.map((k) => (
+          {/* PHOTO is intentionally excluded here: field photos are stored with the project but are NOT yet
+              embedded in the closeout deliverable, so listing them in the package summary would promise
+              evidence the PDF/ZIP omit. (Photos remain visible in the Project files section.) */}
+          {UPLOAD_KINDS.filter((k) => k.kind !== 'PHOTO').map((k) => (
             <li key={k.kind} className="flex items-center gap-2">
               {present.has(k.kind) ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-ink-3" />}
               <span className={present.has(k.kind) ? 'text-ink' : 'text-ink-3'}>{k.label}</span>
@@ -626,6 +661,19 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
               ))}
             </li>
           ))}
+        </ul>
+      </Card>
+
+      {/* Final review checklist — positive affirmation (v1-style), every row a real server value. */}
+      <Card>
+        <h4 className="font-medium text-ink">Final review checklist</h4>
+        <ul className="mt-2 space-y-1.5 text-sm">
+          <ChecklistRow state={placed ? 'ok' : 'pending'} label={placed ? 'Redline placed' : 'Redline not placed yet'} />
+          <ChecklistRow state={reviewedOk ? 'ok' : 'pending'} label={reviewLabel} />
+          <ChecklistRow state={boreReviewed ? 'ok' : 'pending'} label={boreReviewed ? 'Bore log reviewed & confirmed' : 'Bore log not fully confirmed'} />
+          <ChecklistRow state={assembled ? 'ok' : 'pending'} label={assembled ? 'Closeout package assembled' : 'Closeout package not assembled yet'} />
+          <ChecklistRow state="info" label={kmzBlocked ? 'Map export: pixel-only on the plan (no geo-coordinates — not faked)' : 'Map export: route context from the uploaded KMZ/KML'} />
+          <ChecklistRow state="info" label="Billing: quantities only (no dollar amounts)" />
         </ul>
       </Card>
 
@@ -704,7 +752,9 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
 
         <p className="mt-3 rounded-md bg-paper px-3 py-2 text-xs text-ink-3">
           Generated from the uploaded source evidence. This is a REVIEW deliverable — review it before
-          construction or use. Closeout status is server-authoritative; approve/lock are deferred.
+          construction or use. Closeout status is server-authoritative. Final sign-off (approve / lock for
+          billing) requires sign-in — coming with accounts; until then the assembled package is ready to
+          review, download, and print.
         </p>
       </Card>
     </div>
@@ -717,6 +767,17 @@ function Field({ label, value }: { label: string; value: string }) {
       <dt className="text-xs text-ink-3">{label}</dt>
       <dd className="text-ink">{value}</dd>
     </div>
+  );
+}
+
+function ChecklistRow({ state, label }: { state: 'ok' | 'pending' | 'info'; label: string }) {
+  return (
+    <li className="flex items-center gap-2">
+      {state === 'ok'
+        ? <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+        : <span className={`mx-1 size-2 shrink-0 rounded-full ${state === 'pending' ? 'bg-amber-400' : 'bg-slate-300'}`} />}
+      <span className={state === 'ok' ? 'text-ink' : 'text-ink-2'}>{label}</span>
+    </li>
   );
 }
 
@@ -745,8 +806,9 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
     setBusy(true);
     setError(null);
     try {
-      if (kind === 'zip') triggerDownload(await downloadExportBundleBlob(jobId), `closeout_data_${jobId}.zip`);
-      else triggerDownload(await downloadCloseoutPdfBlob(jobId), `closeout_packet_${jobId}.pdf`);
+      const slug = downloadSlug(jobId);
+      if (kind === 'zip') triggerDownload(await downloadExportBundleBlob(jobId), `closeout_data_${slug}.zip`);
+      else triggerDownload(await downloadCloseoutPdfBlob(jobId), `closeout_packet_${slug}.pdf`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'download failed (assemble the closeout package first)');
     } finally {
@@ -760,17 +822,11 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
       {note && <p className="mt-1 text-sm text-ink-3">{note}</p>}
       {status && <p className="mt-1 text-sm text-ink-2">Closeout package: <span className="font-medium">{ready ? 'ready' : friendlyCloseout(status)}</span></p>}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => window.print()}
-          disabled={!ready}
-          className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink-2 hover:text-ink disabled:opacity-50">
-          <Printer className="size-4" /> Print / Save this review
-        </button>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           onClick={() => void download('pdf')}
           disabled={busy || !ready}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+          className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
           {busy ? 'Preparing…' : 'Download closeout PDF'}
         </button>
         <button
@@ -779,13 +835,19 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
           className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-2 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
           {busy ? 'Preparing…' : 'Download data package (.zip)'}
         </button>
+        <button
+          onClick={() => window.print()}
+          disabled={!ready}
+          className="inline-flex items-center gap-1 text-sm text-ink-3 underline-offset-2 hover:text-ink hover:underline disabled:opacity-50">
+          <Printer className="size-4" /> Print / save the on-screen review
+        </button>
       </div>
       <p className="mt-2 text-xs text-ink-3">
-        <span className="font-medium">Print / Save</span> opens your browser print dialog to print or save the
-        on-screen closeout review as a PDF. <span className="font-medium">Download closeout PDF</span> is the
-        server-generated packet (the official deliverable, with embedded redline evidence and itemized
-        quantities). <span className="font-medium">Data package (.zip)</span> = the redline images + manifest +
-        status files. No dollar amounts are shown — quantities only.
+        <span className="font-medium">Download closeout PDF</span> is the official deliverable — the
+        server-generated packet with embedded redline evidence and itemized quantities.{' '}
+        <span className="font-medium">Data package (.zip)</span> = the redline images + manifest + status files.{' '}
+        <span className="font-medium">Print / save</span> is a quick browser snapshot of the on-screen review
+        only (thinner than the PDF). No dollar amounts are shown — quantities only.
       </p>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </Card>

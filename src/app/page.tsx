@@ -1,17 +1,16 @@
 import Link from 'next/link';
-import { ArrowRight, CheckCircle2, ImageIcon, Layers } from 'lucide-react';
+import { ArrowRight, FolderPlus, ImageIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 
-export const metadata = { title: 'FieldRoute — gated staging demo' };
+export const metadata = { title: 'FieldRoute — OSP redline & closeout' };
 
-// Demo-safe landing page. INTENTIONALLY static: it performs NO server-side data fetch, so it returns 200
-// even behind the Cloudflare Access gate (a server fetch to the gated API would receive the Access login
-// HTML and crash with a 500). Every card links to a path whose data is read CLIENT-side (the browser
-// carries the Access cookie same-origin). No KPI fetch, no stale dashboard panels, no "nothing uploaded
-// yet" copy — just a guided front door to the capabilities that exist today.
+// Landing page. INTENTIONALLY static: it performs NO server-side data fetch, so it returns 200 even behind
+// the Cloudflare Access gate (a server fetch to the gated API would receive the Access login HTML and crash
+// with a 500). Every card links to a path whose data is read CLIENT-side (the browser carries the Access
+// cookie same-origin).
 
-interface DemoCard {
+interface LandingCard {
   readonly href: string;
   readonly title: string;
   readonly body: string;
@@ -19,27 +18,20 @@ interface DemoCard {
   readonly cta: string;
 }
 
-const DEMO_CARDS: readonly DemoCard[] = [
+const LANDING_CARDS: readonly LandingCard[] = [
+  {
+    href: '/intake?workspace=1',
+    title: 'Start a new project',
+    body: 'Create a project and upload your plan PDF, KMZ/KML route, bore log, and photos. Generate the redline, review or correct the placement, then assemble and download the closeout package.',
+    icon: FolderPlus,
+    cta: 'Open your projects',
+  },
   {
     href: '/showcase',
-    title: 'Completed Redline Showcase',
+    title: 'Finished redline gallery',
     body: 'Finished output quality — real drawn red redline strokes on real plan sheets, from deterministic redline data. This is what a completed package looks like.',
     icon: ImageIcon,
-    cta: 'View the finished redlines',
-  },
-  {
-    href: '/intake?job=demo-review-acceptance',
-    title: 'Live REVIEW Acceptance Workflow',
-    body: 'The engine generates a source-backed redline candidate from a job’s own plan + reviewed bore-log. You accept or reject it — no hand-drawing. REVIEW is a first-class output, never relabeled as automatic.',
-    icon: CheckCircle2,
-    cta: 'Generate → accept a candidate',
-  },
-  {
-    href: '/intake?job=demo-cross-sheet-review',
-    title: 'Cross-Sheet REVIEW Workflow',
-    body: 'A bore that spans two plan sheets: the engine renders a REVIEW leg on each sheet with honest matchline caveats. Full coverage, still REVIEW — it does not claim automatic placement it cannot prove.',
-    icon: Layers,
-    cta: 'Generate a two-sheet candidate',
+    cta: 'View finished redlines',
   },
 ];
 
@@ -48,22 +40,25 @@ export default function HomePage() {
     <div>
       {/* Hero */}
       <div className="rounded-2xl border border-line bg-gradient-to-br from-navy-900 to-navy-800 px-7 py-8 text-white">
-        <p className="text-xs font-semibold uppercase tracking-wider text-accent-soft">
-          FieldRoute · gated staging preview
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-accent-soft">FieldRoute</p>
         <h1 className="mt-2 max-w-2xl text-2xl font-semibold tracking-tight">
           Automatic OSP redline handoff — from plan + bore log to drawn red strokes.
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-          Pick a starting point below. Each one is a real proof of a capability that exists today — finished
-          deterministic redlines, the live engine-REVIEW accept/reject workflow, and the operator intake
-          workspace. Start with the showcase, then walk the live workflow.
+          Upload a project’s plan, route, and bore log; FieldRoute places the redline from the real engine,
+          flags any uncertain placement for your review, and assembles a closeout package you can download and
+          print. Nothing is invented — an uncertain placement is flagged, never guessed.
         </p>
+        <Link
+          href="/intake?workspace=1"
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
+          Start a new project <ArrowRight className="size-4" />
+        </Link>
       </div>
 
-      {/* Demo entry cards */}
+      {/* Entry cards */}
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {DEMO_CARDS.map((card) => {
+        {LANDING_CARDS.map((card) => {
           const Icon = card.icon;
           return (
             <Link key={card.href} href={card.href} className="group">
@@ -87,25 +82,25 @@ export default function HomePage() {
         })}
       </div>
 
-      {/* How to read this demo */}
+      {/* How it works */}
       <Card className="mt-6">
-        <h3 className="font-semibold text-ink">How to read this demo</h3>
+        <h3 className="font-semibold text-ink">How FieldRoute works</h3>
         <ul className="mt-2 space-y-2 text-sm leading-relaxed text-ink-3">
           <li>
-            <span className="font-semibold text-ink">Completed Redline Showcase</span> = finished output
-            quality from real deterministic redline data.
+            <span className="font-semibold text-ink">Automatic redline</span> — for a recognized project, the
+            proven engine redline is placed automatically.
           </li>
           <li>
-            <span className="font-semibold text-ink">Live REVIEW Workflow</span> = an engine-generated
-            redline candidate that a human accepts or rejects.
+            <span className="font-semibold text-ink">Review &amp; correct</span> — for an uploaded project, the
+            engine proposes a redline candidate you accept, or correct on the plan when the placement is uncertain.
           </li>
           <li>
-            <span className="font-semibold text-ink">REVIEW</span> means the engine found a source-backed
-            candidate, but the source documents do not prove a full automatic placement.
+            The app <span className="font-semibold text-ink">does not guess</span> — when the source evidence is
+            missing, it flags the placement for review or abstains instead of inventing geometry.
           </li>
           <li>
-            The app <span className="font-semibold text-ink">does not guess</span> when the source evidence
-            is missing — it abstains or asks for review instead of inventing geometry.
+            <span className="font-semibold text-ink">Closeout package</span> — review everything on one page,
+            then download the closeout PDF and data package.
           </li>
         </ul>
       </Card>
