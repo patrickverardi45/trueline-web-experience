@@ -189,7 +189,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
         );
       case 'borelogs':
         return (
-          <SectionShell n={4} label="Bore logs">
+          <SectionShell n={4} label="Bore log">
             <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
           </SectionShell>
         );

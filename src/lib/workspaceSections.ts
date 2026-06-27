@@ -15,7 +15,7 @@ export const WORKSPACE_SECTIONS: readonly { key: WorkspaceSectionKey; label: str
   { key: 'summary', label: 'Overview' },
   { key: 'uploads', label: 'Project files' },
   { key: 'map', label: 'Map / route' },
-  { key: 'borelogs', label: 'Bore logs' },
+  { key: 'borelogs', label: 'Bore log' },
   { key: 'redlines', label: 'Redline' },
   { key: 'review', label: 'Review & correct' },
   { key: 'closeout', label: 'Closeout review' },
