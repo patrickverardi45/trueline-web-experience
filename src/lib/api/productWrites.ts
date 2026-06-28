@@ -238,6 +238,16 @@ export interface ReviewedRowView {
   readonly extractionMethod: string;
   readonly reviewStatus: string;
   readonly reason: string | null;
+  // Source-backed raw bore-log fields (present only when the file/extractor carried them; null otherwise —
+  // the UI shows an honest "not available", never an invented value).
+  readonly footageFt: number | null;
+  readonly depthMinFt: number | null;
+  readonly bocMinFt: number | null;
+  readonly printRaw: string | null;
+  readonly sheetRefs: readonly number[];
+  readonly sourceFile: string | null;
+  readonly date: string | null;
+  readonly crew: string | null;
 }
 
 export interface ReviewedGroupView {
@@ -292,6 +302,14 @@ export function composeReviewedBoreLog(doc: unknown): ReviewedBoreLogView {
         extractionMethod: str(extraction.extraction_method),
         reviewStatus: str(review.status),
         reason: strOrNull(review.reason),
+        footageFt: numOrNull(raw.footage_ft),
+        depthMinFt: numOrNull(raw.depth_min_ft),
+        bocMinFt: numOrNull(raw.boc_min_ft),
+        printRaw: strOrNull(raw.print_raw),
+        sheetRefs: numList(raw.sheet_refs),
+        sourceFile: strOrNull(raw.source_file),
+        date: strOrNull(raw.date),
+        crew: strOrNull(raw.crew),
       };
     });
   const rawGroups = Array.isArray(r.groups) ? r.groups : [];

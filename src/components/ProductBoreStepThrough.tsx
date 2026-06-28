@@ -1,13 +1,15 @@
 'use client';
 
-// Multi-bore recognized step-through (Phase 3 Slice 3B). For a RECOGNIZED package it lists each engine-ready
-// bore log and shows that bore's deterministic redline drawn on its correct plan sheet, with next/previous
-// navigation and an honest per-bore geometry/source basis badge. Composed from existing reads only:
-//   * fetchRecognizedCorpusHandoff -> the per-bore list (log + bore span + render sheets), and
-//   * fetchJobArtifacts -> the placed FINAL_REDLINE_PNG(s), joined to each bore by log id.
-// It renders NOTHING for a non-recognized job (no recognized bores) or before the redline is generated (no
-// artifacts yet), so single-REVIEW / abstain jobs are unaffected. Honest by design: the redline is pixel-only
-// on the plan sheet — there is NO georeferenced map projection, and the badge says so (no fake coordinates).
+// Multi-bore recognized step-through (Phase 3 Slice 3B + UX-parity). For a RECOGNIZED package it lists each
+// engine-ready bore log; clicking one selects it and shows (a) a v1-style INFO CARD of the source-backed
+// bore-log fields and (b) that bore's deterministic redline drawn on its correct plan sheet, with
+// next/previous navigation and an honest per-bore geometry/source basis badge. Composed from existing reads:
+//   * fetchRecognizedCorpusHandoff -> the per-bore list (log + bore span + render sheets + rbl id),
+//   * fetchReviewedBoreLog        -> the source-backed bore-log fields (stations/span/print/depth/boc/date/crew),
+//   * fetchJobArtifacts           -> the placed FINAL_REDLINE_PNG(s), joined to each bore by log id.
+// Renders NOTHING for a non-recognized job or before the redline is generated. Honest by design: every field
+// is source-backed (missing -> "not available", never invented); the redline is pixel-only on the PDF sheet
+// (NO georeferenced map projection), and the badge says so.
 
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
@@ -17,15 +19,28 @@ import {
   fetchJobArtifactBlob,
   fetchJobArtifacts,
   fetchRecognizedCorpusHandoff,
+  fetchReviewedBoreLog,
   type JobArtifactRef,
+  type ReviewedRowView,
 } from '@/lib/api/productWrites';
 
 interface BoreEntry {
   readonly logId: string;
+  readonly reviewedBoreLogId: string | null;
+  readonly startStation: string | null;
+  readonly endStation: string | null;
   readonly span: string | null;          // "start → end" station, source-backed (never invented)
   readonly sheets: readonly number[];
   readonly artifacts: readonly JobArtifactRef[];
+  readonly row: ReviewedRowView | null;  // source-backed bore-log fields for the info card
 }
+
+const EXTRACTION_LABEL: Record<string, string> = {
+  TABLE_IMPORT: 'Uploaded file (table import)',
+  MANUAL_ENTRY: 'Manual entry',
+  OCR: 'OCR',
+  TEXT_PARSE: 'Text parse',
+};
 
 export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
   jobId: string; refreshKey?: string; placed?: boolean;
@@ -51,14 +66,28 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
         list.push(a);
         byLog.set(a.logId, list);
       }
-      const entries: BoreEntry[] = handoff.recognizedLogs
+      const base = handoff.recognizedLogs
         .map((b) => {
           const span = b.boreSpan?.label
             ?? (b.boreSpan?.startStation && b.boreSpan?.endStation
               ? `${b.boreSpan.startStation} → ${b.boreSpan.endStation}` : null);
-          return { logId: b.logId, span, sheets: b.renderSheets, artifacts: byLog.get(b.logId) ?? [] };
+          return {
+            logId: b.logId, reviewedBoreLogId: b.reviewedBoreLogId,
+            startStation: b.boreSpan?.startStation ?? null, endStation: b.boreSpan?.endStation ?? null,
+            span, sheets: b.renderSheets, artifacts: byLog.get(b.logId) ?? [],
+          };
         })
         .filter((e) => e.artifacts.length > 0);   // only bores whose redline is actually placed
+      // Source-backed bore-log fields per bore (one read per rbl; honest null if the rbl/row is unavailable).
+      const entries: BoreEntry[] = await Promise.all(base.map(async (e) => {
+        if (!e.reviewedBoreLogId) return { ...e, row: null };
+        try {
+          const rbl = await fetchReviewedBoreLog(jobId, e.reviewedBoreLogId);
+          return { ...e, row: rbl.rows[0] ?? null };
+        } catch {
+          return { ...e, row: null };
+        }
+      }));
       const refs = entries.flatMap((e) => e.artifacts);
       const pairs = await Promise.all(refs.map((r) =>
         fetchJobArtifactBlob(jobId, r.path)
@@ -88,6 +117,8 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
 
   const cur = bores[Math.min(sel, bores.length - 1)];
   const sheetLabel = cur.sheets.length > 0 ? cur.sheets.join(', ') : '—';
+  const row = cur.row;
+  const ft = (v: number | null | undefined) => (v === null || v === undefined ? null : `${v} ft`);
 
   return (
     <Card>
@@ -96,8 +127,8 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
         <span className="text-xs text-ink-3">{bores.length} bore log{bores.length === 1 ? '' : 's'}</span>
       </div>
       <p className="mt-1 text-sm text-ink-3">
-        Each bore log’s redline is drawn on its plan sheet. Click a bore to view its redline, or use the
-        arrows to step through them.
+        Click a bore to see its bore-log details and its redline drawn on the correct plan sheet, or use the
+        arrows to step through them. All fields come from your uploaded source — missing values say so.
       </p>
 
       <div className="mt-3 grid gap-4 md:grid-cols-[14rem_1fr]">
@@ -118,7 +149,7 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
           ))}
         </ul>
 
-        {/* Selected bore viewer */}
+        {/* Selected bore viewer: info card + redline proof */}
         <div className="min-w-0">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm">
@@ -143,8 +174,31 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
             </div>
           </div>
 
+          {/* v1-style bore-log info card — every value source-backed; missing -> "not available". */}
+          <div className="mt-2 rounded-lg border border-line bg-paper p-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-3">Bore-log details</h4>
+            <dl className="mt-2 grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
+              <InfoField label="Bore-log file" value={row?.sourceFile ?? null} />
+              <InfoField label="Bore / log id" value={cur.logId} />
+              <InfoField label="Station start" value={cur.startStation ?? row?.startStation ?? null} />
+              <InfoField label="Station end" value={cur.endStation ?? row?.endStation ?? null} />
+              <InfoField label="Span / footage" value={ft(row?.footageFt)} />
+              <InfoField label="Print (source)" value={row?.printRaw ?? null} />
+              <InfoField label="Plan sheet(s)" value={sheetLabel === '—' ? null : sheetLabel} />
+              <InfoField label="Date" value={row?.date ?? null} />
+              <InfoField label="Crew" value={row?.crew ?? null} />
+              <InfoField label="Depth (min)" value={ft(row?.depthMinFt)} />
+              <InfoField label="BOC (min)" value={ft(row?.bocMinFt)} />
+              <InfoField label="Review status" value={row ? row.reviewStatus.toLowerCase() : null} />
+              <InfoField label="Extraction source"
+                value={row ? (EXTRACTION_LABEL[row.extractionMethod] ?? row.extractionMethod) : null} />
+              <InfoField label="Geometry basis" value="Pixel-only (PDF, not georeferenced)" />
+              <InfoField label="Redline images" value={String(cur.artifacts.length)} />
+            </dl>
+          </div>
+
           {/* Honest per-bore geometry / source basis badge (no fake map projection). */}
-          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
             <MapPin className="size-3.5" /> Pixel-only on plan sheet {sheetLabel} — not georeferenced
           </div>
 
@@ -164,5 +218,19 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
         </div>
       </div>
     </Card>
+  );
+}
+
+/** One source-backed info field. A null/empty value renders an honest, muted "not available" — never an
+ *  invented placeholder. */
+function InfoField({ label, value }: { label: string; value: string | null }) {
+  const missing = value === null || value === undefined || value === '';
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] text-ink-3">{label}</dt>
+      <dd className={missing ? 'truncate text-xs italic text-ink-3' : 'truncate text-sm text-ink'} title={missing ? 'not available' : value}>
+        {missing ? 'not available' : value}
+      </dd>
+    </div>
   );
 }
