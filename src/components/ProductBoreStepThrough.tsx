@@ -27,13 +27,18 @@ interface BoreEntry {
   readonly artifacts: readonly JobArtifactRef[];
 }
 
-export function ProductBoreStepThrough({ jobId, refreshKey }: { jobId: string; refreshKey?: string }) {
+export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
+  jobId: string; refreshKey?: string; placed?: boolean;
+}) {
   const [bores, setBores] = useState<readonly BoreEntry[]>([]);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [sel, setSel] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    // No redline placed yet (not generated): nothing to step through, and the job has no artifact bundle, so
+    // skip the reads entirely (avoids a benign-but-noisy 404 on the artifacts endpoint pre-Generate).
+    if (!placed) { setBores([]); setUrls({}); setLoading(false); return; }
     setLoading(true);
     try {
       const [handoff, artifacts] = await Promise.all([
@@ -68,7 +73,7 @@ export function ProductBoreStepThrough({ jobId, refreshKey }: { jobId: string; r
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, placed]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect

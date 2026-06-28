@@ -208,8 +208,8 @@ export function ProductWorkspace(props: WorkspaceProps) {
               onGoToCloseout={() => scrollToSection('closeout')}
             />
             {/* Multi-bore recognized package: step through each bore log's redline on its plan sheet.
-                Renders nothing for a single-REVIEW / abstain job (no recognized bores). */}
-            <ProductBoreStepThrough jobId={selectedJobId} refreshKey={refreshKey} />
+                Renders nothing until a redline is placed, or for a single-REVIEW / abstain job. */}
+            <ProductBoreStepThrough jobId={selectedJobId} refreshKey={refreshKey} placed={detail.slots.redlineManifest} />
           </SectionShell>
         );
       case 'review':
