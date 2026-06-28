@@ -160,10 +160,7 @@ export function Sidebar() {
           </svg>
         </span>
         <span className="text-lg font-semibold tracking-tight text-white">
-          TrueLine
-          <span className="ml-1.5 rounded bg-navy-700 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wider text-slate-300">
-            Preview
-          </span>
+          FieldRoute
         </span>
       </Link>
       <Suspense fallback={<nav className="flex-1 px-3 pb-4" />}>
@@ -175,7 +172,7 @@ export function Sidebar() {
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
           <span className="size-1.5 rounded-full bg-emerald-400" />
-          Gated staging · product API
+          Live product API
         </div>
       </div>
     </aside>

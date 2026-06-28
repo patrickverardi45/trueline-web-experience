@@ -6,22 +6,18 @@
 // in a URL. User-created projects pass through unchanged (their id is the name the user typed).
 
 const JOB_TITLE: Record<string, string> = {
+  'recognized-multi': 'Recognized project — automatic redlines',
   'demo-general-upload': 'Uploaded project — clean placement',
   'demo-general-upload-ambiguous': 'Uploaded project — ambiguous correction',
-  'recognized-log9': 'Recognized project — automatic redline',
   'completed-redline-showcase': 'Finished redline showcase',
-  'demo-review-acceptance': 'Uploaded project — REVIEW acceptance',
-  'demo-cross-sheet-review': 'Uploaded project — cross-sheet REVIEW',
 };
 
 // Neutral technical reference shown wherever a slug would otherwise appear (Diagnostics, URLs). No "demo".
 const JOB_ALIAS: Record<string, string> = {
+  'recognized-multi': 'project-recognized-automatic',
   'demo-general-upload': 'project-clean-placement',
   'demo-general-upload-ambiguous': 'project-ambiguous-correction',
-  'recognized-log9': 'project-recognized-automatic',
   'completed-redline-showcase': 'project-finished-redlines',
-  'demo-review-acceptance': 'project-review-acceptance',
-  'demo-cross-sheet-review': 'project-cross-sheet-review',
 };
 
 const ALIAS_TO_ID: Record<string, string> = Object.fromEntries(
