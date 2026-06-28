@@ -383,6 +383,21 @@ export async function fetchReviewQueue(jobId: string, rblId: string): Promise<Re
     await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/review-queue`));
 }
 
+export interface ExtractRowsResult {
+  readonly extractedCount: number;
+  readonly extractedRowIds: readonly string[];
+}
+
+/** Deterministic, read-only TABLE extraction of the reviewed-bore-log's SOURCE upload (.xlsx/.csv) into
+ *  UNTRUSTED extracted rows (extraction_method TABLE_IMPORT, status UNREVIEWED). NO OCR, NO fabricated
+ *  confidence, NO geometry — a human still reviews each row before placement. Throws on failure (no mock). */
+export async function extractBoreLogRows(jobId: string, rblId: string): Promise<ExtractRowsResult> {
+  const d = asRecord(
+    await postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/extract`, {}),
+    'extract-rows');
+  return { extractedCount: int(d.extracted_count), extractedRowIds: strList(d.extracted_row_ids) };
+}
+
 // ====================================================================================================
 // Slice C — uploaded-corpus engine-handoff readiness (read-only; the API renders nothing / creates nothing).
 // ====================================================================================================
@@ -648,6 +663,15 @@ export async function fetchJobArtifactBlob(jobId: string, path: string): Promise
 // render, served as a job-local FINAL_REDLINE_PNG bundle. NO manual point-clicking. Throws on failure.
 // ====================================================================================================
 
+/** One recognized bore in a (possibly multi-bore) recognized package: a drawn deterministic log + its source
+ *  bore-log + the committed bore span + the plan sheet(s) its redline is rendered on. Drives the step-through. */
+export interface RecognizedBore {
+  readonly logId: string;
+  readonly reviewedBoreLogId: string | null;
+  readonly boreSpan: { readonly startStation: string | null; readonly endStation: string | null; readonly label: string | null } | null;
+  readonly renderSheets: readonly number[];
+}
+
 export interface RecognizedCorpusHandoffView {
   readonly status: string;                 // RUNNABLE | BLOCKED
   readonly runnable: boolean;
@@ -656,7 +680,26 @@ export interface RecognizedCorpusHandoffView {
   readonly deterministicLogId: string | null;
   readonly renderSheets: readonly number[];
   readonly renderCommit: string | null;
+  readonly recognizedLogs: readonly RecognizedBore[];   // per-bore list (scales to N; featured seed capped 3-5)
   readonly blockers: readonly EngineHandoffBlocker[];
+}
+
+function composeRecognizedBore(value: unknown): RecognizedBore | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const d = value as Record<string, unknown>;
+  const logId = strOrNull(d.log_id);
+  if (!logId) return null;
+  const span = (typeof d.bore_span === 'object' && d.bore_span !== null && !Array.isArray(d.bore_span))
+    ? (d.bore_span as Record<string, unknown>) : null;
+  const rawSheets = Array.isArray(d.render_sheets) ? d.render_sheets : [];
+  return {
+    logId,
+    reviewedBoreLogId: strOrNull(d.reviewed_bore_log_id),
+    boreSpan: span
+      ? { startStation: strOrNull(span.start_station), endStation: strOrNull(span.end_station), label: strOrNull(span.label) }
+      : null,
+    renderSheets: rawSheets.filter((n): n is number => typeof n === 'number'),
+  };
 }
 
 export function composeRecognizedCorpusHandoff(doc: unknown): RecognizedCorpusHandoffView {
@@ -666,6 +709,7 @@ export function composeRecognizedCorpusHandoff(doc: unknown): RecognizedCorpusHa
     .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
     .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
   const rawSheets = Array.isArray(d.render_sheets) ? d.render_sheets : [];
+  const rawLogs = Array.isArray(d.recognized_logs) ? d.recognized_logs : [];
   return {
     status: str(d.status),
     runnable: d.runnable === true,
@@ -674,6 +718,7 @@ export function composeRecognizedCorpusHandoff(doc: unknown): RecognizedCorpusHa
     deterministicLogId: strOrNull(d.deterministic_log_id),
     renderSheets: rawSheets.filter((n): n is number => typeof n === 'number'),
     renderCommit: strOrNull(d.render_commit),
+    recognizedLogs: rawLogs.map(composeRecognizedBore).filter((b): b is RecognizedBore => b !== null),
     blockers,
   };
 }

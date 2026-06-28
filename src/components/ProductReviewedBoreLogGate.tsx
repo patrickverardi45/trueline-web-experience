@@ -2,11 +2,11 @@
 
 // Bore-log section for one selected job (product mode). SOURCE/REVIEW oriented — NOT a data-entry form.
 // Main path: show the uploaded bore log's status + (when the project is engine-ready) the reviewed bore
-// rows READ-ONLY, or (when it is not) an HONEST state — automatic extraction of bore rows from an uploaded
-// file is not implemented yet, so an uploaded-only project is not engine-ready on its own. All manual
-// tooling (create reviewed-bore-log, hand-enter/confirm rows, segment groups, the readiness gate) is
-// demoted to a collapsed "Advanced manual review (temporary fallback)" — never the primary workflow.
-// No OCR, no fake extraction, no fake rows: seeded/example jobs use their real pre-seeded reviewed rows.
+// rows READ-ONLY; otherwise the EXTRACTION-first flow — "Extract bore rows from the uploaded file" runs a
+// deterministic table read of the uploaded .xlsx/.csv (NOT OCR, no fabricated confidence, no geometry) into
+// rows the operator reviews + confirms before placement. Hand-entry of rows is demoted to a collapsed
+// "Advanced manual review (temporary fallback)" — never the primary workflow. No fake extraction, no fake
+// rows: seeded/example jobs use their real pre-seeded reviewed rows.
 
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Wrench } from 'lucide-react';
@@ -16,6 +16,7 @@ import {
   addReviewedRows,
   createReviewedBoreLog,
   defineSegmentGroup,
+  extractBoreLogRows,
   fetchReviewQueue,
   fetchReviewedBoreLog,
   reviewReviewedRow,
@@ -78,12 +79,14 @@ export function ProductReviewedBoreLogGate({
   }, [jobId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
   const boreLogIds = boreLogUploads.map((u) => u.uploadId).join('|');
   useEffect(() => {
     const ids = boreLogIds ? boreLogIds.split('|') : [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSourceUploadId((prev) => (prev && ids.includes(prev) ? prev : (ids[0] ?? '')));
   }, [boreLogIds]);
 
@@ -127,6 +130,34 @@ export function ProductReviewedBoreLogGate({
     setMembers({});
   }
 
+  // Extraction-first main path: ensure a reviewed-bore-log exists, then deterministically extract the bore
+  // rows from the uploaded file (TABLE_IMPORT, UNREVIEWED — a human reviews them next).
+  async function onExtract() {
+    if (!effectiveSourceUploadId) return;
+    await act(async () => {
+      if (phase === 'absent') await createReviewedBoreLog(jobId, RBL_ID, effectiveSourceUploadId);
+      await extractBoreLogRows(jobId, RBL_ID);
+    });
+  }
+
+  // Confirm the extracted rows and group them so the project becomes engine-ready — without diving into the
+  // Advanced manual tooling. Groups all rows as separate bores (one bore span per uploaded file).
+  async function onConfirmReady() {
+    await act(async () => {
+      for (const r of rows) {
+        if (!PASS.has(r.reviewStatus)) {
+          await reviewReviewedRow(jobId, RBL_ID, r.rowId, { toStatus: 'CONFIRMED' });
+        }
+      }
+      const ids = rows.map((r) => r.rowId);
+      if (ids.length > 0 && (rbl?.groups.length ?? 0) === 0) {
+        const groupId = gid();
+        await defineSegmentGroup(jobId, RBL_ID, groupId, ids, 'SEPARATE_BORE');
+        await setGroupingStatus(jobId, RBL_ID, groupId, 'CONFIRMED');
+      }
+    });
+  }
+
   const rows = rbl?.rows ?? [];
   const passedRows = rows.filter((r) => PASS.has(r.reviewStatus));
   const effectiveSourceUploadId = sourceUploadId || boreLogUploads[0]?.uploadId || '';
@@ -146,7 +177,7 @@ export function ProductReviewedBoreLogGate({
         <div className="mt-2">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
             {ready ? <CheckCircle2 className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
-            {ready ? 'Bore log reviewed & ready' : 'Bore log uploaded — extraction pending'}
+            {ready ? 'Bore log reviewed & ready' : rows.length > 0 ? 'Bore rows extracted — needs review' : 'Bore log uploaded — extract & review'}
           </span>
         </div>
       )}
@@ -195,21 +226,66 @@ export function ProductReviewedBoreLogGate({
             </table>
           )}
         </Card>
-      ) : (
-        /* NOT READY: honest extraction state — never a "you must hand-enter every bore" product flow. */
+      ) : rows.length === 0 ? (
+        /* NOT READY, no rows yet: EXTRACTION is the main path (deterministic table read of the upload). */
         <Card className="mt-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
-            <div>
-              <h4 className="font-medium text-ink">Bore-log extraction isn’t available yet for uploaded files</h4>
-              <p className="mt-1 text-sm text-ink-3">
-                Your bore log is uploaded, but FieldRoute can’t yet automatically extract the bore rows from an
-                uploaded file, so this project isn’t engine-ready from the upload alone. Automatic extraction is
-                coming. In the meantime you can use <span className="font-medium">Advanced manual review</span>{' '}
-                below <span className="font-medium">only as a temporary fallback</span> to enter and confirm the
-                bore rows by hand.
-              </p>
-            </div>
+          <h4 className="font-medium text-ink">Extract the bore rows from your uploaded file</h4>
+          <p className="mt-1 text-sm text-ink-3">
+            FieldRoute reads the bore stations directly from your uploaded bore-log file — a deterministic table
+            read, not OCR, and nothing is guessed. You review the extracted rows before any redline is placed.
+          </p>
+          <button
+            onClick={onExtract}
+            disabled={busy || !effectiveSourceUploadId}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+            {busy ? 'Extracting…' : 'Extract bore rows from the uploaded file'}
+          </button>
+          <p className="mt-2 text-xs text-ink-3">
+            No rows are placed until you confirm them. Hand-entry remains available under{' '}
+            <span className="font-medium">Advanced manual review</span> below.
+          </p>
+        </Card>
+      ) : (
+        /* NOT READY, rows extracted: review + confirm them (no hand-entry on the main path). */
+        <Card className="mt-3">
+          <h4 className="font-medium text-ink">Extracted bore rows — review &amp; confirm ({rows.length})</h4>
+          <p className="mt-1 text-xs text-ink-3">
+            Extracted from your uploaded file (deterministic table read). Confirm them to enable redline
+            placement — nothing is placed until you do.
+          </p>
+          <table className="mt-2 w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-ink-3">
+                <th className="py-1.5 pr-3 font-medium">Start → End station</th>
+                <th className="py-1.5 pr-3 font-medium">Source</th>
+                <th className="py-1.5 font-medium">Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.rowId} className="border-b border-line/60 last:border-0">
+                  <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
+                  <td className="py-1.5 pr-3 text-xs text-ink-3">
+                    {r.extractionMethod === 'TABLE_IMPORT' ? 'extracted · needs review' : 'manual · needs review'}
+                  </td>
+                  <td className="py-1.5 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={onConfirmReady}
+              disabled={busy}
+              className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+              {busy ? 'Confirming…' : 'Confirm rows & mark reviewed'}
+            </button>
+            <button
+              onClick={onExtract}
+              disabled={busy || !effectiveSourceUploadId}
+              className="rounded-lg border border-line px-3 py-1.5 text-sm text-ink-2 hover:text-ink disabled:opacity-50">
+              Re-extract from file
+            </button>
           </div>
         </Card>
       )}

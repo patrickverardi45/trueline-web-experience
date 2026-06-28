@@ -18,6 +18,7 @@ import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
+import { ProductBoreStepThrough } from '@/components/ProductBoreStepThrough';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
 import {
   WORKSPACE_SECTIONS, coerceSection, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
@@ -31,6 +32,7 @@ import {
   fetchExportStatus,
   fetchJobArtifactBlob,
   fetchJobArtifacts,
+  fetchRecognizedCorpusHandoff,
   fetchReviewQueue,
   fetchReviewedBoreLog,
   listReviewCandidates,
@@ -170,6 +172,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
       case 'uploads':
         return (
           <SectionShell n={2} label="Project files">
+            <PackageReadiness jobId={selectedJobId} detail={detail} refreshKey={refreshKey} />
             <UploadsCards detail={detail} />
             <ProductUploadPanel
               jobId={selectedJobId}
@@ -204,6 +207,9 @@ export function ProductWorkspace(props: WorkspaceProps) {
               onGoToReview={() => scrollToSection('review')}
               onGoToCloseout={() => scrollToSection('closeout')}
             />
+            {/* Multi-bore recognized package: step through each bore log's redline on its plan sheet.
+                Renders nothing for a single-REVIEW / abstain job (no recognized bores). */}
+            <ProductBoreStepThrough jobId={selectedJobId} refreshKey={refreshKey} />
           </SectionShell>
         );
       case 'review':
@@ -465,14 +471,88 @@ function Diag({ label, value, mono }: { label: string; value: string; mono?: boo
 }
 
 // --------------------------------------------------------------------------- //
-// Project files — clean cards: uploaded/missing, what it's for, next action.
+// Package readiness — one honest verdict composed from existing reads: required files present, project
+// recognized (sha256 → automatic), or bore-log reviewed (engine_ready). Never overstated.
+// --------------------------------------------------------------------------- //
+function PackageReadiness({ jobId, detail, refreshKey }: {
+  jobId: string; detail: ProductJobDetail; refreshKey?: string;
+}) {
+  const present = new Set(detail.uploads.map((u) => u.kind));
+  const hasPlan = present.has('PLAN_PDF');
+  const hasBore = present.has('BORE_LOG');
+  const hasGis = present.has('GIS_ROUTE');
+  const boreCount = detail.uploads.filter((u) => u.kind === 'BORE_LOG').length;
+  const [recognized, setRecognized] = useState<boolean | null>(null);
+  const [engineReady, setEngineReady] = useState<boolean | null>(null);
+
+  const load = useCallback(async () => {
+    let rec: boolean | null = null;
+    let er: boolean | null = null;
+    if (hasPlan && hasBore) {
+      try { rec = (await fetchRecognizedCorpusHandoff(jobId)).runnable; } catch { rec = null; }
+      try { er = (await fetchReviewQueue(jobId, WORKSPACE_RBL_ID)).engineReady; } catch { er = null; }
+    }
+    setRecognized(rec);
+    setEngineReady(er);
+  }, [jobId, hasPlan, hasBore]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load, refreshKey]);
+
+  // Honest tri-state verdict (no overstatement — "ready" only when truly placeable).
+  let tone: 'ready' | 'pending' | 'missing';
+  let title: string;
+  let detailLine: string;
+  if (!hasPlan || !hasBore) {
+    tone = 'missing';
+    const missing = [!hasPlan ? 'plan PDF' : null, !hasBore ? 'bore log' : null].filter(Boolean).join(' and ');
+    title = `Missing required file: ${missing}`;
+    detailLine = 'Upload the required files below to enable redline placement.';
+  } else if (recognized === true) {
+    tone = 'ready';
+    title = 'Recognized project — ready to process';
+    detailLine = 'This package matches a proven project; the engine redline can be placed automatically in the Redline section.';
+  } else if (engineReady === true) {
+    tone = 'ready';
+    title = 'Ready to process';
+    detailLine = 'The bore log is reviewed. Generate the redline candidate in the Redline section.';
+  } else {
+    tone = 'pending';
+    title = 'Required files present — one step left';
+    detailLine = 'Review the bore log in the Bore log section to enable redline placement.';
+  }
+  const styles = tone === 'ready' ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50';
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${styles}`}>
+      <div className="flex items-center gap-2">
+        {tone === 'ready'
+          ? <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
+          : <span className="mx-1 size-2.5 shrink-0 rounded-full bg-amber-500" />}
+        <p className="font-semibold text-ink">{title}</p>
+      </div>
+      <p className="mt-1 text-sm text-ink-2">{detailLine}</p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
+        <span>{hasPlan ? '✓' : '—'} Plan PDF</span>
+        <span>{hasBore ? `✓ Bore log (${boreCount} file${boreCount === 1 ? '' : 's'})` : '— Bore log'}</span>
+        <span>{hasGis ? '✓ KMZ / KML route' : '— KMZ / KML route (optional)'}</span>
+        {recognized === true && <span className="font-medium text-emerald-700">✓ Recognized project</span>}
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Project files — clean cards: uploaded/missing (with count + filenames), what it's for, next action.
 // --------------------------------------------------------------------------- //
 function UploadsCards({ detail }: { detail: ProductJobDetail }) {
-  const present = new Set(detail.uploads.map((u) => u.kind));
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {UPLOAD_KINDS.map((k) => {
-        const has = present.has(k.kind);
+        const files = detail.uploads.filter((u) => u.kind === k.kind);
+        const has = files.length > 0;
         return (
           <Card key={k.kind} className={has ? '' : 'border-dashed'}>
             <div className="flex items-start gap-2">
@@ -481,7 +561,9 @@ function UploadsCards({ detail }: { detail: ProductJobDetail }) {
                 <div className="flex items-center gap-2">
                   <h4 className="font-semibold text-ink">{k.label}</h4>
                   {has ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">Uploaded</span>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      {files.length === 1 ? 'Uploaded' : `${files.length} uploaded`}
+                    </span>
                   ) : (
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${k.required ? 'bg-amber-100 text-amber-800' : 'bg-line text-ink-3'}`}>
                       {k.required ? 'Required — missing' : 'Optional'}
@@ -489,9 +571,17 @@ function UploadsCards({ detail }: { detail: ProductJobDetail }) {
                   )}
                 </div>
                 <p className="mt-1 text-xs text-ink-3">{k.use}</p>
-                <p className="mt-1 text-xs text-ink-2">
-                  {has ? 'Ready.' : k.required ? 'Add this file below to enable redline placement.' : 'Add below (optional).'}
-                </p>
+                {has ? (
+                  <ul className="mt-1 space-y-0.5">
+                    {files.map((u) => (
+                      <li key={u.uploadId} className="truncate text-xs text-ink-2" title={u.filename}>· {u.filename}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-ink-2">
+                    {k.required ? 'Add this file below to enable redline placement.' : 'Add below (optional).'}
+                  </p>
+                )}
               </div>
             </div>
           </Card>
