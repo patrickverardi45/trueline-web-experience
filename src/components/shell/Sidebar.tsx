@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 import { WORKSPACE_SECTIONS, sectionAnchorId, type WorkspaceSectionKey } from '@/lib/workspaceSections';
+import { productApiEnabled } from '@/lib/api/liveV2Product';
 
 // Top-level product nav. Simple and real: Home, New project, Projects. (New project + Projects both open the
 // projects workspace at /intake — create from there, or pick an existing project.) The legacy contract-preview
@@ -166,15 +167,25 @@ export function Sidebar() {
       <Suspense fallback={<nav className="flex-1 px-3 pb-4" />}>
         <SidebarNav />
       </Suspense>
-      <div className="border-t border-navy-700 px-5 py-4">
-        <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-          Environment
-        </div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
-          <span className="size-1.5 rounded-full bg-emerald-400" />
-          Live product API
-        </div>
-      </div>
+      <SidebarEnvironment />
     </aside>
+  );
+}
+
+// Honest data-mode indicator: reflect whether the app is configured for the live product API or is
+// rendering offline preview data, instead of a hardcoded "Live product API" claim (FR-AUDIT-011).
+// productApiEnabled() reads a NEXT_PUBLIC_* flag, so it is inlined at build and safe in a client component.
+function SidebarEnvironment() {
+  const live = productApiEnabled();
+  return (
+    <div className="border-t border-navy-700 px-5 py-4">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+        Environment
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
+        <span className={`size-1.5 rounded-full ${live ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+        {live ? 'Live product API' : 'Preview data'}
+      </div>
+    </div>
   );
 }

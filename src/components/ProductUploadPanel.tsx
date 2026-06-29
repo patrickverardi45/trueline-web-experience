@@ -24,6 +24,14 @@ type PanelState =
 const ACCEPT = '.pdf,.csv,.xlsx,.kmz,.kml,.jpg,.jpeg,.png,.webp';
 const CAT_LABEL: Record<UploadCategory, string> = { PLAN_PDF: 'Plan PDF', BORE_LOG: 'Bore log' };
 
+// Client-side per-file size cap (FR-AUDIT-004). Uploads are read fully into memory and base64-encoded
+// (~33% inflation) before a single POST, so an oversize file can OOM the tab and produce an unbounded
+// request body. Reject before encoding with an honest message. The server must enforce its own cap too.
+const MAX_UPLOAD_BYTES = 75 * 1024 * 1024; // 75 MB
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+}
+
 export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUploaded: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pdfCategory, setPdfCategory] = useState<UploadCategory>('PLAN_PDF');
@@ -49,6 +57,16 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
       setState({
         phase: 'error',
         message: `Unsupported file type(s): ${unsupported.map((f) => f.name).join(', ')}. Allowed: PDF, CSV, XLSX, KMZ, KML, JPG, JPEG, PNG, WEBP.`,
+      });
+      return;
+    }
+
+    // Size guard (FR-AUDIT-004): reject oversize files before reading/encoding them into memory.
+    const oversize = picked.filter((f) => f.size > MAX_UPLOAD_BYTES);
+    if (oversize.length > 0) {
+      setState({
+        phase: 'error',
+        message: `File too large: ${oversize.map((f) => `${f.name} (${formatMb(f.size)})`).join(', ')}. The maximum is ${formatMb(MAX_UPLOAD_BYTES)} per file.`,
       });
       return;
     }
