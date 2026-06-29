@@ -22,7 +22,7 @@ export interface StepDef {
 export const STEPPER_STEPS: readonly StepDef[] = [
   { key: 'project', label: 'Project', short: 'Name your project' },
   { key: 'upload', label: 'Upload package', short: 'Add your plan, route, bore log & photos' },
-  { key: 'map', label: 'Route map', short: 'See the route from your KMZ/KML' },
+  { key: 'map', label: 'Route context', short: 'Route-only view from your KMZ/KML (the PDF redline is the proof)' },
   { key: 'borelogs', label: 'Bore logs', short: 'Review the extracted bore stations' },
   { key: 'redline', label: 'Redline proof', short: 'Place & check the redline on the plan' },
   { key: 'export', label: 'Export', short: 'Download the closeout package' },

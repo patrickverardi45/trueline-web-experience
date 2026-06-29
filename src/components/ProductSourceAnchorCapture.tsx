@@ -8,12 +8,13 @@
 // This RECORDS + DRAWS human-confirmed geometry only — it is NOT OCR, NOT automatic engine placement, and
 // it does NOT change the deterministic frontier. No mock fallback: failures surface honestly.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   createSourceAnchor,
   fetchJobArtifactBlob,
   fetchPlanPageMetadata,
+  fetchReviewedBoreLog,
   renderSourceAnchor,
   type ControlPointInput,
   type JobArtifactRef,
@@ -33,6 +34,9 @@ interface ProductSourceAnchorCaptureProps {
   readonly jobId: string;
   readonly planUploads: readonly PlanUploadRef[];
   readonly reviewedBoreLogId?: string;
+  // Source-backed sheet hints from the parent (e.g. a recognized candidate's render sheets). Combined with the
+  // bore-log rows' own sheet refs to default the page selector to the RIGHT plan sheet — never the cover.
+  readonly suggestedSheets?: readonly number[];
   // Called after a SUCCEEDED render — the corrected redline is now the job's placed redline, so the parent
   // can refresh the candidate state (-> superseded) and the job slots (-> Redlines/Closeout offer Assemble).
   readonly onChanged?: () => void;
@@ -47,6 +51,7 @@ export function ProductSourceAnchorCapture({
   jobId,
   planUploads,
   reviewedBoreLogId = 'rbl-main',
+  suggestedSheets,
   onChanged,
 }: ProductSourceAnchorCaptureProps) {
   const [planUploadId, setPlanUploadId] = useState<string>(planUploads[0]?.uploadId ?? '');
@@ -55,6 +60,12 @@ export function ProductSourceAnchorCapture({
   const [metaError, setMetaError] = useState<string | null>(null);
   const [points, setPoints] = useState<ControlPointInput[]>([]);
   const [rblId] = useState(reviewedBoreLogId);
+  // Source-backed sheet refs from the bore log itself (the row that records which plan sheet the bore prints
+  // on) + first-row station range, used to default the page to the right sheet and pre-fill the identity.
+  const [boreSheets, setBoreSheets] = useState<readonly number[]>([]);
+  const [boreLoaded, setBoreLoaded] = useState(false);
+  // Apply the suggested default page exactly once per plan upload (so a later user pick is never overridden).
+  const appliedFor = useRef<string | null>(null);
   const [anchorId] = useState(defaultAnchorId());
   const [startStation, setStartStation] = useState('');
   const [startLabel, setStartLabel] = useState('');
@@ -72,14 +83,61 @@ export function ProductSourceAnchorCapture({
     setMeta(null);
     setMetaError(null);
     setPoints([]);
+    appliedFor.current = null; // re-apply the suggested default page for the newly selected plan
     try {
       const m = await fetchPlanPageMetadata(jobId, uploadId);
-      setMeta(m);
-      setPageNumber(1);
+      setMeta(m); // page default is applied by the suggested-sheet effect below (never silently page 1)
     } catch (e) {
       setMetaError(e instanceof Error ? e.message : 'failed to load plan pages');
     }
   }, [jobId]);
+
+  // Read the bore log's own sheet refs (which plan sheet the bore prints on) + its station range, so the
+  // capture can default to the RIGHT sheet and pre-fill the start/end identity. Honest-empty on failure.
+  useEffect(() => {
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBoreLoaded(false);
+    fetchReviewedBoreLog(jobId, rblId)
+      .then((rbl) => {
+        if (!active) return;
+        const sheets = Array.from(new Set(rbl.rows.flatMap((r) => r.sheetRefs)));
+        setBoreSheets(sheets);
+        // Pre-fill the (optional) start/end identity from the bore-log row range, only if not already typed.
+        const withStation = rbl.rows.find((r) => r.startStation || r.endStation);
+        if (withStation) {
+          setStartStation((prev) => prev || withStation.startStation || '');
+          setEndStation((prev) => prev || withStation.endStation || '');
+        }
+      })
+      .catch(() => { if (active) setBoreSheets([]); })
+      .finally(() => { if (active) setBoreLoaded(true); });
+    return () => { active = false; };
+  }, [jobId, rblId]);
+
+  // Suggested plan sheets, in order: bore-log sheet refs first (the bore's own print), then any parent hints
+  // (e.g. recognized render sheets). Clamped to the plan's real page range — a sheet ref past the last page is
+  // dropped rather than guessed.
+  const suggested = useMemo(() => {
+    if (!meta) return [] as number[];
+    const ordered = [...boreSheets, ...(suggestedSheets ?? [])];
+    const seen = new Set<number>();
+    const out: number[] = [];
+    for (const n of ordered) {
+      if (Number.isInteger(n) && n >= 1 && n <= meta.pageCount && !seen.has(n)) { seen.add(n); out.push(n); }
+    }
+    return out;
+  }, [meta, boreSheets, suggestedSheets]);
+
+  // Apply the suggested default page once per plan upload, after both the plan metadata and the bore-log refs
+  // have loaded — so the viewer opens on the suggested sheet, NOT the cover/title page.
+  useEffect(() => {
+    if (!meta || !boreLoaded) return;
+    if (appliedFor.current === planUploadId) return;
+    appliedFor.current = planUploadId;
+    setPageNumber(suggested.length > 0 ? suggested[0] : 1);
+  }, [meta, boreLoaded, suggested, planUploadId]);
+
 
   // Keep the selected plan upload valid as inventory loads or the job changes. The initial value was
   // captured from the first render's plan list; a stale id (e.g. after switching jobs) would 404 on
@@ -197,18 +255,45 @@ export function ProductSourceAnchorCapture({
         </label>
         {meta && meta.pageCount > 1 && (
           <label className="flex items-center gap-1.5">
-            <span className="text-ink-3">Page</span>
+            <span className="text-ink-3">Plan sheet (page)</span>
             <select
               value={pageNumber}
               onChange={(e) => { setPageNumber(Number(e.target.value)); setPoints([]); }}
               className="rounded-md border border-line px-2 py-1 font-mono text-xs text-ink">
               {meta.pages.map((p) => (
-                <option key={p.pageNumber} value={p.pageNumber}>{p.pageNumber}</option>
+                <option key={p.pageNumber} value={p.pageNumber}>
+                  {p.pageNumber}{suggested.includes(p.pageNumber) ? ' — suggested' : ''}
+                </option>
               ))}
             </select>
           </label>
         )}
       </div>
+
+      {/* Source-backed sheet suggestion — default to the sheet the bore log prints on, never the cover. The
+          user can still pick any sheet (the selector above), so an uncertain suggestion is never forced. */}
+      {meta && meta.pageCount > 1 && (
+        suggested.length > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-ink-3">Suggested sheet(s) from your bore log:</span>
+            {suggested.map((n) => (
+              <button
+                key={n}
+                onClick={() => { setPageNumber(n); setPoints([]); }}
+                className={`rounded-md border px-2 py-0.5 font-mono ${
+                  pageNumber === n ? 'border-accent bg-accent-soft text-accent-strong' : 'border-line text-ink-2 hover:text-ink'
+                }`}>
+                Sheet {n}
+              </button>
+            ))}
+            <span className="text-ink-3">— confirm it’s the right sheet, or pick another above.</span>
+          </div>
+        ) : boreLoaded ? (
+          <p className="mt-2 text-xs text-ink-3">
+            No plan sheet is printed on this bore log — pick the plan sheet the bore is drawn on above.
+          </p>
+        ) : null
+      )}
 
       {metaError && <p className="mt-2 text-sm text-red-600">{metaError}</p>}
 

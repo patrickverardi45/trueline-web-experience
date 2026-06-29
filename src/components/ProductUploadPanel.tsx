@@ -1,19 +1,18 @@
 'use client';
 
-// Upload panel for one product job. Reads real Files, infers the upload kind from the extension (PDFs use
-// the selected category since .pdf is ambiguous), base64-encodes the bytes, and POSTs them to the real
-// /v2/product upload route. Unsupported types are rejected up front (never guessed). A failed upload shows
-// an honest error — there is no mock fallback and no fake "processed" state.
+// Upload panel for one product job. The customer first picks the TYPE of file with a clear button/card
+// (Plan PDF · KMZ/KML route · Bore log · Photos) — the selected type is visually obvious — then chooses
+// file(s), which are uploaded AS that type. The file picker is scoped to the type's extensions and each file
+// is validated against it (so nothing is mis-filed). A failed upload shows an honest error — no mock
+// fallback, no fake "processed" state.
 
 import { useRef, useState } from 'react';
+import { ClipboardCheck, FileText, ImageIcon, Map as MapIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
-import {
-  fileToBase64,
-  inferUploadKind,
-  uploadProductFile,
-  type UploadCategory,
-} from '@/lib/api/productWrites';
+import { fileToBase64, uploadProductFile } from '@/lib/api/productWrites';
+
+type Kind = 'PLAN_PDF' | 'GIS_ROUTE' | 'BORE_LOG' | 'PHOTO';
 
 type PanelState =
   | { phase: 'idle' }
@@ -21,8 +20,22 @@ type PanelState =
   | { phase: 'error'; message: string }
   | { phase: 'done'; count: number };
 
-const ACCEPT = '.pdf,.csv,.xlsx,.kmz,.kml,.jpg,.jpeg,.png,.webp';
-const CAT_LABEL: Record<UploadCategory, string> = { PLAN_PDF: 'Plan PDF', BORE_LOG: 'Bore log' };
+interface KindDef {
+  readonly kind: Kind;
+  readonly label: string;
+  readonly desc: string;
+  readonly exts: readonly string[];
+  readonly accept: string;
+  readonly icon: typeof FileText;
+}
+
+// Order per Patrick: Plan PDF · KMZ/KML route · Bore log · Photos.
+const KINDS: readonly KindDef[] = [
+  { kind: 'PLAN_PDF', label: 'Plan PDF', desc: 'The construction plan', exts: ['.pdf'], accept: '.pdf', icon: FileText },
+  { kind: 'GIS_ROUTE', label: 'KMZ / KML route', desc: 'Route for the map', exts: ['.kmz', '.kml'], accept: '.kmz,.kml', icon: MapIcon },
+  { kind: 'BORE_LOG', label: 'Bore log', desc: 'Bore stations (.xlsx / .csv / .pdf)', exts: ['.pdf', '.csv', '.xlsx'], accept: '.pdf,.csv,.xlsx', icon: ClipboardCheck },
+  { kind: 'PHOTO', label: 'Photos', desc: 'Stored for reference only', exts: ['.jpg', '.jpeg', '.png', '.webp'], accept: '.jpg,.jpeg,.png,.webp', icon: ImageIcon },
+];
 
 // Client-side per-file size cap (FR-AUDIT-004). Uploads are read fully into memory and base64-encoded
 // (~33% inflation) before a single POST, so an oversize file can OOM the tab and produce an unbounded
@@ -31,37 +44,32 @@ const MAX_UPLOAD_BYTES = 75 * 1024 * 1024; // 75 MB
 function formatMb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
 }
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+}
 
 export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUploaded: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [pdfCategory, setPdfCategory] = useState<UploadCategory>('PLAN_PDF');
+  const [kind, setKind] = useState<Kind>('PLAN_PDF');
   const [state, setState] = useState<PanelState>({ phase: 'idle' });
+  const def = KINDS.find((k) => k.kind === kind)!;
 
   async function onPick(files: FileList | null) {
     if (!files || files.length === 0) return;
     const picked = Array.from(files);
 
-    // Mis-filing guard (W1): the single category applies to EVERY .pdf in a pick, so selecting a plan PDF and
-    // a bore-log PDF together would silently file one as the wrong kind. Force one PDF per pick.
-    const pdfCount = picked.filter((f) => f.name.toLowerCase().endsWith('.pdf')).length;
-    if (pdfCount >= 2) {
+    // Every file must match the SELECTED type's extensions — the type is explicit (the chosen button), so
+    // nothing is silently mis-filed.
+    const wrong = picked.filter((f) => !def.exts.includes(extOf(f.name)));
+    if (wrong.length > 0) {
       setState({
         phase: 'error',
-        message: `You selected ${pdfCount} PDFs at once. The “${CAT_LABEL[pdfCategory]}” category applies to every PDF in a pick, so a plan + bore-log PDF would be mis-filed. Upload PDFs one at a time, choosing the right category for each.`,
+        message: `These don’t match “${def.label}” (${def.exts.join(', ')}): ${wrong.map((f) => f.name).join(', ')}. Pick the matching type button, or choose the right files.`,
       });
       return;
     }
 
-    const unsupported = picked.filter((f) => inferUploadKind(f.name, pdfCategory) === null);
-    if (unsupported.length > 0) {
-      setState({
-        phase: 'error',
-        message: `Unsupported file type(s): ${unsupported.map((f) => f.name).join(', ')}. Allowed: PDF, CSV, XLSX, KMZ, KML, JPG, JPEG, PNG, WEBP.`,
-      });
-      return;
-    }
-
-    // Size guard (FR-AUDIT-004): reject oversize files before reading/encoding them into memory.
     const oversize = picked.filter((f) => f.size > MAX_UPLOAD_BYTES);
     if (oversize.length > 0) {
       setState({
@@ -71,10 +79,8 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
       return;
     }
 
-    // Content sniff for PDFs (FR-AUDIT-010): a file named .pdf must actually start with the %PDF- magic
-    // bytes — catches a mis-named or wrong-type file before it enters the pipeline. Reads only 5 bytes.
-    // (The backend must still enforce its own size/type/content checks; this is a fast first-line guard.)
-    for (const f of picked.filter((f) => f.name.toLowerCase().endsWith('.pdf'))) {
+    // Content sniff for PDFs (FR-AUDIT-010): a .pdf must actually start with %PDF- (catches a mis-named file).
+    for (const f of picked.filter((f) => extOf(f.name) === '.pdf')) {
       const sig = String.fromCharCode(...new Uint8Array(await f.slice(0, 5).arrayBuffer()));
       if (sig !== '%PDF-') {
         setState({
@@ -89,8 +95,6 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
     try {
       let done = 0;
       for (const f of picked) {
-        const kind = inferUploadKind(f.name, pdfCategory);
-        if (kind === null) continue; // already guarded above
         const contentBase64 = await fileToBase64(f);
         await uploadProductFile(jobId, { kind, filename: f.name, contentBase64 });
         done += 1;
@@ -108,56 +112,66 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
     <Card className="mt-4">
       <h3 className="font-semibold text-ink">Upload your source package</h3>
       <p className="mt-1 text-sm text-ink-3">
-        Upload your project files — the plan PDF, the KMZ/KML route, and the bore log. FieldRoute reads the
-        plan, route, and bore log to place the redline; you only review items it flags as uncertain. You can
-        also add field photos for reference.
-      </p>
-      <p className="mt-1 text-xs text-ink-3">
-        Accepted: PDF · CSV · XLSX · KMZ · KML · JPG · PNG · WEBP. Up to {formatMb(MAX_UPLOAD_BYTES)} per file.
-      </p>
-      <p className="mt-1 text-xs text-ink-3">
-        <span className="font-medium">Photos</span> are stored for reference only — they don’t affect redlines yet.
+        Choose what you’re uploading, then add the file(s). FieldRoute reads the plan, route, and bore log to
+        place the redline; photos are stored for reference only — they don’t affect redlines yet.
       </p>
 
-      <fieldset className="mt-3">
-        <legend className="text-xs text-ink-3">When you upload a .pdf, file it as:</legend>
-        <div className="mt-1 flex gap-4 text-sm">
-          {(['PLAN_PDF', 'BORE_LOG'] as UploadCategory[]).map((cat) => (
-            <label key={cat} className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                name="pdfcat"
-                checked={pdfCategory === cat}
-                onChange={() => setPdfCategory(cat)}
-              />
-              <span className="text-ink-2">{CAT_LABEL[cat]}</span>
-            </label>
-          ))}
-        </div>
-        <p className="mt-1.5 text-xs text-ink-3">
-          Upload the plan and the bore log in <span className="font-medium">separate picks</span> so each is
-          filed correctly. The bore log is <span className="font-medium">stored for your review, not auto-read</span>
-          {' '}(no OCR) — you confirm its stations in the <span className="font-medium">Bore logs</span> section
-          before the engine uses them.
-        </p>
-      </fieldset>
+      {/* Type selector — clear buttons/cards, the selected one is obvious. */}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {KINDS.map((k) => {
+          const Icon = k.icon;
+          const selected = k.kind === kind;
+          return (
+            <button
+              key={k.kind}
+              type="button"
+              onClick={() => { setKind(k.kind); setState({ phase: 'idle' }); if (inputRef.current) inputRef.current.value = ''; }}
+              aria-pressed={selected}
+              className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition-colors ${
+                selected ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line hover:border-accent/50'
+              }`}>
+              <Icon className={`mt-0.5 size-5 shrink-0 ${selected ? 'text-accent-strong' : 'text-ink-3'}`} strokeWidth={1.75} />
+              <span className="min-w-0">
+                <span className={`block text-sm font-semibold ${selected ? 'text-accent-strong' : 'text-ink'}`}>{k.label}</span>
+                <span className="block text-xs text-ink-3">{k.desc}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
+      {/* File picker scoped to the selected type. */}
       <div className="mt-3">
+        <label className="block text-sm font-medium text-ink">
+          Add {def.label} file(s)
+          <span className="ml-1 font-normal text-ink-3">— accepted: {def.exts.join(' · ')}, up to {formatMb(MAX_UPLOAD_BYTES)} each</span>
+        </label>
         <input
           ref={inputRef}
           type="file"
           multiple
-          accept={ACCEPT}
+          accept={def.accept}
           onChange={(e) => onPick(e.target.files)}
           disabled={state.phase === 'uploading'}
-          className="block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border file:border-line file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink"
+          className="mt-1.5 block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border file:border-line file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink"
         />
       </div>
 
-      {state.phase === 'uploading' && (
-        <p className="mt-2 text-sm text-ink-3">
-          Uploading {state.done}/{state.total}…
+      {kind === 'BORE_LOG' && (
+        <p className="mt-2 text-xs text-ink-3">
+          The bore log is <span className="font-medium">stored for your review, not auto-read</span> (no OCR) —
+          you confirm its stations in the <span className="font-medium">Bore logs</span> step before the engine
+          uses them. Upload multiple bore logs separately; each is reviewed on its own.
         </p>
+      )}
+      {kind === 'PHOTO' && (
+        <p className="mt-2 text-xs text-ink-3">
+          <span className="font-medium">Photos</span> are stored for reference only — they don’t affect redlines yet.
+        </p>
+      )}
+
+      {state.phase === 'uploading' && (
+        <p className="mt-2 text-sm text-ink-3">Uploading {state.done}/{state.total}…</p>
       )}
       {state.phase === 'done' && (
         <p className="mt-2 text-sm text-ink-3">Uploaded {state.count} file(s) — stored + queued.</p>

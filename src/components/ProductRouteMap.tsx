@@ -153,7 +153,7 @@ export function ProductRouteMap({ jobId, refreshKey }: { jobId: string; refreshK
   return (
     <Card>
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold text-ink">Map / Route context</h3>
+        <h3 className="font-semibold text-ink">Route context (route-only)</h3>
         <div className="flex items-center gap-2">
           {view?.present && (
             <div className="inline-flex overflow-hidden rounded-lg border border-line text-xs">
@@ -182,8 +182,9 @@ export function ProductRouteMap({ jobId, refreshKey }: { jobId: string; refreshK
       </div>
       {kmzError && <p className="mt-1 text-xs text-red-600">{kmzError}</p>}
       <p className="mt-1 text-sm text-ink-3">
-        Route from your uploaded KMZ/KML — real coordinates, no external map. Redlines are shown on the plan
-        pages in the Redline section.
+        Route-only context from your uploaded KMZ/KML — real coordinates, no external map. The redline proof
+        is the drawn redline on the plan PDF (Redline proof step). Redlines, clickable stations, and geotagged
+        photos are <span className="font-medium">not</span> overlaid on this map yet.
       </p>
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}

@@ -482,6 +482,7 @@ export function ProductReviewCandidates({
                     jobId={jobId}
                     planUploads={planUploads}
                     reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                    suggestedSheets={candidate.renderSheets}
                     onChanged={() => {
                       void load();      // re-read the candidate -> SUPERSEDED (hides accept/correct, shows corrected)
                       onChanged?.();    // refresh workspace slots -> Redline/Export recognize the placed redline
@@ -507,6 +508,7 @@ export function ProductReviewCandidates({
                   jobId={jobId}
                   planUploads={planUploads}
                   reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                  suggestedSheets={candidate.renderSheets}
                   onChanged={() => { void load(); onChanged?.(); }}
                 />
               </div>
