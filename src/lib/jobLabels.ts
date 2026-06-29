@@ -24,9 +24,12 @@ const ALIAS_TO_ID: Record<string, string> = Object.fromEntries(
   Object.entries(JOB_ALIAS).map(([id, alias]) => [alias, id]),
 );
 
-/** Readable product title for a project (falls back to the id for user-created projects). */
+/** Readable product title for a project. Seeded ids use their mapped title; a user-created project is the
+ *  slug the customer typed (e.g. "main-street-relocation") — humanize it for display ("Main Street
+ *  Relocation") so the workspace never shows a raw slug. */
 export function jobTitle(jobId: string): string {
-  return JOB_TITLE[jobId] ?? jobId;
+  if (JOB_TITLE[jobId]) return JOB_TITLE[jobId];
+  return jobId.replace(/[-_]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()) || jobId;
 }
 
 /** Neutral technical reference shown in Diagnostics / Technical details / URLs — never a raw "demo-*" slug. */

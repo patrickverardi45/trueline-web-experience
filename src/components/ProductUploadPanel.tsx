@@ -108,11 +108,15 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
     <Card className="mt-4">
       <h3 className="font-semibold text-ink">Upload your source package</h3>
       <p className="mt-1 text-sm text-ink-3">
-        Upload your project files once — plan PDFs, the KMZ/KML route, bore logs, and field photos. FieldRoute
-        extracts the route and redline context from them; you only review items it flags as uncertain.
+        Upload your project files — the plan PDF, the KMZ/KML route, and the bore log. FieldRoute reads the
+        plan, route, and bore log to place the redline; you only review items it flags as uncertain. You can
+        also add field photos for reference.
       </p>
       <p className="mt-1 text-xs text-ink-3">
         Accepted: PDF · CSV · XLSX · KMZ · KML · JPG · PNG · WEBP. Up to {formatMb(MAX_UPLOAD_BYTES)} per file.
+      </p>
+      <p className="mt-1 text-xs text-ink-3">
+        <span className="font-medium">Photos</span> are stored for reference only — they don’t affect redlines yet.
       </p>
 
       <fieldset className="mt-3">

@@ -1,9 +1,9 @@
 'use client';
 
-// Projects workspace entry point. `/intake` renders the project list + the selected project's single-page
-// workflow (upload → redline → review/correct → closeout → export). The selected project comes from ?job=
-// (and ?section= deep-links a section). State is owned here and passed into ProductWorkspace. Product-mode
-// only — honest "not configured" / "unavailable" states; never a mock fallback.
+// Projects workspace entry point. `/intake?workspace=1` renders the GUIDED 6-step workflow for the selected
+// project (Project → Upload → Route map → Bore logs → Redline proof → Export). The selected project comes
+// from ?job= and the active step from ?step=. State is owned here and passed into ProductWorkspace.
+// Product-mode only — honest "not configured" / "unavailable" states; never a mock fallback.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -21,7 +21,7 @@ import {
 import { Card } from '@/components/ui/Card';
 import { ProductWorkspace } from '@/components/ProductWorkspace';
 import { jobAlias, resolveJobId } from '@/lib/jobLabels';
-import { coerceSection, workspaceHref } from '@/lib/workspaceSections';
+import { coerceStep, stepHref } from '@/lib/stepperSteps';
 import { internalToolingEnabled } from '@/lib/internalMode';
 
 type Boot =
@@ -30,16 +30,35 @@ type Boot =
   | { phase: 'error'; message: string }
   | { phase: 'ready' };
 
-function defaultProjectId(): string {
-  // Browser-only convenience; the backend re-validates the id (^[a-z0-9][a-z0-9_-]{0,62}$).
-  return 'project-' + Math.random().toString(36).slice(2, 8);
+// Turn a customer's free-text project name into a backend-safe job id (^[a-z0-9][a-z0-9_-]{0,62}$). The
+// customer never sees or types a slug — they type a name ("Main Street relocation") and we derive the id
+// ("main-street-relocation") silently; jobTitle() humanizes it back for display.
+function slugify(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63)
+    .replace(/-+$/g, '');
+}
+
+// Keep the derived id unique within the project so two same-named projects don't collide on the backend.
+function uniqueJobId(base: string, jobs: readonly ProductJobSummary[]): string {
+  const taken = new Set(jobs.map((j) => j.jobId));
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${base}-${n}`.slice(0, 63);
+    if (!taken.has(candidate)) return candidate;
+  }
+  return base;
 }
 
 export function ProductIntake() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const jobParam = searchParams.get('job');
-  const sectionParam = searchParams.get('section');
+  const stepParam = searchParams.get('step');
 
   const [boot, setBoot] = useState<Boot>(() =>
     productApiEnabled() ? { phase: 'loading' } : { phase: 'off' },
@@ -48,7 +67,6 @@ export function ProductIntake() {
   const [jobs, setJobs] = useState<ProductJobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProductJobDetail | null>(null);
-  const [newJobId, setNewJobId] = useState<string>(defaultProjectId());
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const uploadsKey = detail?.uploads.map((u) => u.uploadId).join('|') ?? '';
@@ -98,9 +116,9 @@ export function ProductIntake() {
     const realId = resolveJobId(jobParam);
     const alias = jobAlias(realId);
     if (jobParam !== alias) {
-      router.replace(workspaceHref(realId, coerceSection(sectionParam)));
+      router.replace(stepHref(realId, coerceStep(stepParam)));
     }
-  }, [jobParam, sectionParam, router]);
+  }, [jobParam, stepParam, router]);
 
   // URL-driven selection: the ?job= value is a NEUTRAL alias (or a real id for a user-created project);
   // resolve it back to the store id before selecting. Reactive to client-side nav.
@@ -115,33 +133,29 @@ export function ProductIntake() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot.phase, jobParam, jobs]);
 
-  async function onCreateProject() {
-    setBusy(true);
-    setActionError(null);
-    try {
-      await createProductProject('Product project');
-      await loadProjectAndJobs();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'failed to set up the workspace');
-    } finally {
-      setBusy(false);
+  // Create a project from a friendly name: silently ensure the tenant workspace exists (no "Set up
+  // workspace" step), derive the id, create the job, select it, and land on Step 2 (Upload).
+  const onStartProject = useCallback(async (displayName: string) => {
+    const base = slugify(displayName);
+    if (!base) {
+      setActionError('Enter a project name to continue.');
+      return;
     }
-  }
-
-  async function onCreateJob() {
     setBusy(true);
     setActionError(null);
     try {
-      await createProductJob(newJobId);
+      if (!projectExists) await createProductProject('Project');
+      const id = uniqueJobId(base, jobs);
+      await createProductJob(id);
       await loadProjectAndJobs();
-      await onSelectJob(newJobId);
-      setNewJobId(defaultProjectId());
+      await onSelectJob(id);
+      router.push(stepHref(id, 'upload'));
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'failed to create the project');
     } finally {
       setBusy(false);
     }
-  }
+  }, [projectExists, jobs, loadProjectAndJobs, onSelectJob, router]);
 
   if (boot.phase === 'off') {
     return (
@@ -175,17 +189,13 @@ export function ProductIntake() {
 
   return (
     <ProductWorkspace
-      projectExists={projectExists}
       busy={busy}
       jobs={jobs}
       selectedJobId={selectedJobId}
       detail={detail}
-      newJobId={newJobId}
-      setNewJobId={setNewJobId}
       actionError={actionError}
       uploadsKey={uploadsKey}
-      onCreateProject={onCreateProject}
-      onCreateJob={onCreateJob}
+      onStartProject={onStartProject}
       refreshDetail={refreshDetail}
       loadProjectAndJobs={loadProjectAndJobs}
     />

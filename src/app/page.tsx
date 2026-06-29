@@ -22,7 +22,7 @@ const LANDING_CARDS: readonly LandingCard[] = [
   {
     href: '/intake?workspace=1',
     title: 'Start a new project',
-    body: 'Create a project and upload your plan PDF, KMZ/KML route, bore log, and photos. Generate the redline, review or correct the placement, then assemble and download the closeout package.',
+    body: 'Create a project and upload your plan PDF, KMZ/KML route, and bore log (plus photos for reference). FieldRoute places the redline, flags any uncertain placement for your review, then assembles a closeout package to download and print.',
     icon: FolderPlus,
     cta: 'Open your projects',
   },
