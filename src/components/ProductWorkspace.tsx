@@ -61,10 +61,10 @@ function friendlyCloseout(s: string | null): string {
 }
 
 const UPLOAD_KINDS: { kind: string; label: string; required: boolean; use: string }[] = [
-  { kind: 'PLAN_PDF', label: 'Plan PDF', required: true, use: 'The construction plan the engine draws the redline on.' },
-  { kind: 'BORE_LOG', label: 'Bore log', required: true, use: 'The bore stations the redline is placed against.' },
-  { kind: 'GIS_ROUTE', label: 'KMZ / KML route', required: false, use: 'Route context drawn on the Map section.' },
-  { kind: 'PHOTO', label: 'Photos', required: false, use: 'Field photos stored with the project.' },
+  { kind: 'PLAN_PDF', label: 'Plan PDF', required: true, use: 'The construction plan.' },
+  { kind: 'BORE_LOG', label: 'Bore log', required: true, use: 'The bore stations.' },
+  { kind: 'GIS_ROUTE', label: 'KMZ / KML route', required: false, use: 'Route context for the map.' },
+  { kind: 'PHOTO', label: 'Photos', required: false, use: 'Field photos.' },
 ];
 
 // Plain-English copy for the closeout warning/blocker codes (raw code kept behind Diagnostics).
@@ -172,7 +172,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
         return <JobHeaderBand jobId={selectedJobId} detail={detail} jobs={jobs} refreshKey={refreshKey} />;
       case 'uploads':
         return (
-          <SectionShell n={2} label="Project files">
+          <SectionShell label="Project files">
             <PackageReadiness jobId={selectedJobId} detail={detail} refreshKey={refreshKey} />
             <UploadsCards detail={detail} />
             <ProductUploadPanel
@@ -189,19 +189,19 @@ export function ProductWorkspace(props: WorkspaceProps) {
         );
       case 'map':
         return (
-          <SectionShell n={3} label="Map / route">
+          <SectionShell label="Map / route">
             <ProductRouteMap jobId={selectedJobId} refreshKey={refreshKey} />
           </SectionShell>
         );
       case 'borelogs':
         return (
-          <SectionShell n={4} label="Bore log">
+          <SectionShell label="Bore log">
             <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
           </SectionShell>
         );
       case 'redlines':
         return (
-          <SectionShell n={5} label="Redline">
+          <SectionShell label="Redline">
             <ProductWorkflowPanel
               jobId={selectedJobId}
               refreshKey={refreshKey}
@@ -217,7 +217,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
         );
       case 'review':
         return (
-          <SectionShell n={6} label="Review &amp; correct">
+          <SectionShell label="Review &amp; correct">
             <ProductReviewCandidates
               jobId={selectedJobId}
               refreshKey={refreshKey}
@@ -230,7 +230,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
         );
       case 'closeout':
         return (
-          <SectionShell n={7} label="Closeout review">
+          <SectionShell label="Closeout review">
             <CloseoutReviewSection
               jobId={selectedJobId}
               detail={detail}
@@ -243,7 +243,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
         );
       case 'exports':
         return (
-          <SectionShell n={8} label="Export &amp; print">
+          <SectionShell label="Export &amp; print">
             <ExportsSection jobId={selectedJobId} refreshKey={refreshKey} ready={detail.slots.exportPackage} />
           </SectionShell>
         );
@@ -257,9 +257,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
       <Card>
         <h2 className="text-lg font-semibold text-ink">Project workspace</h2>
         <p className="mt-1 text-sm text-ink-2">
-          One project, one page: upload files, see the route and bore logs, generate the redline, review or
-          correct the placement, then review and download the closeout package. Redlines come from the real
-          engine — nothing is invented, and an uncertain placement is flagged for your review rather than guessed.
+          Upload your files, generate the redline, review it, then download the closeout package.
         </p>
       </Card>
 
@@ -342,13 +340,10 @@ export function ProductWorkspace(props: WorkspaceProps) {
 // --------------------------------------------------------------------------- //
 // A thin, numbered section marker so the scrollable flow reads in order (the sidebar anchors land here).
 // --------------------------------------------------------------------------- //
-function SectionShell({ n, label, children }: { n: number; label: string; children: React.ReactNode }) {
+function SectionShell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="flex size-6 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-strong">{n}</span>
-        <h2 className="text-base font-semibold text-ink">{label}</h2>
-      </div>
+      <h2 className="text-base font-semibold text-ink">{label}</h2>
       {children}
     </div>
   );
@@ -485,8 +480,6 @@ function PackageReadiness({ jobId, detail, refreshKey }: {
   const present = new Set(detail.uploads.map((u) => u.kind));
   const hasPlan = present.has('PLAN_PDF');
   const hasBore = present.has('BORE_LOG');
-  const hasGis = present.has('GIS_ROUTE');
-  const boreCount = detail.uploads.filter((u) => u.kind === 'BORE_LOG').length;
   const [recognized, setRecognized] = useState<boolean | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
 
@@ -539,12 +532,9 @@ function PackageReadiness({ jobId, detail, refreshKey }: {
         <p className="font-semibold text-ink">{title}</p>
       </div>
       <p className="mt-1 text-sm text-ink-2">{detailLine}</p>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
-        <span>{hasPlan ? '✓' : '—'} Plan PDF</span>
-        <span>{hasBore ? `✓ Bore log (${boreCount} file${boreCount === 1 ? '' : 's'})` : '— Bore log'}</span>
-        <span>{hasGis ? '✓ KMZ / KML route' : '— KMZ / KML route (optional)'}</span>
-        {recognized === true && <span className="font-medium text-emerald-700">✓ Recognized project</span>}
-      </div>
+      {recognized === true && (
+        <p className="mt-1.5 text-xs font-medium text-emerald-700">✓ Recognized project</p>
+      )}
     </div>
   );
 }
@@ -825,20 +815,18 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
             <p className="font-medium text-ink">Notes</p>
             <ul className="mt-1 space-y-1">
               {blockers.map((b) => (
-                <li key={b} className="text-red-600">{closeoutCodeCopy(b)} <span className="font-mono text-[10px] text-ink-3">({b})</span></li>
+                <li key={b} className="text-red-600">{closeoutCodeCopy(b)}</li>
               ))}
               {warnings.map((w) => (
-                <li key={w} className="text-ink-3">{closeoutCodeCopy(w)} <span className="font-mono text-[10px] text-ink-3">({w})</span></li>
+                <li key={w} className="text-ink-3">{closeoutCodeCopy(w)}</li>
               ))}
             </ul>
           </div>
         )}
 
         <p className="mt-3 rounded-md bg-paper px-3 py-2 text-xs text-ink-3">
-          Generated from the uploaded source evidence. This is a REVIEW deliverable — review it before
-          construction or use. Closeout status is server-authoritative. Final sign-off (approve / lock for
-          billing) requires sign-in — coming with accounts; until then the assembled package is ready to
-          review, download, and print.
+          Generated from your uploaded source evidence — review it before construction or use. Quantities
+          only; no dollar amounts.
         </p>
       </Card>
     </div>

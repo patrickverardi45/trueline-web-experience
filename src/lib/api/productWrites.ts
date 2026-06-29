@@ -1073,6 +1073,13 @@ export async function downloadKmzExportBlob(jobId: string): Promise<Blob> {
   return getProductBlob(`/v2/product/jobs/${jobId}/kmz-export/download`);
 }
 
+/** Download the job's UPLOADED route as a Google-Earth-openable KMZ Blob (real WGS84 geometry + verbatim
+ *  names / street labels). This is the uploaded design route, NOT redline output. Throws (409) when the job
+ *  has no usable GIS_ROUTE — never a faked file. */
+export async function downloadRouteKmzBlob(jobId: string): Promise<Blob> {
+  return getProductBlob(`/v2/product/jobs/${jobId}/gis-route/download`);
+}
+
 /** Download the job's closeout export bundle as a .zip Blob (the redline manifest + sha256-verified
  *  FINAL_REDLINE_PNG bytes + closeout/export/KMZ status JSON + reviewed-bore-log metadata, and a valid KMZ
  *  only when genuinely geospatial). Throws (409) when the job has no validated redline bundle yet. */
@@ -1098,6 +1105,7 @@ export async function downloadCloseoutPdfBlob(jobId: string): Promise<Blob> {
 export interface GisRouteFeature {
   readonly type: string;                       // LineString | Point | Polygon
   readonly name: string | null;                // placemark <name>, verbatim from the file (never invented)
+  readonly sourceLabel: string | null;         // street label the FILE printed (verbatim) or null — never invented/geocoded
   readonly coordinates: readonly (readonly number[])[];   // [[lon, lat], ...] (WGS84, altitude dropped)
 }
 
@@ -1118,7 +1126,7 @@ function composeGisRouteFeature(value: unknown): GisRouteFeature | null {
     .filter((p): p is unknown[] => Array.isArray(p) && p.length >= 2)
     .map((p) => [Number(p[0]), Number(p[1])])
     .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
-  return { type: str(f.type), name: strOrNull(f.name), coordinates };
+  return { type: str(f.type), name: strOrNull(f.name), sourceLabel: strOrNull(f.source_label), coordinates };
 }
 
 export function composeGisRoute(doc: unknown): GisRouteView {

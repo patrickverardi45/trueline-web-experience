@@ -4,12 +4,11 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  ClipboardCheck, Download, FolderOpen, FolderPlus, Gauge, Home, LayoutDashboard, Lock,
+  ClipboardCheck, Download, FolderOpen, FolderPlus, Gauge, Home, LayoutDashboard,
   Map as MapIcon, PenLine, Upload, CheckCircle2,
 } from 'lucide-react';
 
 import { WORKSPACE_SECTIONS, sectionAnchorId, type WorkspaceSectionKey } from '@/lib/workspaceSections';
-import { productApiEnabled } from '@/lib/api/liveV2Product';
 
 // Top-level product nav. Simple and real: Home, New project, Projects. (New project + Projects both open the
 // projects workspace at /intake — create from there, or pick an existing project.) The legacy contract-preview
@@ -106,7 +105,7 @@ function SidebarNav() {
           <div className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             Project workflow{job ? '' : ' · select a project'}
           </div>
-          {WORKSPACE_SECTIONS.map(({ key, label }, i) => {
+          {WORKSPACE_SECTIONS.map(({ key, label }) => {
             const Icon = SECTION_ICON[key];
             if (!job) {
               return (
@@ -114,10 +113,8 @@ function SidebarNav() {
                   key={key}
                   aria-disabled="true"
                   className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">
-                  <span className="font-mono text-[10px] text-slate-600">{i + 1}</span>
                   <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
                   {label}
-                  <Lock className="ml-auto size-3.5 shrink-0" strokeWidth={1.75} />
                 </span>
               );
             }
@@ -131,7 +128,6 @@ function SidebarNav() {
                   document.getElementById(sectionAnchorId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }}
                 className={navLink(activeKey === key)}>
-                <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
                 <Icon className="size-4.5 shrink-0" strokeWidth={1.75} />
                 {label}
               </a>
@@ -167,25 +163,6 @@ export function Sidebar() {
       <Suspense fallback={<nav className="flex-1 px-3 pb-4" />}>
         <SidebarNav />
       </Suspense>
-      <SidebarEnvironment />
     </aside>
-  );
-}
-
-// Honest data-mode indicator: reflect whether the app is configured for the live product API or is
-// rendering offline preview data, instead of a hardcoded "Live product API" claim (FR-AUDIT-011).
-// productApiEnabled() reads a NEXT_PUBLIC_* flag, so it is inlined at build and safe in a client component.
-function SidebarEnvironment() {
-  const live = productApiEnabled();
-  return (
-    <div className="border-t border-navy-700 px-5 py-4">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-        Environment
-      </div>
-      <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
-        <span className={`size-1.5 rounded-full ${live ? 'bg-emerald-400' : 'bg-slate-400'}`} />
-        {live ? 'Live product API' : 'Preview data'}
-      </div>
-    </div>
   );
 }

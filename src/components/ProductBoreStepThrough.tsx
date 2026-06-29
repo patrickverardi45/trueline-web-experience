@@ -179,7 +179,6 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
             <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-3">Bore-log details</h4>
             <dl className="mt-2 grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
               <InfoField label="Bore-log file" value={row?.sourceFile ?? null} />
-              <InfoField label="Bore / log id" value={cur.logId} />
               <InfoField label="Station start" value={cur.startStation ?? row?.startStation ?? null} />
               <InfoField label="Station end" value={cur.endStation ?? row?.endStation ?? null} />
               <InfoField label="Span / footage" value={ft(row?.footageFt)} />
@@ -192,7 +191,6 @@ export function ProductBoreStepThrough({ jobId, refreshKey, placed = false }: {
               <InfoField label="Review status" value={row ? row.reviewStatus.toLowerCase() : null} />
               <InfoField label="Extraction source"
                 value={row ? (EXTRACTION_LABEL[row.extractionMethod] ?? row.extractionMethod) : null} />
-              <InfoField label="Geometry basis" value="Pixel-only (PDF, not georeferenced)" />
               <InfoField label="Redline images" value={String(cur.artifacts.length)} />
             </dl>
           </div>

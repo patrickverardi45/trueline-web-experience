@@ -33,15 +33,15 @@ type Boot =
 function statusLabel(status: string | null): { text: string; tone: string } {
   switch (status) {
     case 'REVIEW_ACCEPTED':
-      return { text: 'Accepted (human-accepted REVIEW)', tone: 'text-emerald-700' };
+      return { text: 'Accepted', tone: 'text-emerald-700' };
     case 'REVIEW_REJECTED':
       return { text: 'Rejected', tone: 'text-red-600' };
     case 'REVIEW_CANDIDATE':
       return { text: 'Awaiting your decision', tone: 'text-amber-700' };
     case 'REVIEW_SUPERSEDED':
-      return { text: 'Corrected — human-confirmed placement saved', tone: 'text-emerald-700' };
+      return { text: 'Corrected — your placement saved', tone: 'text-emerald-700' };
     case 'ABSTAINED':
-      return { text: 'Engine abstained — see the reasons below', tone: 'text-ink-3' };
+      return { text: 'Couldn’t place automatically — see reasons below', tone: 'text-ink-3' };
     default:
       return { text: status ?? 'unknown', tone: 'text-ink-3' };
   }
@@ -141,7 +141,7 @@ export function ProductReviewCandidates({
   const [images, setImages] = useState<readonly { path: string; url: string }[]>([]);
 
   // No synchronous setState in the body (the mount effect calls this, so it must not trip
-  // react-hooks/set-state-in-effect); the Re-check button sets the loading state itself before calling it.
+  // react-hooks/set-state-in-effect); callers set the loading state themselves before calling it.
   const load = useCallback(async () => {
     try {
       const list = await listReviewCandidates(jobId);
@@ -260,24 +260,11 @@ export function ProductReviewCandidates({
 
   return (
     <Card className="mt-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold text-ink">Engine REVIEW redline candidate</h3>
-        <button
-          onClick={() => {
-            setActionError(null);
-            setBoot({ phase: 'loading' });
-            void load();
-          }}
-          disabled={boot.phase === 'loading' || busy}
-          className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-2 hover:text-ink disabled:opacity-50">
-          {boot.phase === 'loading' ? 'Checking…' : 'Re-check'}
-        </button>
-      </div>
+      <h3 className="font-semibold text-ink">Review the redline placement</h3>
 
       <p className="mt-1 text-sm text-ink-3">
-        The engine generates a source-supported REVIEW redline from this job&apos;s own plan + reviewed
-        bore-log. REVIEW is a real product output you accept or reject — it is engine-generated geometry,
-        never hand-drawn, and never relabeled as deterministic AUTO.
+        The system placed a redline from your plan and bore log. Check it below, then accept it — or correct
+        the placement if it’s off.
       </p>
 
       {boot.phase === 'loading' && <p className="mt-2 text-sm text-ink-3">Checking for a candidate…</p>}
@@ -308,12 +295,6 @@ export function ProductReviewCandidates({
           <p className="text-sm">
             <span className={`font-semibold ${status.tone}`}>{status.text}</span>
           </p>
-          {candidate.provenance && (
-            <p className="mt-1 text-xs text-ink-3">
-              provenance: <span className="font-mono">{candidate.provenance}</span>
-              {candidate.noManualGeometry && ' · no manual geometry (engine-generated)'}
-            </p>
-          )}
 
           {/* Corrected: the human replaced the uncertain engine placement with a confirmed route. */}
           {candidate.status === 'REVIEW_SUPERSEDED' && (
@@ -356,10 +337,7 @@ export function ProductReviewCandidates({
                   {candidate.confidence!.warnings
                     .filter((w) => w !== CORRECTION_RECOMMENDED)
                     .map((w) => (
-                      <li key={w}>
-                        {warningCopy(w)}{' '}
-                        <span className="font-mono text-[10px] text-red-500">({w})</span>
-                      </li>
+                      <li key={w}>{warningCopy(w)}</li>
                     ))}
                 </ul>
               )}
@@ -369,14 +347,11 @@ export function ProductReviewCandidates({
           {/* Why REVIEW and not AUTO — honest, never an AUTO claim. */}
           {candidate.whyNotAuto?.autoBlocked && (
             <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <span className="font-semibold">Why this is REVIEW, not AUTO:</span> the engine has no
-              source-tight per-bore evidence to place this automatically.
+              <span className="font-semibold">Why this needs your review:</span> there isn’t tight enough
+              evidence to place it automatically.
               <ul className="mt-1 list-disc pl-5">
                 {candidate.whyNotAuto.blockers.map((b) => (
-                  <li key={b}>
-                    {blockerCopy(b) ?? b}{' '}
-                    <span className="font-mono text-[10px] text-amber-700">({b})</span>
-                  </li>
+                  <li key={b}>{blockerCopy(b) ?? b}</li>
                 ))}
               </ul>
             </div>
