@@ -20,9 +20,18 @@ middleware redirect; now they are gone (FR-AUDIT-006, FR-AUDIT-007).
 
 **Mock data + adapters + fixtures (deleted):**
 `src/lib/api/index.ts` (the mock/live switch), `client.ts` (mockApi), `reviewerReads.ts`,
-the entire `src/lib/api/mock/*` tree, `src/lib/api/fixtures/*.json` (incl. the 3,137-line
-`redline_manifest.v1.json` and 2,042-line `reviewer_bundle.v1.json`), and the orphaned
-`adapters/v2Bundle|v2Artifacts|v2RunAssembly` were... **kept** as type-only modules (see §6).
+the entire `src/lib/api/mock/*` tree, and the three reviewer fixtures
+(`reviewer_bundle.v1.json` (2,042 lines), `run_assembly_cards.v1.json`,
+`design_stroke_artifacts.v1.json`) that only the deleted legacy reviewer panels consumed.
+The orphaned `adapters/v2Bundle|v2Artifacts|v2RunAssembly` were **kept** as type-only
+modules (see §6).
+
+> **Retained (load-bearing):** `src/lib/api/fixtures/redline_store_index.v1.json` and
+> `redline_manifest.v1.json` are NOT mock UI data — the prebuild
+> `scripts/fetch-redline-bundle.mjs` reads them by path to verify the showcase artifact
+> bundle's sha256s. They are read at build time (not imported), so `tsc`/`next build` don't
+> flag them; deleting them broke the Vercel build, so they are kept. (The `brenham-…` bundle
+> id inside them is a real engine artifact id, not customer-visible — noted as internal debt.)
 
 **Duplicate map (deleted):** `src/components/map/*` (HeroMapView, MapCanvas, PlaybackBar,
 EvidencePanel) — the stylized mock SVG basemap. The real map is `ProductRouteMap`
