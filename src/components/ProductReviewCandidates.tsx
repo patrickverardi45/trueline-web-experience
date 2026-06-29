@@ -118,11 +118,12 @@ export function ProductReviewCandidates({
   onChanged,
   hideGenerate = false,
   placed = false,
+  allowCustomerCorrection = false,
 }: {
   jobId: string;
   // Changes when the job's uploads change so the lane re-reads the current candidate (if any).
   refreshKey?: string;
-  // The job's PLAN_PDF uploads — enables the "Correct redline placement" step when a placement is uncertain.
+  // The job's PLAN_PDF uploads — enables the "mark the route on the plan" step when a placement is uncertain.
   planUploads?: readonly { uploadId: string; filename: string }[];
   // Ask the workspace to refresh the job detail (slots) after accept/reject, so the Redlines/Closeout sections
   // recognize the accepted REVIEW candidate and offer Assemble — the user is never stranded after accepting.
@@ -133,6 +134,9 @@ export function ProductReviewCandidates({
   hideGenerate?: boolean;
   // Whether a redline is already placed (slots.redlineManifest) — drives the no-candidate hint copy.
   placed?: boolean;
+  // Surface the existing "mark the route on the plan" capture to the CUSTOMER as the next step when automatic
+  // placement fails / is uncertain (the approved guided-stepper fallback). Without this it stays internal-only.
+  allowCustomerCorrection?: boolean;
 }) {
   const [boot, setBoot] = useState<Boot>({ phase: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -257,6 +261,11 @@ export function ProductReviewCandidates({
     candidate?.genericFallback === true &&
     (candidate.confidence?.band === 'LOW' ||
       (candidate.confidence?.warnings.includes(CORRECTION_RECOMMENDED) ?? false));
+  const isRejected = candidate?.status === 'REVIEW_REJECTED';
+  // The customer may place the redline by hand (mark the route on the plan) when automatic placement fails or
+  // is uncertain — the approved guided-stepper fallback. Requires a plan PDF to mark on. Internal tooling also
+  // unlocks it for QA on any surface.
+  const canCorrect = (allowCustomerCorrection || internalToolingEnabled()) && !!planUploads && planUploads.length > 0;
 
   return (
     <Card className="mt-4">
@@ -283,11 +292,27 @@ export function ProductReviewCandidates({
         </button>
       )}
       {boot.phase === 'ready' && !candidate && hideGenerate && (
-        <p className="mt-3 rounded-md bg-paper px-3 py-2 text-sm text-ink-3">
-          {placed
-            ? 'No review needed — the redline was placed automatically. Continue to the Closeout review below.'
-            : 'Generate the redline in the Redline section above; the candidate to review and accept (or correct) will appear here.'}
-        </p>
+        <>
+          <p className="mt-3 rounded-md bg-paper px-3 py-2 text-sm text-ink-3">
+            {placed
+              ? 'No review needed — the redline was placed automatically. Continue to the Export step below.'
+              : 'Generate the redline above; the candidate to review and accept (or correct) appears here. If automatic placement can’t find the bore, place it yourself below.'}
+          </p>
+          {canCorrect && !placed && planUploads && planUploads.length > 0 && (
+            <details className="mt-3 rounded-lg border border-line bg-paper px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-ink-2">
+                Place the redline yourself — mark the route on the plan
+              </summary>
+              <div className="mt-3">
+                <ProductSourceAnchorCapture
+                  jobId={jobId}
+                  planUploads={planUploads}
+                  onChanged={() => { void load(); onChanged?.(); }}
+                />
+              </div>
+            </details>
+          )}
+        </>
       )}
 
       {candidate && status && (
@@ -381,14 +406,11 @@ export function ProductReviewCandidates({
             </details>
           )}
 
-          {/* Abstain / blockers. */}
+          {/* Abstain / blockers — plain-English only; the raw codes live under Technical details, not inline. */}
           {isAbstain && candidate.blockers.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-xs text-ink-2">
               {candidate.blockers.map((b) => (
-                <li key={b.code}>
-                  {blockerCopy(b.code) ?? b.reason}{' '}
-                  <span className="font-mono text-[10px] text-ink-3">({b.code})</span>
-                </li>
+                <li key={b.code}>{blockerCopy(b.code) ?? b.reason}</li>
               ))}
             </ul>
           )}
@@ -438,9 +460,8 @@ export function ProductReviewCandidates({
             </div>
           )}
 
-          {/* Placement uncertain. The CUSTOMER workflow is accept/reject only — never hand-clicking
-              geometry (FieldRoute product direction). The manual on-plan route-drawing tool is an
-              internal/QA fallback, gated behind the internal tooling flag so it never reaches customers. */}
+          {/* Placement uncertain — explain it, and (when correction is allowed) offer the on-plan
+              mark-the-route tool as the next step, alongside accept/reject. */}
           {correctionRecommended && isCandidate && (
             <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
               <h4 className="text-sm font-semibold text-amber-900">This placement needs your review</h4>
@@ -449,31 +470,46 @@ export function ProductReviewCandidates({
                 {candidate.boreSpan ? ` for bore ${candidate.boreSpan}` : ''} — the plan has more than one
                 plausible line over these stations, so FieldRoute is not confident which one is the bore.
                 Review it on the proof above: <span className="font-semibold">accept</span> it if the
-                placement is correct, or <span className="font-semibold">reject</span> it to flag it for
-                correction.
+                placement is correct, <span className="font-semibold">reject</span> it, or mark the route
+                yourself below.
               </p>
-              {internalToolingEnabled() && (
-                planUploads && planUploads.length > 0 ? (
-                  <div className="mt-3">
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                      Internal tool — mark the route by hand
-                    </p>
-                    <ProductSourceAnchorCapture
-                      jobId={jobId}
-                      planUploads={planUploads}
-                      reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
-                      onChanged={() => {
-                        void load();      // re-read the candidate -> SUPERSEDED (hides accept/correct, shows corrected)
-                        onChanged?.();    // refresh workspace slots -> Redlines/Closeout offer Assemble
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-amber-800">
-                    Internal tool: attach a plan PDF in Project files to correct the placement by hand.
+              {canCorrect && planUploads && planUploads.length > 0 && (
+                <div className="mt-3">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                    Mark the route on the plan
                   </p>
-                )
+                  <ProductSourceAnchorCapture
+                    jobId={jobId}
+                    planUploads={planUploads}
+                    reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                    onChanged={() => {
+                      void load();      // re-read the candidate -> SUPERSEDED (hides accept/correct, shows corrected)
+                      onChanged?.();    // refresh workspace slots -> Redline/Export recognize the placed redline
+                    }}
+                  />
+                </div>
               )}
+            </div>
+          )}
+
+          {/* Abstained or rejected — the engine placed nothing usable. Surface the mark-the-route tool as the
+              calm, actionable next step (the approved fallback), never a dead-end. */}
+          {canCorrect && planUploads && planUploads.length > 0 && (isAbstain || isRejected) && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+              <h4 className="text-sm font-semibold text-amber-900">Place the redline yourself</h4>
+              <p className="mt-1 text-xs text-amber-800">
+                {isAbstain
+                  ? 'FieldRoute couldn’t place this one automatically — it doesn’t guess. Mark the bore route on the plan and we’ll draw the redline from your points.'
+                  : 'Mark the corrected bore route on the plan and we’ll draw the redline from your points.'}
+              </p>
+              <div className="mt-3">
+                <ProductSourceAnchorCapture
+                  jobId={jobId}
+                  planUploads={planUploads}
+                  reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                  onChanged={() => { void load(); onChanged?.(); }}
+                />
+              </div>
             </div>
           )}
         </div>

@@ -38,9 +38,9 @@ const PATH_COPY: Record<string, { title: string; tone: string; blurb: string }> 
     blurb: 'Placed automatically from your source files. Assemble the closeout package below.',
   },
   ABSTAIN: {
-    title: 'Could not place a redline',
-    tone: 'text-ink-2',
-    blurb: 'This project can’t be placed automatically from the uploaded files. The system does not guess — here is exactly what is missing.',
+    title: 'Automatic placement needs a quick step',
+    tone: 'text-amber-700',
+    blurb: 'FieldRoute didn’t place this one automatically — it doesn’t guess when the source evidence is unclear. Here’s what it found. If your plan is uploaded, you can place the redline yourself below by marking the bore route on the plan.',
   },
 };
 
@@ -219,19 +219,17 @@ export function ProductWorkflowPanel({
             </button>
           )}
 
-          {/* ABSTAIN — specific reasons grouped by source (recognition + engine), never a bare code. */}
+          {/* ABSTAIN — plain-English reasons only; the raw codes live under Technical details, never as a
+              headline. Framed as an interim step (place it yourself below), not a terminal failure. */}
           {isAbstain && outcome.blockers.length > 0 && (
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-2">
               {outcome.blockers.map((b, i) => (
-                <li key={`${b.source}-${b.code}-${i}`}>
-                  {copyFor(b.code) ?? b.reason}
-                  <span className="ml-1 font-mono text-[10px] text-ink-3">({b.code})</span>
-                </li>
+                <li key={`${b.source}-${b.code}-${i}`}>{copyFor(b.code) ?? b.reason}</li>
               ))}
             </ul>
           )}
 
-          {/* Diagnostics — raw path/provenance tokens, collapsed. */}
+          {/* Diagnostics — raw path / provenance / blocker codes, collapsed (not the headline). */}
           <details className="mt-3">
             <summary className="cursor-pointer text-xs text-ink-3">Technical details</summary>
             <p className="mt-1 text-xs text-ink-3">
@@ -240,6 +238,13 @@ export function ProductWorkflowPanel({
               {outcome.deterministicLogId && (<span className="ml-2">log: <span className="font-mono">{outcome.deterministicLogId}</span></span>)}
               {outcome.renderCommit && (<span className="ml-2">render: <span className="font-mono">{outcome.renderCommit}</span></span>)}
             </p>
+            {isAbstain && outcome.blockers.length > 0 && (
+              <ul className="mt-1 list-disc pl-5 text-xs text-ink-3">
+                {outcome.blockers.map((b, i) => (
+                  <li key={`code-${b.source}-${b.code}-${i}`} className="font-mono">{b.source}: {b.code}</li>
+                ))}
+              </ul>
+            )}
           </details>
         </div>
       )}

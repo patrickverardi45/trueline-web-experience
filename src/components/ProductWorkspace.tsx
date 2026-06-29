@@ -1,16 +1,17 @@
 'use client';
 
-// Single-page job WORKSPACE (mirrors v1: one job, one understandable page). All sections render stacked in
-// order on ONE scrollable page — Overview (job header) / Project files / Map / Bore logs / Redline / Review &
-// correct / Closeout review / Export & print — each as <section id="ws-<key>"> so the left sidebar acts as
-// same-page anchors (scroll-spy), NOT separate routes. One owner per action: Redline=Generate, Review=Accept/
-// Correct, Closeout=Assemble, Export=Download/Print. Dev plumbing (raw slots/provenance/sha/codes/internal
-// statuses) is collapsed behind "Technical details / Diagnostics". Composed entirely from existing reads — no
-// new backend capability, no fakes.
+// Guided 6-step project WORKSPACE. The body shows ONLY the active step (never one long scrolling page): a
+// status rail (done / current / upcoming / locked) sits on top, and one step renders below it —
+//   Project → Upload package → Route map → Bore logs → Redline proof → Export.
+// The active step comes from ?step= (workspaceSections is gone). Future steps stay LOCKED until they are
+// relevant (Upload unlocks once a project exists; Bore logs once a bore log is uploaded; Redline once the
+// bore log is engine-ready or the project is recognized; Export once a redline is placed). One owner per
+// action: Redline proof=Generate/Accept/Correct, Export=Assemble/Download/Print. Composed entirely from
+// existing reads — no new backend capability, no fakes.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, CheckCircle2, Printer, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Lock, Printer, XCircle } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
@@ -21,14 +22,15 @@ import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductBoreStepThrough } from '@/components/ProductBoreStepThrough';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
 import {
-  WORKSPACE_SECTIONS, coerceSection, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
-} from '@/lib/workspaceSections';
-import { jobTitle, jobAlias } from '@/lib/jobLabels';
+  STEPPER_STEPS, coerceStep, stepHref, stepIndex, type StepKey, type StepStatus,
+} from '@/lib/stepperSteps';
+import { jobTitle } from '@/lib/jobLabels';
 import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   assembleCloseoutPackage,
   downloadCloseoutPdfBlob,
   downloadExportBundleBlob,
+  downloadRouteKmzBlob,
   fetchCloseoutStatus,
   fetchExportStatus,
   fetchJobArtifactBlob,
@@ -44,8 +46,6 @@ import {
 } from '@/lib/api/productWrites';
 
 const WORKSPACE_RBL_ID = 'rbl-main';
-// jobTitle (readable product name) + jobAlias (neutral technical reference) come from @/lib/jobLabels so the
-// raw "demo-*" store slug is never displayed anywhere — including Diagnostics / Technical details / URLs.
 
 const FRIENDLY_STAGE: Record<string, string> = {
   CREATED: 'New project', UPLOADING: 'Uploading files', EXTRACTING: 'Processing',
@@ -64,22 +64,21 @@ const UPLOAD_KINDS: { kind: string; label: string; required: boolean; use: strin
   { kind: 'PLAN_PDF', label: 'Plan PDF', required: true, use: 'The construction plan.' },
   { kind: 'BORE_LOG', label: 'Bore log', required: true, use: 'The bore stations.' },
   { kind: 'GIS_ROUTE', label: 'KMZ / KML route', required: false, use: 'Route context for the map.' },
-  { kind: 'PHOTO', label: 'Photos', required: false, use: 'Field photos.' },
+  { kind: 'PHOTO', label: 'Photos', required: false, use: 'Stored for reference only — they don’t affect redlines yet.' },
 ];
 
 // Plain-English copy for the closeout warning/blocker codes (raw code kept behind Diagnostics).
 const CLOSEOUT_CODE_COPY: Record<string, string> = {
   KMZ_EXPORT_BLOCKED:
     'A geo-referenced KMZ is not produced — the redline is pixel-only on the plan (no map coordinates), and the system will not fake them.',
-  REVIEW_NOT_ACCEPTED: 'The redline candidate still needs to be accepted (or corrected) in the Review section.',
-  REVIEW_WAS_REJECTED: 'The redline candidate was rejected — correct it in the Review section before assembling.',
+  REVIEW_NOT_ACCEPTED: 'The redline candidate still needs to be accepted (or corrected) in the Redline proof step.',
+  REVIEW_WAS_REJECTED: 'The redline candidate was rejected — correct it in the Redline proof step before assembling.',
 };
 function closeoutCodeCopy(code: string): string {
   return CLOSEOUT_CODE_COPY[code] ?? code.replace(/_/g, ' ').toLowerCase();
 }
 
-// Product-friendly download filename slug from the readable project title (never the raw internal id), so a
-// saved file is e.g. "closeout_packet_uploaded-project-clean-placement.pdf", not the raw store id.
+// Product-friendly download filename slug from the readable project title (never the raw internal id).
 function downloadSlug(jobId: string): string {
   return jobTitle(jobId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || jobId;
 }
@@ -95,61 +94,68 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function scrollToSection(key: WorkspaceSectionKey) {
+function scrollToId(id: string) {
   if (typeof document === 'undefined') return;
-  document.getElementById(sectionAnchorId(key))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 interface WorkspaceProps {
-  projectExists: boolean;
   busy: boolean;
   jobs: readonly ProductJobSummary[];
   selectedJobId: string | null;
   detail: ProductJobDetail | null;
-  newJobId: string;
-  setNewJobId: (v: string) => void;
   actionError: string | null;
   uploadsKey: string;
-  onCreateProject: () => void;
-  onCreateJob: () => Promise<void> | void;
+  onStartProject: (name: string) => Promise<void> | void;
   refreshDetail: (jobId: string) => void;
   loadProjectAndJobs: () => void;
 }
 
 export function ProductWorkspace(props: WorkspaceProps) {
-  const { projectExists, busy, jobs, selectedJobId, detail, newJobId, setNewJobId, actionError, uploadsKey,
-          onCreateProject, onCreateJob, refreshDetail, loadProjectAndJobs } = props;
+  const { busy, jobs, selectedJobId, detail, actionError, uploadsKey,
+          onStartProject, refreshDetail, loadProjectAndJobs } = props;
   const router = useRouter();
-  const sectionParam = useSearchParams().get('section');
-  const deepLinkedRef = useRef<string | null>(null);
+  const stepParam = useSearchParams().get('step');
 
-  // Any in-page action (generate / accept / correct / assemble) bumps this so every read section re-reads the
-  // now-current state — the single page stays in sync without separate-page navigation.
+  // Any in-step action (upload / extract / generate / accept / correct / assemble) bumps this so the gate
+  // read + every read section re-reads the now-current state and the rail re-evaluates which steps unlock.
   const [flowVersion, setFlowVersion] = useState(0);
   const refreshKey = `${uploadsKey}:${flowVersion}`;
+  const bump = useCallback(() => setFlowVersion((v) => v + 1), []);
   const onChanged = useCallback(() => {
     if (selectedJobId) void refreshDetail(selectedJobId);
     setFlowVersion((v) => v + 1);
   }, [selectedJobId, refreshDetail]);
 
-  // Refresh the job detail on JOB change (one page now, so no per-section nav refresh).
+  // Refresh the job detail on JOB change.
   useEffect(() => {
     if (selectedJobId) void refreshDetail(selectedJobId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedJobId]);
 
-  // Honor a ?section= deep-link: once the job's sections have mounted, scroll to the requested section (W5 —
-  // previously the URL carried ?section= but nothing read it). Once per job+section; 'summary' is the top.
+  const present = new Set((detail?.uploads ?? []).map((u) => u.kind));
+  const hasPlan = present.has('PLAN_PDF');
+  const hasBore = present.has('BORE_LOG');
+  const hasRoute = present.has('GIS_ROUTE');
+  const placed = !!detail?.slots.redlineManifest;
+  const assembled = !!detail?.slots.exportPackage;
+  const hasJob = !!selectedJobId && !!detail;
+
+  // Engine-readiness + recognized gate (drives the Redline-proof unlock). Re-read on every refreshKey bump so
+  // confirming the bore log (engine_ready -> true) unlocks Redline proof without a manual reload.
+  const [gate, setGate] = useState<{ engineReady: boolean | null; recognized: boolean | null }>({ engineReady: null, recognized: null });
+  const gateLoad = useCallback(async () => {
+    if (!selectedJobId || !hasBore) { setGate({ engineReady: null, recognized: null }); return; }
+    let engineReady: boolean | null = null;
+    let recognized: boolean | null = null;
+    try { engineReady = (await fetchReviewQueue(selectedJobId, WORKSPACE_RBL_ID)).engineReady; } catch { engineReady = null; }
+    if (hasPlan) { try { recognized = (await fetchRecognizedCorpusHandoff(selectedJobId)).runnable; } catch { recognized = null; } }
+    setGate({ engineReady, recognized });
+  }, [selectedJobId, hasBore, hasPlan]);
   useEffect(() => {
-    if (!selectedJobId || !detail) return;
-    const target = coerceSection(sectionParam);
-    if (target === 'summary') return;
-    const tag = `${selectedJobId}:${target}`;
-    if (deepLinkedRef.current === tag) return;
-    deepLinkedRef.current = tag;
-    const t = window.setTimeout(() => scrollToSection(target), 250);
-    return () => window.clearTimeout(t);
-  }, [selectedJobId, detail, sectionParam]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void gateLoad();
+  }, [gateLoad, refreshKey]);
 
   const boreLogUploads = (detail?.uploads ?? [])
     .filter((u) => u.kind === 'BORE_LOG')
@@ -158,94 +164,140 @@ export function ProductWorkspace(props: WorkspaceProps) {
     .filter((u) => u.kind === 'PLAN_PDF')
     .map((u) => ({ uploadId: u.uploadId, filename: u.filename }));
 
-  async function onCreate() {
-    const id = newJobId.trim();
-    if (!id) return;
-    await onCreateJob();
-    router.push(workspaceHref(id, 'summary'));
-  }
+  // ---- Step gating ----------------------------------------------------------------------------------- //
+  const unlocked: Record<StepKey, boolean> = {
+    project: true,
+    upload: hasJob,
+    map: hasJob,
+    borelogs: hasJob && hasBore,
+    redline: hasJob && (gate.engineReady === true || gate.recognized === true || placed),
+    export: hasJob && placed,
+  };
+  const done: Record<StepKey, boolean> = {
+    project: hasJob,
+    upload: hasPlan && hasBore,
+    map: hasRoute,
+    borelogs: gate.engineReady === true || placed,
+    redline: placed,
+    export: assembled,
+  };
+  const lockReason: Record<StepKey, string> = {
+    project: '',
+    upload: 'Create a project first.',
+    map: 'Create a project first.',
+    borelogs: 'Upload a bore log first.',
+    redline: 'Confirm the bore log first.',
+    export: 'Place a redline first.',
+  };
 
-  function renderSection(key: WorkspaceSectionKey) {
-    if (!detail || !selectedJobId) return null;
-    switch (key) {
-      case 'summary':
-        return <JobHeaderBand jobId={selectedJobId} detail={detail} jobs={jobs} refreshKey={refreshKey} />;
-      case 'uploads':
+  function firstActionable(): StepKey {
+    for (const s of STEPPER_STEPS) if (unlocked[s.key] && !done[s.key]) return s.key;
+    return 'export';
+  }
+  function lastUnlocked(): StepKey {
+    let k: StepKey = 'project';
+    for (const s of STEPPER_STEPS) if (unlocked[s.key]) k = s.key;
+    return k;
+  }
+  const requested = stepParam ? coerceStep(stepParam) : null;
+  let active: StepKey = requested ?? (hasJob ? firstActionable() : 'project');
+  if (!unlocked[active]) active = lastUnlocked();
+
+  const statuses = Object.fromEntries(
+    STEPPER_STEPS.map((s) => [s.key, s.key === active ? 'current' : done[s.key] ? 'done' : !unlocked[s.key] ? 'locked' : 'upcoming']),
+  ) as Record<StepKey, StepStatus>;
+
+  const goto = useCallback((key: StepKey) => {
+    router.push(stepHref(selectedJobId, key));
+  }, [router, selectedJobId]);
+
+  const idx = stepIndex(active);
+  const def = STEPPER_STEPS[idx];
+  const nextKey: StepKey | null = idx < STEPPER_STEPS.length - 1 ? STEPPER_STEPS[idx + 1].key : null;
+  const prevKey: StepKey | null = idx > 0 ? STEPPER_STEPS[idx - 1].key : null;
+
+  function renderActive() {
+    if (active === 'project' || !hasJob) {
+      return (
+        <ProjectStep
+          jobs={jobs}
+          selectedJobId={selectedJobId}
+          detail={detail}
+          busy={busy}
+          actionError={actionError}
+          onStartProject={onStartProject}
+          onOpenJob={(id) => router.push(stepHref(id, 'project'))}
+          onContinue={() => goto(firstActionable())}
+        />
+      );
+    }
+    const sid = selectedJobId as string;
+    const det = detail as ProductJobDetail;
+    switch (active) {
+      case 'upload':
         return (
-          <SectionShell label="Project files">
-            <PackageReadiness jobId={selectedJobId} detail={detail} refreshKey={refreshKey} />
-            <UploadsCards detail={detail} />
+          <div className="space-y-3">
+            <PackageReadiness jobId={sid} detail={det} refreshKey={refreshKey} />
+            <UploadsCards detail={det} />
             <ProductUploadPanel
-              jobId={selectedJobId}
-              onUploaded={() => { void refreshDetail(selectedJobId); void loadProjectAndJobs(); setFlowVersion((v) => v + 1); }}
+              jobId={sid}
+              onUploaded={() => { void refreshDetail(sid); void loadProjectAndJobs(); bump(); }}
             />
             {internalToolingEnabled() && (
               <details className="rounded-lg border border-line bg-paper px-3 py-2">
                 <summary className="cursor-pointer text-xs text-ink-3">Technical details — stored file inventory (internal)</summary>
-                <div className="mt-1"><ProductUploadInventory job={detail} /></div>
+                <div className="mt-1"><ProductUploadInventory job={det} /></div>
               </details>
             )}
-          </SectionShell>
+          </div>
         );
       case 'map':
-        return (
-          <SectionShell label="Map / route">
-            <ProductRouteMap jobId={selectedJobId} refreshKey={refreshKey} />
-          </SectionShell>
-        );
+        return <ProductRouteMap jobId={sid} refreshKey={refreshKey} />;
       case 'borelogs':
+        return <ProductReviewedBoreLogGate jobId={sid} boreLogUploads={boreLogUploads} onChanged={onChanged} />;
+      case 'redline':
         return (
-          <SectionShell label="Bore log">
-            <ProductReviewedBoreLogGate jobId={selectedJobId} boreLogUploads={boreLogUploads} />
-          </SectionShell>
-        );
-      case 'redlines':
-        return (
-          <SectionShell label="Redline">
+          <div className="space-y-4">
             <ProductWorkflowPanel
-              jobId={selectedJobId}
+              jobId={sid}
               refreshKey={refreshKey}
-              placed={detail.slots.redlineManifest}
+              placed={placed}
               onChanged={onChanged}
-              onGoToReview={() => scrollToSection('review')}
-              onGoToCloseout={() => scrollToSection('closeout')}
+              onGoToReview={() => scrollToId('redline-review')}
+              onGoToCloseout={() => goto('export')}
             />
             {/* Multi-bore recognized package: step through each bore log's redline on its plan sheet.
                 Renders nothing until a redline is placed, or for a single-REVIEW / abstain job. */}
-            <ProductBoreStepThrough jobId={selectedJobId} refreshKey={refreshKey} placed={detail.slots.redlineManifest} />
-          </SectionShell>
+            <ProductBoreStepThrough jobId={sid} refreshKey={refreshKey} placed={placed} />
+            <div id="redline-review">
+              <ProductReviewCandidates
+                jobId={sid}
+                refreshKey={refreshKey}
+                planUploads={planUploads}
+                placed={placed}
+                hideGenerate
+                allowCustomerCorrection
+                onChanged={onChanged}
+              />
+            </div>
+          </div>
         );
-      case 'review':
+      case 'export':
         return (
-          <SectionShell label="Review &amp; correct">
-            <ProductReviewCandidates
-              jobId={selectedJobId}
-              refreshKey={refreshKey}
-              planUploads={planUploads}
-              placed={detail.slots.redlineManifest}
-              hideGenerate
-              onChanged={onChanged}
-            />
-          </SectionShell>
-        );
-      case 'closeout':
-        return (
-          <SectionShell label="Closeout review">
+          <div className="space-y-4">
             <CloseoutReviewSection
-              jobId={selectedJobId}
-              detail={detail}
+              jobId={sid}
+              detail={det}
               refreshKey={refreshKey}
               onAssembled={onChanged}
-              onGoToReview={() => scrollToSection('review')}
-              onGoToExports={() => scrollToSection('exports')}
+              onGoToReview={() => goto('redline')}
+              onGoToExports={() => scrollToId('export-downloads')}
             />
-          </SectionShell>
-        );
-      case 'exports':
-        return (
-          <SectionShell label="Export &amp; print">
-            <ExportsSection jobId={selectedJobId} refreshKey={refreshKey} ready={detail.slots.exportPackage} />
-          </SectionShell>
+            <div id="export-downloads">
+              <ExportsSection jobId={sid} refreshKey={refreshKey} ready={det.slots.exportPackage} />
+            </div>
+            <RouteKmzCard jobId={sid} hasRoute={hasRoute} />
+          </div>
         );
       default:
         return null;
@@ -253,219 +305,187 @@ export function ProductWorkspace(props: WorkspaceProps) {
   }
 
   return (
-    <div className="mt-6 space-y-4">
-      <Card>
-        <h2 className="text-lg font-semibold text-ink">Project workspace</h2>
-        <p className="mt-1 text-sm text-ink-2">
-          Upload your files, generate the redline, review it, then download the closeout package.
-        </p>
-      </Card>
+    <div className="mt-6 space-y-5">
+      <StepperRail statuses={statuses} onSelect={goto} lockReason={lockReason} />
 
-      {!projectExists && (
-        <Card>
-          <h3 className="font-semibold text-ink">First-time setup</h3>
-          <p className="mt-1 text-sm text-ink-3">
-            This workspace hasn’t been initialized yet. Set it up once, then create your first project below.
-          </p>
-          <button
-            onClick={onCreateProject}
-            disabled={busy}
-            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-            Set up workspace
-          </button>
-        </Card>
-      )}
-
-      {/* Job picker — pick or create the project to work on (stays above the page flow). */}
-      <Card>
-        <div className="flex flex-wrap items-center gap-3">
-          <h3 className="font-semibold text-ink">Project</h3>
-          {jobs.length === 0 ? (
-            <span className="text-sm text-ink-3">No projects yet — create one.</span>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {jobs.map((j) => (
+      {active === 'project' ? (
+        renderActive()
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold text-ink">{def.label}</h2>
+            <p className="mt-0.5 text-sm text-ink-3">{def.short}</p>
+          </div>
+          {renderActive()}
+          <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
+            {prevKey ? (
+              <button
+                onClick={() => goto(prevKey)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-sm font-medium text-ink-2 hover:text-ink">
+                <ArrowLeft className="size-4" /> Back
+              </button>
+            ) : <span />}
+            {nextKey ? (
+              unlocked[nextKey] ? (
                 <button
-                  key={j.jobId}
-                  onClick={() => router.push(workspaceHref(j.jobId, 'summary'))}
-                  className={`rounded-md border px-2.5 py-1 text-left ${
-                    selectedJobId === j.jobId
-                      ? 'border-accent bg-accent-soft text-accent-strong'
-                      : 'border-line text-ink-2 hover:text-ink'
-                  }`}>
-                  <span className="block text-xs font-medium">{jobTitle(j.jobId)}</span>
+                  onClick={() => goto(nextKey)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
+                  Continue <ArrowRight className="size-4" />
                 </button>
-              ))}
-            </div>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <input
-              value={newJobId}
-              onChange={(e) => setNewJobId(e.target.value)}
-              placeholder="new project name (a-z 0-9 - _)"
-              className="w-44 rounded-md border border-line px-2.5 py-1.5 font-mono text-xs text-ink"
-            />
-            <button
-              onClick={() => void onCreate()}
-              disabled={busy || !projectExists || newJobId.trim().length === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-              Create project
-            </button>
+              ) : (
+                <span className="text-xs text-ink-3">{lockReason[nextKey]}</span>
+              )
+            ) : <span />}
           </div>
         </div>
-        {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
-      </Card>
-
-      {!selectedJobId || !detail ? (
-        <Card>
-          <h3 className="font-semibold text-ink">Select or create a project</h3>
-          <p className="mt-1 text-sm text-ink-3">
-            Pick a project above (or create one) to open the full workflow on this page: files, map, bore logs,
-            redline, review, closeout, and export.
-          </p>
-        </Card>
-      ) : (
-        <div className="space-y-8">
-          {WORKSPACE_SECTIONS.map(({ key }) => (
-            <section key={key} id={sectionAnchorId(key)} className="scroll-mt-24">
-              {renderSection(key)}
-            </section>
-          ))}
-        </div>
       )}
     </div>
   );
 }
 
 // --------------------------------------------------------------------------- //
-// A thin, numbered section marker so the scrollable flow reads in order (the sidebar anchors land here).
+// Step rail — the always-visible progress indicator: done / current / upcoming / locked. Unlocked steps are
+// clickable; locked steps show why (title attr) and are not clickable.
 // --------------------------------------------------------------------------- //
-function SectionShell({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-3">
-      <h2 className="text-base font-semibold text-ink">{label}</h2>
-      {children}
-    </div>
-  );
+function railBtn(st: StepStatus): string {
+  const base = 'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors';
+  if (st === 'current') return `${base} bg-accent-soft ring-1 ring-accent`;
+  if (st === 'locked') return `${base} cursor-not-allowed opacity-60`;
+  return `${base} hover:bg-paper`;
+}
+function railDot(st: StepStatus): string {
+  const base = 'flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold';
+  if (st === 'done') return `${base} bg-emerald-600 text-white`;
+  if (st === 'current') return `${base} bg-accent text-white`;
+  if (st === 'locked') return `${base} bg-line text-ink-3`;
+  return `${base} border border-line text-ink-3`;
 }
 
-// --------------------------------------------------------------------------- //
-// Job header band (Overview) — readable name, stage, files summary, redline + closeout status, and ONE
-// derived primary next action. Raw status matrix sits behind Diagnostics. Slot-gated reads (no doomed 404s).
-// --------------------------------------------------------------------------- //
-interface HeaderFacts {
-  engineReady: boolean | null;
-  artifactCount: number | null;
-  closeoutStatus: string | null;
-  exportStatus: string | null;
-  reviewStatus: string | null;
-}
-
-function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
-  jobId: string; detail: ProductJobDetail; jobs: readonly ProductJobSummary[]; refreshKey?: string;
+function StepperRail({ statuses, onSelect, lockReason }: {
+  statuses: Record<StepKey, StepStatus>;
+  onSelect: (key: StepKey) => void;
+  lockReason: Record<StepKey, string>;
 }) {
-  const [f, setF] = useState<HeaderFacts>({ engineReady: null, artifactCount: null, closeoutStatus: null, exportStatus: null, reviewStatus: null });
-
-  const hasBundle = detail.slots.artifactBundle;
-  const hasExport = detail.slots.exportPackage;
-  const hasBoreLog = detail.uploads.some((u) => u.kind === 'BORE_LOG');
-  const placed = detail.slots.redlineManifest;
-
-  const load = useCallback(async () => {
-    let engineReady: boolean | null = null;
-    let artifactCount: number | null = hasBundle ? null : 0;
-    let closeoutStatus: string | null = null;
-    let exportStatus: string | null = null;
-    let reviewStatus: string | null = null;
-    if (hasBoreLog) { try { engineReady = (await fetchReviewQueue(jobId, WORKSPACE_RBL_ID)).engineReady; } catch { engineReady = null; } }
-    if (hasBundle) { try { artifactCount = (await fetchJobArtifacts(jobId)).length; } catch { artifactCount = null; } }
-    if (hasExport) { try { closeoutStatus = (await fetchCloseoutStatus(jobId)).status; } catch { closeoutStatus = null; } }
-    if (hasExport) { try { exportStatus = (await fetchExportStatus(jobId)).status; } catch { exportStatus = null; } }
-    if (placed) { try { const cs = await listReviewCandidates(jobId); reviewStatus = cs.length > 0 ? (cs[0].status ?? null) : null; } catch { reviewStatus = null; } }
-    setF({ engineReady, artifactCount, closeoutStatus, exportStatus, reviewStatus });
-  }, [jobId, hasBundle, hasExport, hasBoreLog, placed]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load, refreshKey]);
-
-  const present = new Set(detail.uploads.map((u) => u.kind));
-  const hasPlan = present.has('PLAN_PDF');
-  const summary = jobs.find((j) => j.jobId === jobId);
-
-  // ONE derived primary next action (same detail the sections read -> never stale after an action).
-  const primary: { label: string; to: WorkspaceSectionKey } = (() => {
-    if (!hasPlan || !hasBoreLog) return { label: 'Upload the plan + bore log', to: 'uploads' };
-    // engine_ready must be explicitly true before Generate. null (just-uploaded, not yet reviewed) or false
-    // both mean "not ready" — point to the bore-log gate first so Generate never abstains in a loop (W2).
-    if (hasBoreLog && f.engineReady !== true && !placed) return { label: 'Review the bore log', to: 'borelogs' };
-    if (!placed) return { label: 'Generate the redline', to: 'redlines' };
-    if (f.reviewStatus === 'REVIEW_CANDIDATE') return { label: 'Accept or correct the redline', to: 'review' };
-    if (f.reviewStatus === 'REVIEW_REJECTED') return { label: 'Correct the rejected redline', to: 'review' };
-    if (!hasExport) return { label: 'Assemble the closeout package', to: 'closeout' };
-    return { label: 'Download / print the closeout package', to: 'exports' };
-  })();
-
-  const redlineStatus = !placed ? 'not placed'
-    : f.reviewStatus === 'REVIEW_ACCEPTED' ? 'placed · accepted'
-    : f.reviewStatus === 'REVIEW_SUPERSEDED' ? 'placed · corrected'
-    : f.reviewStatus === 'REVIEW_CANDIDATE' ? 'placed · awaiting review'
-    : f.reviewStatus === 'REVIEW_REJECTED' ? 'placed · rejected'
-    : 'placed';
-
   return (
-    <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-ink">{jobTitle(jobId)}</h2>
-        </div>
-        <span className="rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent-strong">
-          {friendlyStage(detail.status)}
-        </span>
-      </div>
-
-      {/* Readable status strip. */}
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
-        <span className="text-ink-2"><span className="text-ink-3">Files:</span> {detail.uploads.length} ({UPLOAD_KINDS.filter((k) => present.has(k.kind)).map((k) => k.label).join(', ') || 'none'})</span>
-        <span className="text-ink-2"><span className="text-ink-3">Redline:</span> {redlineStatus}{f.artifactCount != null && placed ? ` · ${f.artifactCount} image(s)` : ''}</span>
-        <span className="text-ink-2"><span className="text-ink-3">Closeout:</span> {hasExport ? friendlyCloseout(f.closeoutStatus) : 'not assembled'}</span>
-      </div>
-
-      {/* ONE primary next action. */}
-      <button
-        onClick={() => scrollToSection(primary.to)}
-        className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
-        {primary.label} <ArrowRight className="size-4" />
-      </button>
-
-      {internalToolingEnabled() && (
-      <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-ink-3">Diagnostics (internal)</summary>
-        <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-4">
-          <Diag label="Project key" value={jobAlias(jobId)} mono />
-          <Diag label="status" value={detail.status} mono />
-          <Diag label="created" value={summary?.createdAt ?? '—'} />
-          <Diag label="redline_manifest slot" value={String(detail.slots.redlineManifest)} mono />
-          <Diag label="artifact_bundle slot" value={String(detail.slots.artifactBundle)} mono />
-          <Diag label="export_package slot" value={String(detail.slots.exportPackage)} mono />
-          <Diag label="engine_ready" value={f.engineReady == null ? '—' : String(f.engineReady)} mono />
-          <Diag label="review status" value={f.reviewStatus ?? '—'} mono />
-          <Diag label="closeout status" value={f.closeoutStatus ?? '—'} mono />
-          <Diag label="export status" value={f.exportStatus ?? '—'} mono />
-          <Diag label="redline images" value={f.artifactCount == null ? '—' : String(f.artifactCount)} />
-        </dl>
-      </details>
-      )}
+    <Card className="overflow-x-auto">
+      <ol className="flex min-w-max items-stretch gap-1">
+        {STEPPER_STEPS.map((s, i) => {
+          const st = statuses[s.key];
+          const clickable = st !== 'locked';
+          return (
+            <li key={s.key} className="flex items-center">
+              <button
+                type="button"
+                onClick={() => clickable && onSelect(s.key)}
+                disabled={!clickable}
+                title={st === 'locked' ? lockReason[s.key] : undefined}
+                aria-current={st === 'current' ? 'step' : undefined}
+                className={railBtn(st)}>
+                <span className={railDot(st)}>
+                  {st === 'done' ? <Check className="size-4" /> : st === 'locked' ? <Lock className="size-3.5" /> : i + 1}
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold leading-tight text-ink">{s.label}</span>
+                  <span className="block text-[11px] leading-tight text-ink-3">{s.short}</span>
+                </span>
+              </button>
+              {i < STEPPER_STEPS.length - 1 && (
+                <span className={`mx-1 h-px w-5 shrink-0 ${statuses[s.key] === 'done' ? 'bg-emerald-400' : 'bg-line'}`} />
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </Card>
   );
 }
 
-function Diag({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+// --------------------------------------------------------------------------- //
+// Step 1 — Project. Simple new-customer entry: type a name, we silently initialize the workspace and create
+// the project (no "Set up workspace", no slug, no disabled button). Existing projects are listed to resume.
+// --------------------------------------------------------------------------- //
+function ProjectStep({ jobs, selectedJobId, detail, busy, actionError, onStartProject, onOpenJob, onContinue }: {
+  jobs: readonly ProductJobSummary[];
+  selectedJobId: string | null;
+  detail: ProductJobDetail | null;
+  busy: boolean;
+  actionError: string | null;
+  onStartProject: (name: string) => Promise<void> | void;
+  onOpenJob: (jobId: string) => void;
+  onContinue: () => void;
+}) {
+  const [name, setName] = useState('');
+  const selected = selectedJobId && detail ? { jobId: selectedJobId, detail } : null;
+
   return (
-    <div>
-      <dt className="text-ink-3">{label}</dt>
-      <dd className={`text-ink-2 ${mono ? 'font-mono' : ''}`}>{value}</dd>
+    <div className="space-y-4">
+      {/* Selected project overview + continue. */}
+      {selected && (
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-ink">{jobTitle(selected.jobId)}</h2>
+              <p className="mt-1 text-sm text-ink-3">
+                {selected.detail.uploads.length} file(s) uploaded ·{' '}
+                {UPLOAD_KINDS.filter((k) => selected.detail.uploads.some((u) => u.kind === k.kind)).map((k) => k.label).join(', ') || 'no files yet'}
+              </p>
+            </div>
+            <span className="rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent-strong">
+              {friendlyStage(selected.detail.status)}
+            </span>
+          </div>
+          <button
+            onClick={onContinue}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong">
+            Continue <ArrowRight className="size-4" />
+          </button>
+        </Card>
+      )}
+
+      {/* Resume an existing project. */}
+      {jobs.length > 0 && (
+        <Card>
+          <h3 className="font-semibold text-ink">Your projects</h3>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {jobs.map((j) => (
+              <li key={j.jobId}>
+                <button
+                  onClick={() => onOpenJob(j.jobId)}
+                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                    selectedJobId === j.jobId ? 'border-accent bg-accent-soft' : 'border-line hover:border-accent/50'
+                  }`}>
+                  <span className="block text-sm font-medium text-ink">{jobTitle(j.jobId)}</span>
+                  <span className="block text-xs text-ink-3">{friendlyStage(j.status)} · {j.uploadCount} file(s)</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* Create a project — friendly name only; the workspace auto-initializes behind the scenes. */}
+      <Card>
+        <h3 className="font-semibold text-ink">{jobs.length > 0 ? 'Start another project' : 'Start a new project'}</h3>
+        <p className="mt-1 text-sm text-ink-3">
+          Give your project a name. We’ll set everything up — then you upload your files.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) void onStartProject(name); }}
+            placeholder="e.g. Main Street relocation"
+            className="w-72 max-w-full rounded-md border border-line px-3 py-2 text-sm text-ink"
+          />
+          <button
+            onClick={() => void onStartProject(name)}
+            disabled={busy || name.trim().length === 0}
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+            {busy ? 'Creating…' : 'Create project'}
+          </button>
+        </div>
+        {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
+      </Card>
     </div>
   );
 }
@@ -511,15 +531,15 @@ function PackageReadiness({ jobId, detail, refreshKey }: {
   } else if (recognized === true) {
     tone = 'ready';
     title = 'Recognized project — ready to process';
-    detailLine = 'This package matches a proven project; the engine redline can be placed automatically in the Redline section.';
+    detailLine = 'This package matches a proven project; the engine redline can be placed automatically in the Redline proof step.';
   } else if (engineReady === true) {
     tone = 'ready';
     title = 'Ready to process';
-    detailLine = 'The bore log is reviewed. Generate the redline candidate in the Redline section.';
+    detailLine = 'The bore log is reviewed. Generate the redline candidate in the Redline proof step.';
   } else {
     tone = 'pending';
     title = 'Required files present — one step left';
-    detailLine = 'Review the bore log in the Bore log section to enable redline placement.';
+    detailLine = 'Review the bore log in the Bore logs step to enable redline placement.';
   }
   const styles = tone === 'ready' ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50';
 
@@ -587,8 +607,49 @@ function UploadsCards({ detail }: { detail: ProductJobDetail }) {
 }
 
 // --------------------------------------------------------------------------- //
+// Google Earth route export (Export step) — the uploaded route as a KMZ, clearly route-only. The redline is
+// pixel-only on the plan (not georeferenced), so it is NOT in the KMZ (no invented coordinates).
+// --------------------------------------------------------------------------- //
+function RouteKmzCard({ jobId, hasRoute }: { jobId: string; hasRoute: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function dl() {
+    setBusy(true);
+    setError(null);
+    try {
+      triggerDownload(await downloadRouteKmzBlob(jobId), `route_${downloadSlug(jobId)}.kmz`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'download failed (no usable route uploaded)');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card>
+      <h3 className="font-semibold text-ink">Google Earth route (.kmz)</h3>
+      <p className="mt-1 text-sm text-ink-3">
+        Open the uploaded route in Google Earth. This is the <span className="font-medium">route only</span> —
+        the redline is pixel-only on the plan and is not georeferenced, so it is not included in the KMZ (no
+        coordinates are invented).
+      </p>
+      {hasRoute ? (
+        <button
+          onClick={() => void dl()}
+          disabled={busy}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-2 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
+          {busy ? 'Preparing…' : 'Download Google Earth route (.kmz)'}
+        </button>
+      ) : (
+        <p className="mt-3 text-sm text-ink-3">No KMZ/KML route uploaded — add one in the Upload package step to enable this.</p>
+      )}
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </Card>
+  );
+}
+
+// --------------------------------------------------------------------------- //
 // Closeout review (v1 review-before-print) — composed from existing reads. The SOLE Assemble owner. Wrapped
-// in id="closeout-print" so window.print() (in the Export section) can scope to just this review.
+// in id="closeout-print" so window.print() (in the Export downloads) can scope to just this review.
 // --------------------------------------------------------------------------- //
 type Img = { path: string; url: string };
 
@@ -611,7 +672,7 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
 
   const load = useCallback(async () => {
     // Clear any stale assemble error: when this section re-reads (e.g. after the user accepts/corrects the
-    // candidate in Review and the refresh bus fires), a prior "needs to be accepted" block must not linger.
+    // candidate in Redline proof and the refresh bus fires), a prior "needs to be accepted" block must not linger.
     setError(null);
     try { setRbl(await fetchReviewedBoreLog(jobId, WORKSPACE_RBL_ID)); } catch { setRbl(null); }
     try { const cs = await listReviewCandidates(jobId); setReviewStatus(cs.length ? (cs[0].status ?? null) : null); } catch { setReviewStatus(null); }
@@ -641,7 +702,7 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
     try {
       const result = await assembleCloseoutPackage(jobId);
       if (result.assembled) onAssembled();
-      else setError(closeoutCodeCopy(result.blocker ?? '') + (result.blocker === 'REVIEW_NOT_ACCEPTED' || result.blocker === 'REVIEW_WAS_REJECTED' ? '' : ''));
+      else setError(closeoutCodeCopy(result.blocker ?? ''));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to assemble the closeout package');
     } finally {
@@ -654,9 +715,8 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
       <Card>
         <h3 className="font-semibold text-ink">Closeout review</h3>
         <p className="mt-1 text-sm text-ink-3">
-          No redline is placed yet. Generate one in the <span className="font-semibold">Redline</span> section
-          above (and accept or correct it in <span className="font-semibold">Review</span>), then assemble and
-          review the closeout package here.
+          No redline is placed yet. Place one in the <span className="font-semibold">Redline proof</span> step
+          (and accept or correct it there), then assemble and review the closeout package here.
         </p>
       </Card>
     );
@@ -667,15 +727,18 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
     : reviewStatus === 'REVIEW_SUPERSEDED' ? 'Human-corrected REVIEW redline'
     : reviewStatus === 'REVIEW_CANDIDATE' ? 'REVIEW candidate — not yet accepted'
     : reviewStatus === 'REVIEW_REJECTED' ? 'Rejected — needs correction'
-    : 'Automatic (recognized) redline';
+    : 'Placed redline';
 
-  // Positive completeness checklist — every row derived from a real server value (no fabricated ✓).
-  const reviewedOk = reviewStatus === 'REVIEW_ACCEPTED' || reviewStatus === 'REVIEW_SUPERSEDED' || (placed && reviewStatus === null);
-  const reviewLabel = reviewStatus === 'REVIEW_REJECTED' ? 'Placement rejected — correct it in Review'
+  // Positive completeness checklist — every row derived from a real server value (no fabricated ✓). A placed
+  // redline with no pending REVIEW decision (recognized-automatic, or human-marked on an abstained job) counts
+  // as reviewed; we do NOT claim "automatic — recognized" for a redline the human marked themselves.
+  const reviewedOk = reviewStatus === 'REVIEW_ACCEPTED' || reviewStatus === 'REVIEW_SUPERSEDED'
+    || (placed && (reviewStatus === null || reviewStatus === 'ABSTAINED'));
+  const reviewLabel = reviewStatus === 'REVIEW_REJECTED' ? 'Placement rejected — correct it in Redline proof'
     : reviewStatus === 'REVIEW_CANDIDATE' ? 'Placement awaiting your review'
     : reviewStatus === 'REVIEW_SUPERSEDED' ? 'Placement reviewed (human-corrected)'
     : reviewStatus === 'REVIEW_ACCEPTED' ? 'Placement reviewed (accepted)'
-    : 'Placement reviewed (automatic — recognized)';
+    : 'Placement reviewed';
   const boreReviewed = (rbl?.rows.length ?? 0) > 0 && (rbl?.rows.every((r) => r.reviewStatus === 'CONFIRMED') ?? false);
   const kmzBlocked = warnings.includes('KMZ_EXPORT_BLOCKED');
 
@@ -699,8 +762,8 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
             {error && (
               <p className="mt-2 text-sm text-red-600">
                 {error}{' '}
-                {(error.includes('accept') || error.includes('Review')) && (
-                  <button onClick={onGoToReview} className="font-semibold underline">Go to Review</button>
+                {(error.includes('accept') || error.includes('Redline')) && (
+                  <button onClick={onGoToReview} className="font-semibold underline">Go to Redline proof</button>
                 )}
               </p>
             )}
@@ -708,7 +771,7 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
         )}
         {assembled && (
           <p className="mt-3 text-sm text-ink-2">
-            The package is assembled. <button onClick={onGoToExports} className="font-semibold text-accent-strong hover:underline">Download or print it in Export &amp; print ↓</button>
+            The package is assembled. <button onClick={onGoToExports} className="font-semibold text-accent-strong hover:underline">Download or print it below ↓</button>
           </p>
         )}
       </Card>
@@ -725,7 +788,7 @@ function CloseoutReviewSection({ jobId, detail, refreshKey, onAssembled, onGoToR
         <ul className="mt-2 space-y-1 text-sm">
           {/* PHOTO is intentionally excluded here: field photos are stored with the project but are NOT yet
               embedded in the closeout deliverable, so listing them in the package summary would promise
-              evidence the PDF/ZIP omit. (Photos remain visible in the Project files section.) */}
+              evidence the PDF/ZIP omit. (Photos remain visible in the Upload package step.) */}
           {UPLOAD_KINDS.filter((k) => k.kind !== 'PHOTO').map((k) => (
             <li key={k.kind} className="flex items-center gap-2">
               {present.has(k.kind) ? <CheckCircle2 className="size-4 text-emerald-600" /> : <XCircle className="size-4 text-ink-3" />}
@@ -854,7 +917,7 @@ function ChecklistRow({ state, label }: { state: 'ok' | 'pending' | 'info'; labe
 }
 
 // --------------------------------------------------------------------------- //
-// Export & print — the SOLE Download owner + Print/Save (window.print of the closeout review).
+// Export downloads — the SOLE Download owner + Print/Save (window.print of the closeout review).
 // --------------------------------------------------------------------------- //
 function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKey?: string; ready: boolean }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -863,10 +926,10 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!ready) { setStatus(null); setNote('No closeout package assembled yet. Assemble it in the Closeout review section above.'); return; }
+    if (!ready) { setStatus(null); setNote('No closeout package assembled yet. Assemble it in the Closeout review above.'); return; }
     setNote('Loading…');
     try { setStatus((await fetchExportStatus(jobId)).status); setNote(''); }
-    catch { setStatus(null); setNote('No closeout package assembled yet. Assemble it in the Closeout review section above.'); }
+    catch { setStatus(null); setNote('No closeout package assembled yet. Assemble it in the Closeout review above.'); }
   }, [jobId, ready]);
 
   useEffect(() => {
@@ -890,7 +953,7 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
 
   return (
     <Card>
-      <h3 className="font-semibold text-ink">Export &amp; print</h3>
+      <h3 className="font-semibold text-ink">Download &amp; print</h3>
       {note && <p className="mt-1 text-sm text-ink-3">{note}</p>}
       {status && <p className="mt-1 text-sm text-ink-2">Closeout package: <span className="font-medium">{ready ? 'ready' : friendlyCloseout(status)}</span></p>}
 

@@ -46,9 +46,12 @@ function gid(): string {
 export function ProductReviewedBoreLogGate({
   jobId,
   boreLogUploads,
+  onChanged,
 }: {
   jobId: string;
   boreLogUploads: readonly { uploadId: string; filename: string }[];
+  // Notify the workspace after an extract / confirm so engine-readiness re-reads and the Redline step unlocks.
+  onChanged?: () => void;
 }) {
   const [sourceUploadId, setSourceUploadId] = useState(boreLogUploads[0]?.uploadId ?? '');
   const [phase, setPhase] = useState<Phase>('loading');
@@ -97,6 +100,7 @@ export function ProductReviewedBoreLogGate({
     try {
       await fn();
       await load();
+      onChanged?.(); // re-read engine-readiness in the workspace so the Redline step unlocks
     } catch (e) {
       setError(e instanceof Error ? e.message : 'action failed');
     } finally {
