@@ -71,6 +71,20 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
       return;
     }
 
+    // Content sniff for PDFs (FR-AUDIT-010): a file named .pdf must actually start with the %PDF- magic
+    // bytes — catches a mis-named or wrong-type file before it enters the pipeline. Reads only 5 bytes.
+    // (The backend must still enforce its own size/type/content checks; this is a fast first-line guard.)
+    for (const f of picked.filter((f) => f.name.toLowerCase().endsWith('.pdf'))) {
+      const sig = String.fromCharCode(...new Uint8Array(await f.slice(0, 5).arrayBuffer()));
+      if (sig !== '%PDF-') {
+        setState({
+          phase: 'error',
+          message: `${f.name} is not a valid PDF (its contents don’t match its .pdf name). Re-export it as a PDF and try again.`,
+        });
+        return;
+      }
+    }
+
     setState({ phase: 'uploading', done: 0, total: picked.length });
     try {
       let done = 0;
@@ -92,9 +106,13 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
 
   return (
     <Card className="mt-4">
-      <h3 className="font-semibold text-ink">Upload project files</h3>
+      <h3 className="font-semibold text-ink">Upload your source package</h3>
       <p className="mt-1 text-sm text-ink-3">
-        PDF · CSV · XLSX · KMZ · KML · JPG · PNG · WEBP. Files are stored untrusted (no OCR, no parsing).
+        Upload your project files once — plan PDFs, the KMZ/KML route, bore logs, and field photos. FieldRoute
+        extracts the route and redline context from them; you only review items it flags as uncertain.
+      </p>
+      <p className="mt-1 text-xs text-ink-3">
+        Accepted: PDF · CSV · XLSX · KMZ · KML · JPG · PNG · WEBP. Up to {formatMb(MAX_UPLOAD_BYTES)} per file.
       </p>
 
       <fieldset className="mt-3">

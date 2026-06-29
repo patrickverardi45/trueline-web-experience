@@ -2,29 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { rawToAlias } from '@/lib/jobLabels';
 
-// Legacy contract-preview / mock routes. They render offline mock-portfolio data ("Demo Project", sample
-// billing, etc.) that is NOT the product truth path and is never linked from product nav — but they are
-// reachable if a URL is typed/bookmarked, which would expose demo/mock/sample language. Redirect them
-// SERVER-SIDE to the real FieldRoute Projects workspace so no customer-openable page can show that data.
-const LEGACY_PREVIEW_PREFIXES = [
-  '/closeout', '/packet', '/map', '/plans', '/feed', '/evidence', '/redlines', '/projects', '/settings',
-];
-
+// The legacy contract-preview / mock surfaces (/map, /plans, /redlines, /closeout, /evidence, /feed,
+// /packet, /projects, /settings) have been deleted — the product is the single /intake workspace, the
+// landing page, and the finished-redline gallery. Middleware now only normalizes a raw internal store
+// slug in ?job= to its neutral alias so the address bar and hydration payload never carry a "demo-*" slug.
 export function middleware(req: NextRequest) {
   const { pathname, searchParams } = req.nextUrl;
 
-  // 1. Legacy contract-preview / mock routes -> the real Projects workspace.
-  if (LEGACY_PREVIEW_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    const url = req.nextUrl.clone();
-    url.pathname = '/intake';
-    url.search = '';
-    url.searchParams.set('workspace', '1');
-    return NextResponse.redirect(url);
-  }
-
-  // 2. On /intake, normalize a raw internal store slug in ?job= to its NEUTRAL alias (so the address bar
-  //    and the server-rendered hydration payload never carry the raw "demo-*" slug). The app's own
-  //    navigation already emits aliases; this only fires on a directly-typed/bookmarked raw URL.
   if (pathname === '/intake') {
     const job = searchParams.get('job');
     const alias = job ? rawToAlias(job) : null;
@@ -39,9 +23,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/intake',
-    '/closeout', '/packet', '/map', '/plans', '/feed', '/evidence', '/redlines', '/settings',
-    '/projects/:path*',
-  ],
+  matcher: ['/intake'],
 };

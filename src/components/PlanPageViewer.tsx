@@ -33,6 +33,9 @@ export function PlanPageViewer({ jobId, planUploadId, pageNumber, bounds, points
   useEffect(() => {
     let active = true;
     let url: string | null = null;
+    // Reset-on-input-change before the async raster fetch; the deferred result lands in .then (house
+    // convention — same pattern used across the product effects).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRaster({ phase: 'loading' });
     setNatural(null);
     fetchPlanPageRasterBlob(jobId, planUploadId, pageNumber)

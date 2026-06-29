@@ -18,6 +18,7 @@ import {
   type JobArtifactRef,
 } from '@/lib/api/productWrites';
 import { productApiEnabled } from '@/lib/api/liveV2Product';
+import { internalToolingEnabled } from '@/lib/internalMode';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -25,14 +26,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 // recognized-corpus bundle is already published, so its artifacts list without any re-run.
 const SHOWCASE_JOB_ID = 'completed-redline-showcase';
 
-// Verified facts about the full committed deterministic package (NOT fabricated — these are the real
-// frontier / bundle figures). Stated so the representative view below is never mistaken for the whole.
+// Verified facts about the full committed deterministic package (NOT fabricated — real bundle figures).
+// Stated so the representative view below is never mistaken for the whole.
 const FULL_PACKAGE = {
   drawn: 50,
   totalLogs: 58,
   finalPngs: 83,
   renderCommit: 'c19b565',
-  frontier: '50/58',
 } as const;
 
 interface LoadedArtifact {
@@ -113,8 +113,8 @@ export function ProductShowcaseGallery() {
             <dd className="font-mono text-ink">{FULL_PACKAGE.finalPngs}</dd>
           </div>
           <div>
-            <dt className="text-ink-3">Frontier</dt>
-            <dd className="font-mono text-ink">{FULL_PACKAGE.frontier}</dd>
+            <dt className="text-ink-3">Bore logs drawn</dt>
+            <dd className="font-mono text-ink">{FULL_PACKAGE.drawn} / {FULL_PACKAGE.totalLogs}</dd>
           </div>
           <div>
             <dt className="text-ink-3">Render / source</dt>
@@ -132,18 +132,21 @@ export function ProductShowcaseGallery() {
         <h3 className="font-semibold text-ink">Finished redline sheets</h3>
         {state.phase === 'off' && (
           <p className="mt-2 text-sm text-ink-3">
-            Product mode is off. Set <span className="font-mono">NEXT_PUBLIC_TL2_PRODUCT_API=1</span> plus{' '}
-            <span className="font-mono">NEXT_PUBLIC_TL2_API_BASE</span> /{' '}
-            <span className="font-mono">NEXT_PUBLIC_TL2_TENANT</span> to view the live artifacts.
+            Finished examples are temporarily unavailable.
+            {internalToolingEnabled() && (
+              <span className="ml-1 font-mono text-xs">
+                (internal: set NEXT_PUBLIC_TL2_PRODUCT_API / _API_BASE / _TENANT)
+              </span>
+            )}
           </p>
         )}
         {state.phase === 'loading' && (
-          <p className="mt-2 text-sm text-ink-3">Loading real redline PNGs from the engine bundle…</p>
+          <p className="mt-2 text-sm text-ink-3">Loading finished redline sheets…</p>
         )}
         {state.phase === 'error' && (
           <p className="mt-2 text-sm text-ink-3">
-            Redline artifacts unavailable — check the v2 product API connection / configuration
-            (NEXT_PUBLIC_TL2_*). No placeholder image is shown rather than invented data. ({state.message})
+            Finished redline sheets are temporarily unavailable — nothing is shown rather than invented data.
+            {internalToolingEnabled() && <span className="ml-1 font-mono text-xs">({state.message})</span>}
           </p>
         )}
         {state.phase === 'empty' && (

@@ -24,6 +24,7 @@ import {
   WORKSPACE_SECTIONS, coerceSection, sectionAnchorId, workspaceHref, type WorkspaceSectionKey,
 } from '@/lib/workspaceSections';
 import { jobTitle, jobAlias } from '@/lib/jobLabels';
+import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   assembleCloseoutPackage,
   downloadCloseoutPdfBlob,
@@ -178,10 +179,12 @@ export function ProductWorkspace(props: WorkspaceProps) {
               jobId={selectedJobId}
               onUploaded={() => { void refreshDetail(selectedJobId); void loadProjectAndJobs(); setFlowVersion((v) => v + 1); }}
             />
-            <details className="rounded-lg border border-line bg-paper px-3 py-2">
-              <summary className="cursor-pointer text-xs text-ink-3">Technical details — stored file inventory</summary>
-              <div className="mt-1"><ProductUploadInventory job={detail} /></div>
-            </details>
+            {internalToolingEnabled() && (
+              <details className="rounded-lg border border-line bg-paper px-3 py-2">
+                <summary className="cursor-pointer text-xs text-ink-3">Technical details — stored file inventory (internal)</summary>
+                <div className="mt-1"><ProductUploadInventory job={detail} /></div>
+              </details>
+            )}
           </SectionShell>
         );
       case 'map':
@@ -441,8 +444,9 @@ function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
         {primary.label} <ArrowRight className="size-4" />
       </button>
 
+      {internalToolingEnabled() && (
       <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-ink-3">Diagnostics</summary>
+        <summary className="cursor-pointer text-xs text-ink-3">Diagnostics (internal)</summary>
         <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-4">
           <Diag label="Project key" value={jobAlias(jobId)} mono />
           <Diag label="status" value={detail.status} mono />
@@ -457,6 +461,7 @@ function JobHeaderBand({ jobId, detail, jobs, refreshKey }: {
           <Diag label="redline images" value={f.artifactCount == null ? '—' : String(f.artifactCount)} />
         </dl>
       </details>
+      )}
     </Card>
   );
 }

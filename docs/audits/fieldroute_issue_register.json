@@ -3,7 +3,35 @@
   "repo_head": "429df792189e5a1eecc52219638490139106a41c",
   "product_brand": "FieldRoute",
   "internal_codename": "TrueLine",
-  "notes": "Severity: P0 = demo-blocking or security-critical; P1 = must fix before a serious demo; P2 = quality/reliability/release hygiene; P3 = cleanup/parity backlog. Evidence is file:line at the audited head. No risky rewrites were performed; only the four guardrails in FR-AUDIT-001/004/011 and the gated internal panel were implemented in this pass.",
+  "notes": "Severity: P0 = demo-blocking or security-critical; P1 = must fix before a serious demo; P2 = quality/reliability/release hygiene; P3 = cleanup/parity backlog. Evidence is file:line at the audited head. No risky rewrites were performed; only the four guardrails in FR-AUDIT-001/004/011 and the gated internal panel were implemented in the original audit pass.",
+  "followup_slice": {
+    "branch": "feat/fieldroute-simple-source-package-review",
+    "doc": "docs/audits/fieldroute_followup_simple_source_package_review.md",
+    "summary": "Subtraction slice: deleted the legacy mock app (~12,970 lines / 70 files), gated all dev/manual tooling behind NEXT_PUBLIC_FR_INTERNAL=1, de-jargoned customer copy, added a PDF magic-byte upload guard, and fixed the lint + contract-parity CI gates. tsc clean; lint 0/0; live-product-read passes.",
+    "status_by_id": {
+      "FR-AUDIT-001": "resolved (browser title fixed in PR #1)",
+      "FR-AUDIT-002": "open (backend auth/tenant isolation — out of scope)",
+      "FR-AUDIT-003": "resolved (showcase off/error states neutralized; env hints internal-gated)",
+      "FR-AUDIT-004": "partial (client size cap + PDF magic-byte; server-side cap still external)",
+      "FR-AUDIT-005": "resolved (HECTOR_DEMO_CHECKLIST.md deleted)",
+      "FR-AUDIT-006": "resolved (legacy mock routes deleted)",
+      "FR-AUDIT-007": "resolved (settings page deleted)",
+      "FR-AUDIT-008": "resolved (README rewritten; PRODUCT_UX_PLAN.md deleted)",
+      "FR-AUDIT-009": "resolved for customer copy (remaining jargon is internal-gated)",
+      "FR-AUDIT-010": "partial (client PDF magic-byte check; full server-side content validation external)",
+      "FR-AUDIT-011": "resolved (sidebar status fixed in PR #1)",
+      "FR-AUDIT-012": "resolved (lint 0 errors / 0 warnings)",
+      "FR-AUDIT-013": "resolved (contract-parity path configurable + clean skip)",
+      "FR-AUDIT-014": "resolved (TRUELINE PREVIEW plan-sheet stamp deleted with /plans)",
+      "FR-AUDIT-015": "open (next.config staging origin / no-store left to avoid untested deploy change)",
+      "FR-AUDIT-016": "mitigated (manual tools now internal-gated; customer impact removed)",
+      "FR-AUDIT-017": "open (basemap/markers — recommended next slice)",
+      "FR-AUDIT-018": "resolved (mock fixtures deleted)",
+      "FR-AUDIT-019": "resolved (duplicate mock map deleted)",
+      "FR-AUDIT-020": "resolved (lib/format.ts hardcoded TZ deleted)",
+      "FR-AUDIT-021": "open (field-capture/offline parity — separate surface)"
+    }
+  },
   "issues": [
     {
       "id": "FR-AUDIT-001",

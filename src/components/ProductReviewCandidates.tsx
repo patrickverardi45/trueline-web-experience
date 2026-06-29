@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Card } from '@/components/ui/Card';
 import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapture';
+import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   acceptReviewCandidate,
   fetchJobArtifactBlob,
@@ -462,37 +463,41 @@ export function ProductReviewCandidates({
             </div>
           )}
 
-          {/* Correct redline placement — offered when the engine flags the automatic generic placement as
-              uncertain. The reviewer marks the real bore route on the plan (start, bends, end); the existing
-              human-confirmed source-anchor lane saves a dashed REVIEW redline that then flows to closeout/export.
-              This is NOT the engine candidate's geometry — it is the human's confirmed route. */}
+          {/* Placement uncertain. The CUSTOMER workflow is accept/reject only — never hand-clicking
+              geometry (FieldRoute product direction). The manual on-plan route-drawing tool is an
+              internal/QA fallback, gated behind the internal tooling flag so it never reaches customers. */}
           {correctionRecommended && isCandidate && (
             <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
-              <h4 className="text-sm font-semibold text-amber-900">Correct redline placement</h4>
+              <h4 className="text-sm font-semibold text-amber-900">This placement needs your review</h4>
               <p className="mt-1 text-xs text-amber-800">
                 The automatic placement is uncertain
                 {candidate.boreSpan ? ` for bore ${candidate.boreSpan}` : ''} — the plan has more than one
-                plausible drawn line over these stations, so the engine is not confident which line is the
-                bore. Mark the real bore route on the plan below (click the start, any bends, then the end).
-                This saves a human-confirmed REVIEW redline you can then accept and export.
+                plausible line over these stations, so FieldRoute is not confident which one is the bore.
+                Review it on the proof above: <span className="font-semibold">accept</span> it if the
+                placement is correct, or <span className="font-semibold">reject</span> it to flag it for
+                correction.
               </p>
-              {planUploads && planUploads.length > 0 ? (
-                <div className="mt-3">
-                  <ProductSourceAnchorCapture
-                    jobId={jobId}
-                    planUploads={planUploads}
-                    reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
-                    onChanged={() => {
-                      void load();      // re-read the candidate -> SUPERSEDED (hides accept/correct, shows corrected)
-                      onChanged?.();    // refresh workspace slots -> Redlines/Closeout offer Assemble
-                    }}
-                  />
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-amber-800">
-                  Open the Uploads section to confirm a plan PDF is attached, then return here to correct the
-                  placement.
-                </p>
+              {internalToolingEnabled() && (
+                planUploads && planUploads.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                      Internal tool — mark the route by hand
+                    </p>
+                    <ProductSourceAnchorCapture
+                      jobId={jobId}
+                      planUploads={planUploads}
+                      reviewedBoreLogId={candidate.reviewedBoreLogId ?? undefined}
+                      onChanged={() => {
+                        void load();      // re-read the candidate -> SUPERSEDED (hides accept/correct, shows corrected)
+                        onChanged?.();    // refresh workspace slots -> Redlines/Closeout offer Assemble
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-800">
+                    Internal tool: attach a plan PDF in Project files to correct the placement by hand.
+                  </p>
+                )
               )}
             </div>
           )}

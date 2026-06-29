@@ -87,10 +87,13 @@ export function ProductSourceAnchorCapture({
   const planUploadIds = planUploads.map((u) => u.uploadId).join('|');
   useEffect(() => {
     const ids = planUploadIds ? planUploadIds.split('|') : [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlanUploadId((prev) => (prev && ids.includes(prev) ? prev : (ids[0] ?? '')));
   }, [planUploadIds]);
 
   useEffect(() => {
+    // loadMeta is an async callback whose result lands via setState in .then (house convention).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (planUploadId) void loadMeta(planUploadId);
   }, [planUploadId, loadMeta]);
 
@@ -146,6 +149,7 @@ export function ProductSourceAnchorCapture({
   useEffect(() => {
     const refs: readonly JobArtifactRef[] = renderResult?.artifacts ?? [];
     if (refs.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRenderedImages([]);
       return;
     }

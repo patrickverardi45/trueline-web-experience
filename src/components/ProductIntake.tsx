@@ -22,6 +22,7 @@ import { Card } from '@/components/ui/Card';
 import { ProductWorkspace } from '@/components/ProductWorkspace';
 import { jobAlias, resolveJobId } from '@/lib/jobLabels';
 import { coerceSection, workspaceHref } from '@/lib/workspaceSections';
+import { internalToolingEnabled } from '@/lib/internalMode';
 
 type Boot =
   | { phase: 'off' }
@@ -145,12 +146,14 @@ export function ProductIntake() {
   if (boot.phase === 'off') {
     return (
       <Card className="mt-6">
-        <h3 className="font-semibold text-ink">Product API not configured</h3>
+        <h3 className="font-semibold text-ink">Workspace not connected</h3>
         <p className="mt-1 text-sm text-ink-3">
-          This page operates against the real v2 product API. Set{' '}
-          <span className="font-mono">NEXT_PUBLIC_TL2_PRODUCT_API=1</span> plus{' '}
-          <span className="font-mono">NEXT_PUBLIC_TL2_API_BASE</span> /{' '}
-          <span className="font-mono">NEXT_PUBLIC_TL2_TENANT</span>.
+          This workspace isn’t connected to FieldRoute yet. Contact your administrator to finish setup.
+          {internalToolingEnabled() && (
+            <span className="ml-1 font-mono text-xs">
+              (internal: set NEXT_PUBLIC_TL2_PRODUCT_API=1 + NEXT_PUBLIC_TL2_API_BASE / _TENANT)
+            </span>
+          )}
         </p>
       </Card>
     );
@@ -161,10 +164,10 @@ export function ProductIntake() {
   if (boot.phase === 'error') {
     return (
       <Card className="mt-6">
-        <h3 className="font-semibold text-ink">Product API unavailable</h3>
+        <h3 className="font-semibold text-ink">Workspace temporarily unavailable</h3>
         <p className="mt-1 text-sm text-ink-3">
-          Could not reach the product API — check the connection / configuration. No data is shown rather
-          than placeholder values. ({boot.message})
+          Couldn’t reach FieldRoute — check your connection and try again. No data is shown rather than
+          placeholder values.{internalToolingEnabled() && <span className="ml-1 font-mono text-xs">({boot.message})</span>}
         </p>
       </Card>
     );

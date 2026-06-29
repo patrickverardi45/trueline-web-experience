@@ -93,10 +93,13 @@ export function ProductWorkflowPanel({
 
   // Reset only when the JOB changes (a different project -> a fresh decision). NOT on every refreshKey bump,
   // so a just-generated verdict isn't wiped when an in-page action (accept/correct/assemble) refreshes state.
+  // jobId is an intentional dep: it changes `reset`'s identity per project (driving the reset-on-job effect),
+  // even though it isn't referenced in the body — so exhaustive-deps' "unnecessary" flag is suppressed here.
   const reset = useCallback(() => {
     setOutcome(null);
     setImages([]);
     setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
   useEffect(() => {
