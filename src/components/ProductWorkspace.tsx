@@ -607,8 +607,9 @@ function UploadsCards({ detail }: { detail: ProductJobDetail }) {
 }
 
 // --------------------------------------------------------------------------- //
-// Google Earth route export (Export step) — the uploaded route as a KMZ, clearly route-only. The redline is
-// pixel-only on the plan (not georeferenced), so it is NOT in the KMZ (no invented coordinates).
+// Google Earth route export (Export step) — re-serves the operator's uploaded design KMZ FAITHFULLY
+// (folders / names / descriptions / styles preserved). The redline is pixel-only on the plan (not
+// georeferenced), so it is NOT in the KMZ (no invented coordinates).
 // --------------------------------------------------------------------------- //
 function RouteKmzCard({ jobId, hasRoute }: { jobId: string; hasRoute: boolean }) {
   const [busy, setBusy] = useState(false);
@@ -628,9 +629,10 @@ function RouteKmzCard({ jobId, hasRoute }: { jobId: string; hasRoute: boolean })
     <Card>
       <h3 className="font-semibold text-ink">Google Earth route (.kmz)</h3>
       <p className="mt-1 text-sm text-ink-3">
-        Open the uploaded route in Google Earth. This is the <span className="font-medium">route only</span> —
-        the redline is pixel-only on the plan and is not georeferenced, so it is not included in the KMZ (no
-        coordinates are invented).
+        Open your uploaded design KMZ in Google Earth — your{' '}
+        <span className="font-medium">folders, placemark names, descriptions and styles are preserved</span>{' '}
+        exactly as you provided them. The redline is pixel-only on the plan (not georeferenced), so it is not
+        added to the KMZ — no coordinates are invented.
       </p>
       {hasRoute ? (
         <button
@@ -973,8 +975,8 @@ function ExportsSection({ jobId, refreshKey, ready }: { jobId: string; refreshKe
         <button
           onClick={() => window.print()}
           disabled={!ready}
-          className="inline-flex items-center gap-1 text-sm text-ink-3 underline-offset-2 hover:text-ink hover:underline disabled:opacity-50">
-          <Printer className="size-4" /> Print / save the on-screen review
+          className="inline-flex items-center gap-2 rounded-lg border border-accent px-3 py-2 text-sm font-semibold text-accent-strong hover:bg-accent/10 disabled:opacity-50">
+          <Printer className="size-4" /> Print / save review
         </button>
       </div>
       <p className="mt-2 text-xs text-ink-3">

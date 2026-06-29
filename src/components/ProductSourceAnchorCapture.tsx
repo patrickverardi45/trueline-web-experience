@@ -372,6 +372,13 @@ export function ProductSourceAnchorCapture({
             bounds={page.bounds}
             points={points}
             onAddPoint={addPoint}
+            onUndo={() => setPoints((prev) => prev.slice(0, -1))}
+            onClear={() => setPoints([])}
+            pageLabel={
+              page.planSheetLabel
+                ? `Sheet ${page.planSheetLabel} · PDF page ${page.pageNumber} of ${meta?.pageCount ?? '?'}`
+                : `PDF page ${page.pageNumber} of ${meta?.pageCount ?? '?'}`
+            }
           />
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-ink-3">{points.length} point(s) marked</span>
@@ -472,28 +479,51 @@ export function ProductSourceAnchorCapture({
       {renderError && <p className="mt-2 text-sm text-red-600">{renderError}</p>}
 
       {renderResult && (
-        <div className="mt-3 rounded-lg border border-line bg-white p-3">
-          <p className="text-sm font-medium text-ink">
-            {renderResult.status === 'SUCCEEDED'
-              ? `Redline drawn — ${renderResult.artifactCount} image(s). It’s now this project’s placed redline; assemble and download it in Closeout.`
-              : 'Redline could not be drawn from these points.'}
-          </p>
-          {renderedImages.length > 0 ? (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {renderedImages.map((img) => (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  key={img.path}
-                  src={img.url}
-                  alt={`Rendered dashed redline ${img.path}`}
-                  className="w-full rounded-lg border border-line bg-white"
-                />
-              ))}
-            </div>
+        <div className={`mt-3 rounded-lg border p-3 ${
+          renderResult.status === 'SUCCEEDED' ? 'border-green-600/40 bg-green-50' : 'border-line bg-white'}`}>
+          {renderResult.status === 'SUCCEEDED' ? (
+            <>
+              <p className="text-sm font-semibold text-ink">
+                Placed redline proof — drawn from your {points.length} marked point(s)
+              </p>
+              <p className="mt-1 text-xs text-ink-2">
+                This is the redline FieldRoute drew from the route you marked on the plan. It is now this
+                project’s <span className="font-medium">placed redline</span> — it becomes the redline
+                evidence in your closeout package and export.
+              </p>
+              {renderedImages.length > 0 ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {renderedImages.map((img) => (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      key={img.path}
+                      src={img.url}
+                      alt={`Placed redline drawn from your marked points (${img.path})`}
+                      className="w-full rounded-lg border border-line bg-white"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-ink-3">
+                  Real redline artifact(s) published to this job. (Preview unavailable — the artifacts are
+                  listed in the redline gallery.)
+                </p>
+              )}
+              {/* Next action — accept-by-continuing, or re-mark if the placement is wrong. */}
+              <div className="mt-3 rounded-md border border-line bg-white p-2.5 text-xs text-ink-2">
+                <p className="font-medium text-ink">What next?</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  <li><span className="font-medium">Looks right?</span> You’re done — it’s saved as this
+                    project’s placed redline. Continue to the next step and assemble/download it in Export.</li>
+                  <li><span className="font-medium">Not right?</span> Use <span className="font-medium">Clear</span>{' '}
+                    above (or <span className="font-medium">Enlarge to mark</span> to zoom in), re-mark the
+                    bore route, then Confirm + Render again to replace this placement.</li>
+                </ul>
+              </div>
+            </>
           ) : (
-            <p className="mt-2 text-xs text-ink-3">
-              Real redline artifact(s) published to this job. (Preview unavailable — the artifacts are
-              listed in the redline gallery.)
+            <p className="text-sm font-medium text-ink">
+              The redline could not be drawn from these points. Clear and re-mark the route, then render again.
             </p>
           )}
         </div>
