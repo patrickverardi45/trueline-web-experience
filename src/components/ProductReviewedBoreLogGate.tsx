@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Wrench } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
+import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   addReviewedRows,
   createReviewedBoreLog,
@@ -163,7 +164,10 @@ export function ProductReviewedBoreLogGate({
   const effectiveSourceUploadId = sourceUploadId || boreLogUploads[0]?.uploadId || '';
   const hasUpload = boreLogUploads.length > 0;
   const ready = !!queue?.engineReady;
-  const showAdvanced = hasUpload && phase !== 'loading' && phase !== 'error';
+  // Hand-entry / manual row review is an internal/QA fallback only — the customer workflow is automatic
+  // extraction + confirm. The whole advanced block is gated behind the internal tooling flag so customers
+  // are never asked to recreate bore-log rows by hand (FieldRoute product direction).
+  const showAdvanced = internalToolingEnabled() && hasUpload && phase !== 'loading' && phase !== 'error';
 
   return (
     <div>
@@ -195,8 +199,8 @@ export function ProductReviewedBoreLogGate({
       ) : phase === 'error' ? (
         <Card className="mt-3">
           <p className="text-sm text-ink-3">
-            Bore log unavailable — check the v2 product API connection. No data is shown rather than
-            placeholder values. ({error})
+            Bore log temporarily unavailable — check your connection. No data is shown rather than
+            placeholder values.{internalToolingEnabled() && <span className="font-mono text-xs"> ({error})</span>}
           </p>
         </Card>
       ) : ready ? (
@@ -241,8 +245,10 @@ export function ProductReviewedBoreLogGate({
             {busy ? 'Extracting…' : 'Extract bore rows from the uploaded file'}
           </button>
           <p className="mt-2 text-xs text-ink-3">
-            No rows are placed until you confirm them. Hand-entry remains available under{' '}
-            <span className="font-medium">Advanced manual review</span> below.
+            No rows are placed until you confirm them.
+            {internalToolingEnabled() && (
+              <span> Hand-entry remains available under <span className="font-medium">Advanced manual review</span> below.</span>
+            )}
           </p>
         </Card>
       ) : (
@@ -298,8 +304,7 @@ export function ProductReviewedBoreLogGate({
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-xs text-ink-3">
-              For internal/advanced use until automatic extraction ships. Manual entry is{' '}
-              <span className="font-mono">extraction_method MANUAL_ENTRY</span> (a human sign-off, not OCR).
+              Internal/QA tool. Manually entered rows are recorded as a human sign-off, not OCR.
             </p>
 
             {phase === 'absent' ? (
@@ -442,7 +447,7 @@ export function ProductReviewedBoreLogGate({
                     <div className="flex items-center gap-2">
                       {ready ? <CheckCircle2 className="size-4 text-ink" /> : <AlertTriangle className="size-4 text-ink-3" />}
                       <h4 className="font-medium text-ink">
-                        Engine-readiness gate: <span className="font-mono">{ready ? 'engine_ready: true' : 'engine_ready: false'}</span>
+                        Ready for redline: <span className="font-mono">{ready ? 'yes' : 'no'}</span>
                       </h4>
                     </div>
                     <dl className="mt-2 grid grid-cols-2 gap-2 text-xs xl:grid-cols-3">

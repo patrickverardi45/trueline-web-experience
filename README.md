@@ -1,80 +1,94 @@
-# TrueLine Web Experience
+# FieldRoute Web
 
-Contract-first website/dashboard for TrueLine — an OSP/fiber construction
-intelligence platform. Plans, bore logs, field evidence, redlines, station
-data, photos, and closeout in one clean workflow.
+FieldRoute is a simple OSP/HDD construction redline-intelligence platform. Upload a
+project's source package once — plan PDFs, KMZ/KML route, bore logs, photos — and the
+engine extracts the route and redline context, shows it on a clean map and a source-backed
+proof view, and only asks you to review the items it flags as uncertain. Then it assembles
+a closeout/export package.
 
-**Everything here runs on mock data.** No backend, no auth, no engine
-imports. The typed API boundary (`src/lib/api`) is where the TrueLine v2
-engine plugs in later.
+> **Brand:** the product is **FieldRoute**. "TrueLine" is an internal engine codename only
+> and must never appear in a customer-facing surface. See
+> [`docs/product/fieldroute_product_direction.md`](docs/product/fieldroute_product_direction.md)
+> — the canonical product-direction doc — before changing UI, routes, copy, or workflow.
 
-## Product boundary
+## The product
 
-TrueLine Web is the office, review, and closeout command center. It owns the
-dashboard and project portfolio, plan viewing, redline review, evidence
-exploration, packet building, closeout readiness, admin/settings, and reviewer
-workflows.
+One workspace, one page, one workflow:
 
-Web is not the field-capture app. TrueLine Field owns field evidence and data
-capture, field tickets, daily logs, submit-to-review, and later
-photo/GPS/time/user stamps plus offline queue and sync. The v2 engine remains
-the proof/truth layer beneath both products. Do not add mobile-only
-field-capture workflows to web unless explicitly approved.
+```
+Create / open a project
+  → Upload source package (plan PDF, KMZ/KML, bore log, photos)
+  → Auto context (route geometry, bore rows, redline candidates, uncertainty)
+  → Simple map + source-backed proof review
+  → Review only the uncertain items (accept / reject)
+  → Closeout review → export / print package
+```
 
-`src/contracts/index.ts` is the current contract source of truth and is
-mirrored by the mobile app.
+## Routes
+
+- `/` — landing page.
+- `/intake` — **the customer workspace** (project list + the single-page workflow above).
+- `/showcase` — finished-redline gallery (real engine output; read-only).
+- `/internal/product-direction` — internal-only panel, gated behind
+  `NEXT_PUBLIC_FR_INTERNAL=1` (404 otherwise).
+
+The original V1/V2 mock surfaces (`/map`, `/plans`, `/redlines`, `/closeout`, `/evidence`,
+`/feed`, `/packet`, `/settings`, `/projects`) and the mock-data layer have been **deleted** —
+they were demo scaffolding, not the product.
+
+## Data: live engine, no mock fallback
+
+The workspace reads the real, tenant-scoped `/v2/product` API
+(`src/lib/api/productWrites.ts`, `src/lib/api/liveV2Product.ts`). There is **no silent
+fallback to mock data**: a failed read/write surfaces an honest error or empty state. The
+redline comes from the real engine — recognized projects render automatically; uploaded
+projects produce an engine REVIEW candidate the user accepts or rejects; when evidence is
+missing the engine abstains with a named reason. Nothing is invented.
+
+Product mode is enabled with `NEXT_PUBLIC_TL2_PRODUCT_API=1` plus `NEXT_PUBLIC_TL2_API_BASE`
+and `NEXT_PUBLIC_TL2_TENANT`. (These env var names are internal and are never shown to
+customers.)
+
+## Internal / dev tooling
+
+Manual bore-log row entry, manual on-plan route drawing, raw diagnostics, the file
+inventory, and the product-direction panel are engineering/QA fallbacks. They are gated
+behind `NEXT_PUBLIC_FR_INTERNAL=1` and never appear in the customer UI. The customer
+workflow never requires hand-clicking geometry or recreating bore-log rows by hand.
 
 ## Run it
 
 ```sh
 npm install
-npm run dev
+npm run dev      # http://localhost:3000
 ```
 
-Open http://localhost:3000.
-
-Verify: `npx tsc --noEmit` and `npm run build`.
-
-## Surfaces
-
-Dashboard `/` · Project detail `/projects/[id]` · **Hero Map** `/map`
-(status-colored redline paths, evidence panel, Redline Playback) ·
-Plan Viewer `/plans` (redline overlay, before/after slider, evidence pins,
-station search, matchlines) · Redline Review `/redlines` · Evidence Explorer
-`/evidence` · Field Feed `/feed` · Closeout Readiness `/closeout` · Packet
-Builder `/packet` · Settings `/settings`.
+Verify: `npx tsc --noEmit`, `npm run lint`, `node scripts/check-live-product-read.mjs`.
+Contract parity (vs. the mobile app) is checked by `npm run contracts:check`, which skips
+cleanly when the mobile checkout isn't present (set `FIELDROUTE_MOBILE_ROOT` to run it).
 
 ## Architecture
 
 ```
 src/
-  contracts/        16 shared TrueLine contracts (mirrored in the mobile app)
+  contracts/        shared product contracts (mirrored in the mobile app)
   lib/
-    api/            TrueLineApi interface + mock client + fixtures
-    status.ts       status → label/color maps (single source)
-    format.ts       ft/pct/date helpers
-    geometry.ts     polyline math for redline paths
+    api/            live /v2/product client (productWrites.ts, liveV2Product.ts) + types
+    internalMode.ts the NEXT_PUBLIC_FR_INTERNAL dev/internal tooling gate
+    jobLabels.ts    customer-facing labels + neutral aliases for seeded project ids
+    workspaceSections.ts  the workspace section spine
   components/
-    ui/             design system (Card, StatusPill, KpiStat, rings, meters…)
-    shell/          navy sidebar + topbar
-    map/            Hero Map (SVG canvas, evidence panel, playback bar)
-  app/              one folder per surface (server components + colocated
-                    client components)
+    ui/             design system (Card, EmptyState, PageHeader, …)
+    shell/          sidebar + topbar
+    Product*.tsx    the /intake workspace (upload, map, bore log, redline, review, closeout)
+  app/              /, /intake, /showcase, /internal/product-direction
 docs/
-  PRODUCT_UX_PLAN.md   product UX plan
-  CONTRACTS.md         contract spec (v0.1)
-  MOBILE_ALIGNMENT.md  mobile M8 alignment + migration plan
+  product/          canonical product direction
+  audits/           senior audit, issue register, follow-up notes
 ```
-
-Design tokens live in `src/app/globals.css` (Tailwind v4 `@theme`): dark
-navy chrome, steel canvas, white cards, safety-orange accent — shared brand
-family with the TrueLine Field mobile app.
-
-The Hero Map and plan sheets are custom SVG surfaces by design: zero
-map-provider/PDF dependencies in the preview, and the geometry contracts
-(`RedlinePath`, `SheetPin`) stay renderer-agnostic for later.
 
 ## Boundaries
 
-Independent product. Never imports from `TrueLine_Beta`, the v2 engine, or
-any other repo. No competitor UI/workflows were referenced.
+Independent product. Never imports the v2 engine or any other repo. No competitor UI,
+code, or workflow is referenced or reproduced — competitive parity is built through our own
+engine and architecture.
