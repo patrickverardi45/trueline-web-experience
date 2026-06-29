@@ -16,12 +16,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Customer-facing brand is FieldRoute. "TrueLine" is an internal engine codename and must never
+  // appear in a customer surface (see docs/product/fieldroute_product_direction.md, FR-AUDIT-001).
   title: {
-    default: 'TrueLine — OSP construction intelligence',
-    template: '%s · TrueLine',
+    default: 'FieldRoute — OSP redline & closeout',
+    template: '%s · FieldRoute',
   },
   description:
-    'Plans, bore logs, field evidence, redlines, and closeout in one clean workflow. Contract-first preview experience.',
+    'Upload your plan, route, and bore log once; FieldRoute extracts the redline from the real engine, '
+    + 'shows it on a clean map and source-backed proof view, and asks for review only when placement is uncertain.',
 };
 
 // Render every route dynamically (per-request), never at build time. In product mode the server-data
