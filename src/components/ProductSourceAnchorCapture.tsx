@@ -18,6 +18,7 @@ import {
   renderSourceAnchor,
   type ControlPointInput,
   type JobArtifactRef,
+  type PlanPageInfo,
   type PlanPageMetadata,
   type SourceAnchorRenderResult,
   type SourceAnchorResult,
@@ -115,28 +116,56 @@ export function ProductSourceAnchorCapture({
     return () => { active = false; };
   }, [jobId, rblId]);
 
-  // Suggested plan sheets, in order: bore-log sheet refs first (the bore's own print), then any parent hints
-  // (e.g. recognized render sheets). Clamped to the plan's real page range — a sheet ref past the last page is
-  // dropped rather than guessed.
-  const suggested = useMemo(() => {
-    if (!meta) return [] as number[];
-    const ordered = [...boreSheets, ...(suggestedSheets ?? [])];
-    const seen = new Set<number>();
-    const out: number[] = [];
-    for (const n of ordered) {
-      if (Number.isInteger(n) && n >= 1 && n <= meta.pageCount && !seen.has(n)) { seen.add(n); out.push(n); }
+  // Map a CONSTRUCTION-SHEET number (what the bore log / engine candidate reference, e.g. 7 = the plan
+  // sheet whose title block reads "7 OF 30") to its actual PDF page. The plan set is bound behind a
+  // cover/index + typical-detail pages, so sheet 7 is NOT PDF page 7 — we resolve through the title-block
+  // label the backend reports per page, never by using the sheet number as a raw PDF page index.
+  const planSheetToPage = useMemo(() => {
+    const m = new Map<number, PlanPageInfo>();
+    for (const p of meta?.pages ?? []) {
+      if (p.isPlanSheet && p.constructionSheetNumber != null && !m.has(p.constructionSheetNumber)) {
+        m.set(p.constructionSheetNumber, p);
+      }
     }
-    return out;
-  }, [meta, boreSheets, suggestedSheets]);
+    return m;
+  }, [meta]);
 
-  // Apply the suggested default page once per plan upload, after both the plan metadata and the bore-log refs
-  // have loaded — so the viewer opens on the suggested sheet, NOT the cover/title page.
+  // Resolve the bore-log sheet refs (first) + any parent hints (e.g. a recognized candidate's render
+  // sheets) to the PDF pages they actually live on. A ref with no matching construction plan sheet is
+  // surfaced honestly (unresolved) — never guessed as a raw PDF page index.
+  const { resolvedSuggestions, unresolvedRefs } = useMemo(() => {
+    const refs = [...boreSheets, ...(suggestedSheets ?? [])];
+    const seenRef = new Set<number>();
+    const seenPage = new Set<number>();
+    const resolved: { ref: number; pdfPage: number; label: string }[] = [];
+    const unresolved: number[] = [];
+    for (const ref of refs) {
+      if (!Number.isInteger(ref) || seenRef.has(ref)) continue;
+      seenRef.add(ref);
+      const p = planSheetToPage.get(ref);
+      if (p) {
+        if (!seenPage.has(p.pageNumber)) {
+          seenPage.add(p.pageNumber);
+          resolved.push({ ref, pdfPage: p.pageNumber, label: p.planSheetLabel ?? String(ref) });
+        }
+      } else {
+        unresolved.push(ref);
+      }
+    }
+    return { resolvedSuggestions: resolved, unresolvedRefs: unresolved };
+  }, [boreSheets, suggestedSheets, planSheetToPage]);
+
+  const suggestedPages = useMemo(() => resolvedSuggestions.map((s) => s.pdfPage), [resolvedSuggestions]);
+
+  // Apply the suggested default page once per plan upload, after both the plan metadata and the bore-log
+  // refs have loaded — so the viewer opens on the RESOLVED construction plan sheet, NEVER the
+  // cover/typical-detail page that shares the sheet's number as a raw PDF page index.
   useEffect(() => {
     if (!meta || !boreLoaded) return;
     if (appliedFor.current === planUploadId) return;
     appliedFor.current = planUploadId;
-    setPageNumber(suggested.length > 0 ? suggested[0] : 1);
-  }, [meta, boreLoaded, suggested, planUploadId]);
+    setPageNumber(suggestedPages.length > 0 ? suggestedPages[0] : 1);
+  }, [meta, boreLoaded, suggestedPages, planUploadId]);
 
 
   // Keep the selected plan upload valid as inventory loads or the job changes. The initial value was
@@ -255,14 +284,20 @@ export function ProductSourceAnchorCapture({
         </label>
         {meta && meta.pageCount > 1 && (
           <label className="flex items-center gap-1.5">
-            <span className="text-ink-3">Plan sheet (page)</span>
+            <span className="text-ink-3">PDF page</span>
             <select
               value={pageNumber}
               onChange={(e) => { setPageNumber(Number(e.target.value)); setPoints([]); }}
               className="rounded-md border border-line px-2 py-1 font-mono text-xs text-ink">
               {meta.pages.map((p) => (
                 <option key={p.pageNumber} value={p.pageNumber}>
-                  {p.pageNumber}{suggested.includes(p.pageNumber) ? ' — suggested' : ''}
+                  {`PDF p${p.pageNumber} · `}
+                  {p.isPlanSheet
+                    ? `Sheet ${p.planSheetLabel}`
+                    : p.sheetType === 'TYPICAL_DETAILS'
+                      ? `${p.planSheetLabel ?? 'detail'} (details)`
+                      : 'cover / index'}
+                  {suggestedPages.includes(p.pageNumber) ? ' — suggested' : ''}
                 </option>
               ))}
             </select>
@@ -270,29 +305,60 @@ export function ProductSourceAnchorCapture({
         )}
       </div>
 
-      {/* Source-backed sheet suggestion — default to the sheet the bore log prints on, never the cover. The
-          user can still pick any sheet (the selector above), so an uncertain suggestion is never forced. */}
+      {/* Source-backed sheet resolution — map each bore-log sheet reference to the PDF page whose title
+          block carries that construction-sheet label (e.g. sheet 7 -> the page printed "7 OF 30"), never
+          the raw PDF page index. The user can still pick any page above, so an uncertain match is never
+          forced. */}
       {meta && meta.pageCount > 1 && (
-        suggested.length > 0 ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-ink-3">Suggested sheet(s) from your bore log:</span>
-            {suggested.map((n) => (
-              <button
-                key={n}
-                onClick={() => { setPageNumber(n); setPoints([]); }}
-                className={`rounded-md border px-2 py-0.5 font-mono ${
-                  pageNumber === n ? 'border-accent bg-accent-soft text-accent-strong' : 'border-line text-ink-2 hover:text-ink'
-                }`}>
-                Sheet {n}
-              </button>
-            ))}
-            <span className="text-ink-3">— confirm it’s the right sheet, or pick another above.</span>
+        resolvedSuggestions.length > 0 ? (
+          <div className="mt-2 space-y-1.5 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-ink-3">Suggested plan sheet(s) from your bore log:</span>
+              {resolvedSuggestions.map((s) => (
+                <button
+                  key={s.pdfPage}
+                  onClick={() => { setPageNumber(s.pdfPage); setPoints([]); }}
+                  className={`rounded-md border px-2 py-0.5 font-mono ${
+                    pageNumber === s.pdfPage ? 'border-accent bg-accent-soft text-accent-strong' : 'border-line text-ink-2 hover:text-ink'
+                  }`}>
+                  Sheet {s.label} → PDF p{s.pdfPage}
+                </button>
+              ))}
+            </div>
+            {/* Evidence: what the bore log referenced, the matched construction sheet, and the real PDF page. */}
+            <p className="text-ink-3">
+              Your bore log references plan sheet{resolvedSuggestions.length > 1 ? 's' : ''}{' '}
+              {resolvedSuggestions.map((s) => s.ref).join(', ')}.{' '}
+              Matched to construction sheet{' '}
+              {resolvedSuggestions.map((s) => `“${s.label}” (PDF page ${s.pdfPage} of ${meta.pageCount})`).join(', ')}
+              {' '}— the page whose title block prints that sheet number, not raw PDF page{' '}
+              {resolvedSuggestions.map((s) => s.ref).join('/')}.
+            </p>
+            {unresolvedRefs.length > 0 && (
+              <p className="text-amber-700">
+                Bore-log sheet {unresolvedRefs.join(', ')} could not be matched to a plan sheet in this PDF —
+                pick the right page manually above.
+              </p>
+            )}
           </div>
         ) : boreLoaded ? (
           <p className="mt-2 text-xs text-ink-3">
-            No plan sheet is printed on this bore log — pick the plan sheet the bore is drawn on above.
+            {unresolvedRefs.length > 0
+              ? `Bore-log sheet ${unresolvedRefs.join(', ')} could not be matched to a plan sheet in this PDF — pick the plan sheet the bore is drawn on above.`
+              : 'No plan sheet is printed on this bore log — pick the plan sheet the bore is drawn on above.'}
           </p>
         ) : null
+      )}
+
+      {/* Soft penalty for a non-plan page: a route/station redline belongs on a construction plan sheet,
+          not a cover/index/typical-detail page. The user can still proceed (never hard-blocked). */}
+      {page && !page.isPlanSheet && (
+        <p className="mt-2 text-xs text-amber-700">
+          Heads up: PDF page {page.pageNumber}
+          {page.planSheetLabel ? ` (${page.planSheetLabel})` : ''} is a{' '}
+          {page.sheetType === 'TYPICAL_DETAILS' ? 'typical-details' : 'cover/index'} sheet, not a route
+          plan sheet. Pick a construction plan sheet above unless you intend to mark this page.
+        </p>
       )}
 
       {metaError && <p className="mt-2 text-sm text-red-600">{metaError}</p>}

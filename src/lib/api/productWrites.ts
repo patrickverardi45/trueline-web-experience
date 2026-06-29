@@ -468,19 +468,30 @@ export interface PlanPageBounds {
   readonly y1: number;
 }
 
+// Construction-sheet classification of a PDF page (from the printed title block). A construction PLAN
+// sheet carries an "N OF M" label; TYPICAL_DETAILS a "TYP-n" label; OTHER = cover/index/legend.
+export type PlanSheetType = 'CONSTRUCTION_PLAN' | 'TYPICAL_DETAILS' | 'OTHER';
+
 export interface PlanPageInfo {
-  readonly pageNumber: number;
+  readonly pageNumber: number;            // 1-based PDF page index (NOT the construction sheet number)
   readonly bounds: PlanPageBounds;        // PDF DISPLAY-space (the space control points are stored in)
   readonly width: number;
   readonly height: number;
   readonly zoom: number;
   readonly rasterWidth: number;
   readonly rasterHeight: number;
+  // Construction-sheet identity from the title block (null on cover/typical-detail pages).
+  readonly constructionSheetNumber: number | null;   // the "N" in "N OF M" (e.g. 7 = sheet "7 OF 30")
+  readonly sheetTotal: number | null;                 // the "M" (plan-set total, e.g. 30)
+  readonly planSheetLabel: string | null;             // human label e.g. "7 OF 30" or "TYP-6"
+  readonly sheetType: PlanSheetType;
+  readonly isPlanSheet: boolean;                       // true only for a construction route/station plan sheet
 }
 
 export interface PlanPageMetadata {
   readonly planUploadId: string;
   readonly pageCount: number;
+  readonly planSetTotal: number | null;
   readonly pages: readonly PlanPageInfo[];
 }
 
@@ -492,6 +503,9 @@ export function composePlanPageMetadata(doc: unknown): PlanPageMetadata {
     .map((p) => {
       const b = (typeof p.bounds === 'object' && p.bounds !== null && !Array.isArray(p.bounds))
         ? (p.bounds as Record<string, unknown>) : {};
+      const sheetType: PlanSheetType =
+        p.sheet_type === 'CONSTRUCTION_PLAN' || p.sheet_type === 'TYPICAL_DETAILS'
+          ? p.sheet_type : 'OTHER';
       return {
         pageNumber: int(p.page_number),
         bounds: { x0: int(b.x0), y0: int(b.y0), x1: int(b.x1), y1: int(b.y1) },
@@ -500,9 +514,15 @@ export function composePlanPageMetadata(doc: unknown): PlanPageMetadata {
         zoom: int(p.zoom),
         rasterWidth: int(p.raster_width),
         rasterHeight: int(p.raster_height),
+        constructionSheetNumber: numOrNull(p.construction_sheet_number),
+        sheetTotal: numOrNull(p.sheet_total),
+        planSheetLabel: typeof p.plan_sheet_label === 'string' ? p.plan_sheet_label : null,
+        sheetType,
+        isPlanSheet: p.is_plan_sheet === true,
       };
     });
-  return { planUploadId: str(d.plan_upload_id), pageCount: int(d.page_count), pages };
+  return { planUploadId: str(d.plan_upload_id), pageCount: int(d.page_count),
+           planSetTotal: numOrNull(d.plan_set_total), pages };
 }
 
 /** Read-only PLAN_PDF page metadata (page_count + per-page display-space bounds + raster size). The web
