@@ -54,8 +54,8 @@ export function ProductSourceAnchorCapture({
   const [meta, setMeta] = useState<PlanPageMetadata | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [points, setPoints] = useState<ControlPointInput[]>([]);
-  const [rblId, setRblId] = useState(reviewedBoreLogId);
-  const [anchorId, setAnchorId] = useState(defaultAnchorId());
+  const [rblId] = useState(reviewedBoreLogId);
+  const [anchorId] = useState(defaultAnchorId());
   const [startStation, setStartStation] = useState('');
   const [startLabel, setStartLabel] = useState('');
   const [endStation, setEndStation] = useState('');
@@ -178,11 +178,9 @@ export function ProductSourceAnchorCapture({
     <Card className="mt-4">
       <h3 className="font-semibold text-ink">Mark the bore route on the plan</h3>
       <p className="mt-1 text-sm text-ink-3">
-        Click the bore route on the uploaded plan page: first click = start, last click = end, middle clicks
-        = bends. This records <span className="font-semibold">human-confirmed</span> geometry on the real
-        PDF — not OCR, not automatic engine placement. Create the anchor, then{' '}
-        <span className="font-semibold">Render</span> to draw a dashed REVIEW redline from your confirmed
-        points — that becomes this job&apos;s placed redline, ready to assemble and export.
+        Click the bore route on the plan: first click = start, last = end, middle clicks = bends. Then{' '}
+        <span className="font-semibold">Render</span> to draw the redline from your confirmed points — that
+        becomes this project’s placed redline, ready to assemble and export.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
@@ -210,14 +208,6 @@ export function ProductSourceAnchorCapture({
             </select>
           </label>
         )}
-        <label className="flex items-center gap-1.5">
-          <span className="text-ink-3">Reviewed bore-log</span>
-          <input
-            value={rblId}
-            onChange={(e) => setRblId(e.target.value)}
-            className="w-28 rounded-md border border-line px-2 py-1 font-mono text-xs text-ink"
-          />
-        </label>
       </div>
 
       {metaError && <p className="mt-2 text-sm text-red-600">{metaError}</p>}
@@ -284,19 +274,11 @@ export function ProductSourceAnchorCapture({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs">
-          <span className="text-ink-3">Anchor id</span>
-          <input
-            value={anchorId}
-            onChange={(e) => setAnchorId(e.target.value)}
-            className="w-32 rounded-md border border-line px-2 py-1 font-mono text-xs text-ink"
-          />
-        </label>
         <button
           onClick={onSubmit}
           disabled={busy || points.length < 2 || !planUploadId || anchorId.trim().length === 0}
           className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-          {busy ? 'Submitting…' : 'Create source anchor'}
+          {busy ? 'Submitting…' : 'Confirm route'}
         </button>
         {points.length < 2 && (
           <span className="text-xs text-ink-3">Mark at least 2 points (start + end).</span>
@@ -307,20 +289,15 @@ export function ProductSourceAnchorCapture({
 
       {result && (
         <div className="mt-3 rounded-lg border border-line bg-white p-3">
-          <p className="text-sm">
-            <span className="font-mono text-ink">status: {result.status}</span>
-            <span className="ml-2 font-mono text-ink-3">renderable: {String(result.renderable)}</span>
-          </p>
-          <p className="mt-1 text-xs text-ink-3">
-            provenance: <span className="font-mono">{result.provenance}</span> · coordinate space:{' '}
-            <span className="font-mono">{result.coordinateSpace}</span>
+          <p className="text-sm font-medium text-ink">
+            {result.renderable ? 'Route confirmed.' : 'Route not yet ready.'}
           </p>
           {result.blockers.length > 0 && (
             <>
               <p className="mt-2 text-xs font-medium text-ink-2">Blockers</p>
               <ul className="mt-1 list-disc space-y-1 pl-6 text-xs text-ink-2">
                 {result.blockers.map((b) => (
-                  <li key={b.code}><span className="font-mono">{b.code}</span> — {b.reason}</li>
+                  <li key={b.code}>{b.reason}</li>
                 ))}
               </ul>
             </>
@@ -328,19 +305,14 @@ export function ProductSourceAnchorCapture({
           {result.renderable && (
             <div className="mt-3 border-t border-line pt-3">
               <p className="text-xs text-ink-3">
-                Source anchor validated and saved as human-confirmed geometry. Render it to draw a dashed
-                redline from these control points and publish a real artifact.
+                Your route is confirmed. Render it to draw the redline from these points.
               </p>
               <button
                 onClick={() => onRender(result.sourceAnchorId)}
                 disabled={renderBusy}
                 className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-                {renderBusy ? 'Rendering…' : 'Render dashed redline from this validated anchor'}
+                {renderBusy ? 'Rendering…' : 'Render redline'}
               </button>
-              <p className="mt-2 text-xs text-ink-3">
-                Dashed = human-adjustable / review. This draws ONLY your confirmed control points — not OCR,
-                not automatic engine placement — and does not change the deterministic engine frontier.
-              </p>
             </div>
           )}
         </div>
@@ -350,15 +322,10 @@ export function ProductSourceAnchorCapture({
 
       {renderResult && (
         <div className="mt-3 rounded-lg border border-line bg-white p-3">
-          <p className="text-sm">
-            <span className="font-mono text-ink">render: {renderResult.status}</span>
-            <span className="ml-2 font-mono text-ink-3">
-              {renderResult.artifactCount} artifact(s) · {renderResult.bundleOrigin}
-            </span>
-          </p>
-          <p className="mt-1 text-xs text-ink-3">
-            bundle: <span className="font-mono">{renderResult.bundleId ?? '—'}</span> · anchors:{' '}
-            <span className="font-mono">{renderResult.sourceAnchorIds.join(', ') || '—'}</span>
+          <p className="text-sm font-medium text-ink">
+            {renderResult.status === 'SUCCEEDED'
+              ? `Redline drawn — ${renderResult.artifactCount} image(s). It’s now this project’s placed redline; assemble and download it in Closeout.`
+              : 'Redline could not be drawn from these points.'}
           </p>
           {renderedImages.length > 0 ? (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">

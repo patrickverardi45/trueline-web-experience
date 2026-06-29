@@ -25,28 +25,22 @@ const PATH_COPY: Record<string, { title: string; tone: string; blurb: string }> 
   RECOGNIZED_DETERMINISTIC: {
     title: 'Redline placed automatically',
     tone: 'text-emerald-700',
-    blurb:
-      'This is a recognized project — the system placed the proven engine redline for the matched bore ' +
-      '(engine-derived, not hand-drawn). No review is needed; assemble the closeout package below.',
+    blurb: 'This is a recognized project — the proven redline was placed automatically. No review needed; assemble the closeout package below.',
   },
   UPLOADED_REVIEW: {
-    title: 'Redline candidate placed — review it',
+    title: 'Redline placed — review it',
     tone: 'text-amber-700',
-    blurb:
-      'The engine placed a candidate redline on this project’s own plan. It is a REVIEW result you accept ' +
-      'or correct — engine-generated geometry, never relabeled as automatic. Review it in the next section.',
+    blurb: 'The system placed a redline on your plan. Check it in the next section and accept it — or correct it if it’s off.',
   },
   UPLOADED_AUTO: {
     title: 'Redline placed automatically',
     tone: 'text-emerald-700',
-    blurb: 'The engine placed this automatically from source-tight evidence. Assemble the closeout package below.',
+    blurb: 'Placed automatically from your source files. Assemble the closeout package below.',
   },
   ABSTAIN: {
     title: 'Could not place a redline',
     tone: 'text-ink-2',
-    blurb:
-      'This project is neither a recognized package nor placeable from the uploaded evidence. The system ' +
-      'does not guess — here is exactly what is missing.',
+    blurb: 'This project can’t be placed automatically from the uploaded files. The system does not guess — here is exactly what is missing.',
   },
 };
 
@@ -167,9 +161,8 @@ export function ProductWorkflowPanel({
         </button>
       </div>
       <p className="mt-1 text-sm text-ink-3">
-        One step decides the path: a recognized project gets the proven engine redline automatically; an
-        uploaded project gets an engine REVIEW candidate to accept or correct; anything else honestly says
-        what’s missing. No coordinates are ever invented.
+        Generate the redline from your plan and bore log. It’s placed automatically when possible, or offered
+        for your review — never guessed.
       </p>
 
       {/* Rehydrated: a redline is already placed (earlier visit) and no fresh outcome yet. */}
