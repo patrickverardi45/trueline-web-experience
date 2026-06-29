@@ -1214,3 +1214,74 @@ export async function fetchExportStatus(jobId: string): Promise<ExportStatusView
     omittedSections: strList(v.omitted_sections),
   };
 }
+
+// ====================================================================================================
+// Operator-entered pricing (per-job) — the operator's OWN provisional rates (provenance
+// OPERATOR_ENTERED_UNVERIFIED + disclaimer), DISTINCT from the server-authoritative billing model. Rates
+// start blank and require operator input; footage is the SERVER quantity (read-only); totals are computed
+// server-side. No fabricated/default dollars.
+// ====================================================================================================
+
+export interface OperatorPricingExceptionView {
+  readonly label: string;
+  readonly amount: string | null;
+  readonly note: string | null;
+}
+
+export interface OperatorPricingView {
+  readonly provenance: string;
+  readonly disclaimer: string;
+  readonly footageAvailable: boolean;
+  readonly footage: string | null;
+  readonly footageIncomplete: boolean;
+  readonly costPerFoot: string | null;
+  readonly exceptions: readonly OperatorPricingExceptionView[];
+  readonly baseTotal: string | null;
+  readonly exceptionTotal: string | null;
+  readonly finalTotal: string | null;
+  readonly totalsNote: string | null;
+  readonly currency: string;
+  readonly updatedAt: string | null;
+}
+
+function composeOperatorPricing(doc: unknown): OperatorPricingView {
+  const d = asRecord(doc, 'operator-pricing');
+  const rawEx = Array.isArray(d.exceptions) ? d.exceptions : [];
+  const exceptions: OperatorPricingExceptionView[] = rawEx
+    .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null && !Array.isArray(e))
+    .map((e) => ({ label: str(e.label), amount: strOrNull(e.amount), note: strOrNull(e.note) }));
+  return {
+    provenance: str(d.provenance),
+    disclaimer: str(d.disclaimer),
+    footageAvailable: d.footage_available === true,
+    footage: strOrNull(d.footage),
+    footageIncomplete: d.footage_incomplete === true,
+    costPerFoot: strOrNull(d.cost_per_foot),
+    exceptions,
+    baseTotal: strOrNull(d.base_total),
+    exceptionTotal: strOrNull(d.exception_total),
+    finalTotal: strOrNull(d.final_total),
+    totalsNote: strOrNull(d.totals_note),
+    currency: str(d.currency) || 'USD',
+    updatedAt: strOrNull(d.updated_at),
+  };
+}
+
+export interface OperatorPricingInput {
+  readonly costPerFoot: string | null;
+  readonly exceptions: readonly { label: string; amount: string | null; note: string | null }[];
+}
+
+/** Read the job's operator-entered pricing + server footage + computed totals. Throws on a failed live read. */
+export async function fetchOperatorPricing(jobId: string): Promise<OperatorPricingView> {
+  return composeOperatorPricing(await getProductJson(`/v2/product/jobs/${jobId}/operator-pricing`));
+}
+
+/** Save the operator's cost-per-foot + exception rows (server validates + recomputes). Throws on non-OK. */
+export async function saveOperatorPricing(jobId: string, input: OperatorPricingInput): Promise<OperatorPricingView> {
+  const body = {
+    cost_per_foot: input.costPerFoot,
+    exceptions: input.exceptions.map((e) => ({ label: e.label, amount: e.amount, note: e.note })),
+  };
+  return composeOperatorPricing(await postProductJson(`/v2/product/jobs/${jobId}/operator-pricing`, body));
+}

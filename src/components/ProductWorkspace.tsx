@@ -14,6 +14,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Lock, Printer, XCircle } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
+import { ProductOperatorPricing } from '@/components/ProductOperatorPricing';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
@@ -293,6 +294,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
               onGoToReview={() => goto('redline')}
               onGoToExports={() => scrollToId('export-downloads')}
             />
+            <ProductOperatorPricing jobId={sid} />
             <div id="export-downloads">
               <ExportsSection jobId={sid} refreshKey={refreshKey} ready={det.slots.exportPackage} />
             </div>
