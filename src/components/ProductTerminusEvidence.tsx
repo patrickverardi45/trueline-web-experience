@@ -28,9 +28,14 @@ const TERMINUS_BLOCKER_COPY: Record<string, string> = {
   NO_PRINTED_END_STRUCTURE:
     'No printed structure note marks the end on the plan — the end is known only from the bore-log row.',
   AMBIGUOUS_START_STRUCTURE:
-    'More than one printed structure note shares the start station — the start is ambiguous.',
-  AMBIGUOUS_END_STRUCTURE: 'More than one printed structure note shares the end station — the end is ambiguous.',
+    'More than one printed structure note or station callout shares the start station — the start is ambiguous.',
+  AMBIGUOUS_END_STRUCTURE:
+    'More than one printed structure note or station callout shares the end station — the end is ambiguous.',
   NO_BORE_LOG_STATION: 'The bore-log row carries no station for this endpoint.',
+  CONFLICTING_START_TERMINUS:
+    'Two printed sources disagree about the start — a printed note and a station callout give different stations, so neither is treated as proven.',
+  CONFLICTING_END_TERMINUS:
+    'Two printed sources disagree about the end — a printed note and a station callout give different stations, so neither is treated as proven.',
 };
 
 function sourceTypeCopy(code: string): string {
