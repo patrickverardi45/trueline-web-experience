@@ -456,6 +456,114 @@ export async function fetchEngineHandoffReadiness(jobId: string): Promise<Engine
 }
 
 // ====================================================================================================
+// G3 — terminus evidence (DISPLAY-only observer). Read-only source-backed per-bore endpoint evidence: for
+// each engine-ready reviewed bore-log, what the START/END bound to (a printed structure note) or the named
+// missing-evidence blocker. NEVER implies AUTO, renders nothing, changes no placement/status. The station
+// VALUE is read from source (bore-log row or printed text), never inferred from geometry.
+// ====================================================================================================
+
+/** Evidence for ONE bore endpoint (START or END). `sourceBound` is true ONLY when a printed/source proof was
+ *  found; a value known only from the bore-log row is NOT source-bound and carries a named `blocker`. */
+export interface TerminusEndpointView {
+  readonly which: string;                  // "START" | "END"
+  readonly sourceType: string;             // PRINTED_STRUCTURE_LABEL | BORE_LOG_ROW | ...
+  readonly sourceBound: boolean;
+  readonly stationStr: string | null;      // e.g. "13+25"
+  readonly stationFt: number | null;
+  readonly sheet: number | null;
+  readonly pdfPage: number | null;
+  readonly sourceText: string | null;      // verbatim printed note, if any
+  readonly structureLabel: string | null;  // printed structure keyword(s), if any
+  readonly provenance: string;
+  readonly confidence: number | null;      // set only on a printed-bound endpoint (PRINTED proof, not AUTO)
+  readonly blocker: string | null;         // named missing-evidence code when not source-bound
+  readonly pedigree: string;               // human-readable evidence trail
+}
+
+export interface BoreTerminusEvidenceView {
+  readonly boreLabel: string | null;
+  readonly start: TerminusEndpointView;
+  readonly end: TerminusEndpointView;
+  readonly bothSourceBound: boolean;
+  readonly missingBlockers: readonly string[];
+}
+
+export interface TerminusEntryView {
+  readonly reviewedBoreLogId: string | null;
+  readonly sourceUploadId: string | null;
+  readonly evidence: BoreTerminusEvidenceView;
+}
+
+export interface TerminusEvidenceView {
+  readonly status: string;                 // EVALUATED | NO_INPUTS
+  readonly runnable: boolean;
+  readonly planPresent: boolean;
+  readonly termini: readonly TerminusEntryView[];
+  readonly blockers: readonly EngineHandoffBlocker[];
+}
+
+function composeTerminusEndpoint(value: unknown): TerminusEndpointView {
+  const d = (typeof value === 'object' && value !== null && !Array.isArray(value))
+    ? (value as Record<string, unknown>) : {};
+  return {
+    which: str(d.which),
+    sourceType: str(d.source_type),
+    sourceBound: d.source_bound === true,
+    stationStr: strOrNull(d.station_str),
+    stationFt: numOrNull(d.station_ft),
+    sheet: numOrNull(d.sheet),
+    pdfPage: numOrNull(d.pdf_page),
+    sourceText: strOrNull(d.source_text),
+    structureLabel: strOrNull(d.structure_label),
+    provenance: str(d.provenance),
+    confidence: numOrNull(d.confidence),
+    blocker: strOrNull(d.blocker),
+    pedigree: str(d.pedigree),
+  };
+}
+
+function composeTerminusEntry(value: unknown): TerminusEntryView | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const d = value as Record<string, unknown>;
+  const ev = (typeof d.evidence === 'object' && d.evidence !== null && !Array.isArray(d.evidence))
+    ? (d.evidence as Record<string, unknown>) : null;
+  if (!ev) return null;
+  return {
+    reviewedBoreLogId: strOrNull(d.reviewed_bore_log_id),
+    sourceUploadId: strOrNull(d.source_upload_id),
+    evidence: {
+      boreLabel: strOrNull(ev.bore_label),
+      start: composeTerminusEndpoint(ev.start),
+      end: composeTerminusEndpoint(ev.end),
+      bothSourceBound: ev.both_source_bound === true,
+      missingBlockers: strList(ev.missing_blockers),
+    },
+  };
+}
+
+export function composeTerminusEvidence(doc: unknown): TerminusEvidenceView {
+  const d = asRecord(doc, 'terminus-evidence');
+  const rawBlockers = Array.isArray(d.blockers) ? d.blockers : [];
+  const blockers: EngineHandoffBlocker[] = rawBlockers
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
+    .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
+  const rawTermini = Array.isArray(d.termini) ? d.termini : [];
+  return {
+    status: str(d.status),
+    runnable: d.runnable === true,
+    planPresent: d.plan_present === true,
+    termini: rawTermini.map(composeTerminusEntry).filter((e): e is TerminusEntryView => e !== null),
+    blockers,
+  };
+}
+
+/** Read-only source-backed per-bore TERMINUS EVIDENCE for DISPLAY (observer-only; never implies AUTO, places
+ *  nothing). Throws on a failed live read (no mock). */
+export async function fetchTerminusEvidence(jobId: string): Promise<TerminusEvidenceView> {
+  return composeTerminusEvidence(await getProductJson(`/v2/product/jobs/${jobId}/terminus-evidence`));
+}
+
+// ====================================================================================================
 // M2 Slice 2 — uploaded PLAN_PDF page display + human-confirmed source-anchor capture.
 // The page raster is the plan AS-IS (NO redline drawn); creating a source anchor RECORDS geometry only —
 // it does NOT render a redline. All reads/writes throw on failure (no mock fallback).

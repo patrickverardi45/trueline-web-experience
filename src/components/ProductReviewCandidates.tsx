@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Card } from '@/components/ui/Card';
 import { ProductSourceAnchorCapture } from '@/components/ProductSourceAnchorCapture';
+import { ProductTerminusEvidence } from '@/components/ProductTerminusEvidence';
 import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   acceptReviewCandidate,
@@ -381,6 +382,13 @@ export function ProductReviewCandidates({
               </ul>
             </div>
           )}
+
+          {/* G3 — source evidence for this bore's endpoints (DISPLAY-only observer; never an AUTO claim). */}
+          <ProductTerminusEvidence
+            jobId={jobId}
+            reviewedBoreLogId={candidate.reviewedBoreLogId ?? null}
+            refreshKey={refreshKey}
+          />
 
           {/* Engine evidence / caveats — raw diagnostic codes, collapsed behind Details (not the headline). */}
           {(candidate.caveats.length > 0 || candidate.matchlineContinuity || candidate.tier) && (
