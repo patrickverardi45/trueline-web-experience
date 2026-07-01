@@ -19,6 +19,7 @@ import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
+import { ProductReviewReadiness } from '@/components/ProductReviewReadiness';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductBoreStepThrough } from '@/components/ProductBoreStepThrough';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
@@ -281,6 +282,9 @@ export function ProductWorkspace(props: WorkspaceProps) {
                 onChanged={onChanged}
               />
             </div>
+            {/* Source-backed completeness gate (distinct from the Phase-6 accept/reject lane above): is the
+                uploaded package complete enough to generate a REVIEW candidate? Read-only; places nothing. */}
+            <ProductReviewReadiness jobId={sid} refreshKey={refreshKey} />
           </div>
         );
       case 'export':
