@@ -10,6 +10,7 @@ import {
   formatFootage,
   formatUSD,
   parseNonNegative,
+  resolveBillableFootage,
 } from '../src/lib/pricing.ts';
 
 let failures = 0;
@@ -68,6 +69,27 @@ check('negative rate refused', computePricing('150', '-3').baseTotal === null);
 check('formatUSD(0) is a real $0.00 (only a real zero, never a stand-in)', formatUSD(0) === '$0.00');
 check('formatUSD(null) is em-dash', formatUSD(null) === '—');
 check('formatFootage(null) is honest missing label', formatFootage(null) === 'not available yet');
+
+// --- billable footage resolution (measured drawn preferred; else source-span fallback, labeled) -----
+check('billable footage prefers a measured drawn length', (() => {
+  const b = resolveBillableFootage('320', 150);
+  return b.footageFt === 320 && b.source === 'DRAWN';
+})());
+check('billable footage falls back to source span when drawn is 0 / missing', (() => {
+  const b0 = resolveBillableFootage('0', 150);       // drawn 0 (generic render) -> source span
+  const bn = resolveBillableFootage(null, 150);      // no manifest footage -> source span
+  return b0.footageFt === 150 && b0.source === 'SOURCE_SPAN'
+    && bn.footageFt === 150 && bn.source === 'SOURCE_SPAN';
+})());
+check('billable footage null when neither drawn nor span (no fake $0)', (() => {
+  const b = resolveBillableFootage('0', null);
+  return b.footageFt === null && b.source === null;
+})());
+check('source-span 150 ft × $15 = $2,250.00 end to end (the staging demo)', (() => {
+  const b = resolveBillableFootage('0', 150);
+  const p = computePricing(b.footageFt, STAGING_RATE_PER_FT);
+  return b.source === 'SOURCE_SPAN' && p.baseTotal === 2250 && formatUSD(p.finalTotal) === '$2,250.00';
+})());
 
 if (failures > 0) { console.error(`\npricing checks FAILED: ${failures} failure(s).`); process.exitCode = 1; }
 else console.log('\npricing checks passed.');

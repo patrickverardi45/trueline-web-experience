@@ -14,7 +14,8 @@ import {
   type OperatorPricingView,
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
-import { STAGING_RATE_PER_FT, computePricing, formatFootage, formatUSD } from '@/lib/pricing';
+import { fetchReviewReadiness } from '@/lib/api/reviewReadiness';
+import { STAGING_RATE_PER_FT, computePricing, formatFootage, formatUSD, resolveBillableFootage } from '@/lib/pricing';
 
 interface ExceptionRow {
   readonly key: string;
@@ -37,6 +38,7 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [sourceSpanFootage, setSourceSpanFootage] = useState<number | null>(null);
 
   const hydrate = useCallback((v: OperatorPricingView) => {
     setView(v);
@@ -52,6 +54,19 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
       .catch((e: unknown) => active && setLoadError(e instanceof Error ? e.message : 'unavailable'));
     return () => { active = false; };
   }, [jobId, hydrate]);
+
+  // Source-span footage fallback: when the manifest has no measured drawn length, the readiness result's
+  // source-confirmed span footage is the billable quantity (labeled). A 404 (readiness not run) → no fallback.
+  useEffect(() => {
+    let active = true;
+    fetchReviewReadiness(jobId)
+      .then((r) => {
+        const total = r.spanRows.reduce((sum, s) => sum + (s.footage ?? 0), 0);
+        if (active) setSourceSpanFootage(total > 0 ? total : null);
+      })
+      .catch(() => { if (active) setSourceSpanFootage(null); });
+    return () => { active = false; };
+  }, [jobId]);
 
   async function onSave() {
     setBusy(true);
@@ -89,8 +104,10 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
     );
   }
 
-  // Live v1-parity pricing: footage (server quantity) × rate + exception amounts, recomputed every keystroke.
-  const live = computePricing(view.footageAvailable ? view.footage : null, costPerFoot, rows.map((r) => r.amount));
+  // Billable footage: the measured drawn length if present, else the source-confirmed span footage (labeled).
+  const billable = resolveBillableFootage(view.footageAvailable ? view.footage : null, sourceSpanFootage);
+  // Live v1-parity pricing: billable footage × rate + exception amounts, recomputed on every keystroke.
+  const live = computePricing(billable.footageFt, costPerFoot, rows.map((r) => r.amount));
 
   return (
     <Card>
@@ -105,11 +122,15 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
         <label className="block text-sm">
           <span className="text-ink-3">Footage (server-computed)</span>
           <div className="mt-1 rounded-md border border-line bg-neutral-50 px-3 py-2 font-mono text-ink-2">
-            {live.footageAvailable ? formatFootage(live.footageFt) : 'not available yet'}
+            {billable.footageFt !== null
+              ? `${formatFootage(billable.footageFt)} · ${billable.source === 'DRAWN' ? 'drawn redline' : 'source span'}`
+              : 'not available yet'}
           </div>
-          {view.footageIncomplete && (
+          {billable.source === 'SOURCE_SPAN' ? (
+            <span className="text-xs text-ink-3">From the source-confirmed bore span (measured drawn length pending).</span>
+          ) : view.footageIncomplete ? (
             <span className="text-xs text-amber-700">Some drawn logs lack a measured length — footage may be partial.</span>
-          )}
+          ) : null}
         </label>
         <label className="block text-sm">
           <span className="text-ink-3">Cost per foot ($) — staging rate, editable</span>

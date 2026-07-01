@@ -47,6 +47,28 @@ export function computePricing(
   return { footageFt, ratePerFt, baseTotal, exceptionTotal, finalTotal, footageAvailable };
 }
 
+export type FootageSource = 'DRAWN' | 'SOURCE_SPAN';
+
+export interface BillableFootage {
+  readonly footageFt: number | null;        // positive billable footage, or null when none is available
+  readonly source: FootageSource | null;    // where it came from (null when no billable footage)
+}
+
+/** Choose the billable footage for pricing: prefer a MEASURED drawn length (> 0) from the redline manifest;
+ *  else fall back to the SOURCE-CONFIRMED span footage (the planned bore length) when present — clearly a
+ *  source-span estimate, not a measured length. Returns null (no source) when neither is a positive number,
+ *  so the caller shows a missing-footage state, never a fabricated "$0". */
+export function resolveBillableFootage(
+  drawnFootage: string | number | null | undefined,
+  sourceSpanFootage: number | null | undefined,
+): BillableFootage {
+  const drawn = parseNonNegative(drawnFootage);
+  if (drawn !== null && drawn > 0) return { footageFt: drawn, source: 'DRAWN' };
+  const span = parseNonNegative(sourceSpanFootage);
+  if (span !== null && span > 0) return { footageFt: span, source: 'SOURCE_SPAN' };
+  return { footageFt: null, source: null };
+}
+
 /** Format a dollar amount as USD (`$2,250.00`, thousands-separated). A `null` amount → the honest em-dash —
  *  never "$0" for a missing value. */
 export function formatUSD(amount: number | null): string {
