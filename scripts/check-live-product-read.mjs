@@ -19,6 +19,7 @@ import {
   composeJobSummaries,
   composeJobDetail,
   createProductJob,
+  deleteProductJob,
   uploadProductFile,
   listProductJobs,
   composeReviewedBoreLog,
@@ -298,6 +299,18 @@ async function run() {
   check('listProductJobs GETs /v2/product/jobs with tenant header',
     wUrl === 'http://localhost:8000/v2/product/jobs' && wInit.headers['X-TL-Tenant'] === 'seed-project');
 
+  globalThis.fetch = async (url, init) => {
+    wUrl = String(url);
+    wInit = init || {};
+    return { ok: true, json: async () => ({ deleted: true, job_id: 'job-x', status_before_delete: 'CREATED' }) };
+  };
+  const del = await deleteProductJob('job-x');
+  check('deleteProductJob POSTs /v2/product/jobs/{job}/delete + tenant header (POST, no CORS DELETE)',
+    wUrl === 'http://localhost:8000/v2/product/jobs/job-x/delete' && wInit.method === 'POST'
+      && wInit.headers['X-TL-Tenant'] === 'seed-project');
+  check('deleteProductJob parses the delete result', del.deleted === true && del.jobId === 'job-x'
+    && del.statusBeforeDelete === 'CREATED');
+
   globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
   let wThrew = false;
   try {
@@ -306,6 +319,10 @@ async function run() {
     wThrew = true;
   }
   check('failed product write throws (no mock fallback)', wThrew === true);
+
+  let delThrew = false;
+  try { await deleteProductJob('job-x'); } catch { delThrew = true; }
+  check('deleteProductJob throws on non-OK (no mock fallback)', delThrew === true);
 
   // --- Slice B: reviewed bore-log gate helpers ----------------------------------------------------
   check('composeReviewedBoreLog parses rows + groups', (() => {
