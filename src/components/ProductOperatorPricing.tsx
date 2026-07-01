@@ -14,6 +14,7 @@ import {
   type OperatorPricingView,
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
+import { STAGING_RATE_PER_FT, computePricing, formatFootage, formatUSD } from '@/lib/pricing';
 
 interface ExceptionRow {
   readonly key: string;
@@ -39,7 +40,7 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
 
   const hydrate = useCallback((v: OperatorPricingView) => {
     setView(v);
-    setCostPerFoot(v.costPerFoot ?? '');
+    setCostPerFoot(v.costPerFoot ?? String(STAGING_RATE_PER_FT));   // v1 parity: default to the staging $/ft rate
     setRows(v.exceptions.map((e) => newRow(e.label, e.amount ?? '', e.note ?? '')));
     setSavedAt(v.updatedAt);
   }, []);
@@ -88,8 +89,8 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
     );
   }
 
-  const cur = view.currency || 'USD';
-  const money = (v: string | null) => (v == null ? '—' : `$${v} ${cur}`);
+  // Live v1-parity pricing: footage (server quantity) × rate + exception amounts, recomputed every keystroke.
+  const live = computePricing(view.footageAvailable ? view.footage : null, costPerFoot, rows.map((r) => r.amount));
 
   return (
     <Card>
@@ -104,19 +105,19 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
         <label className="block text-sm">
           <span className="text-ink-3">Footage (server-computed)</span>
           <div className="mt-1 rounded-md border border-line bg-neutral-50 px-3 py-2 font-mono text-ink-2">
-            {view.footageAvailable && view.footage != null ? `${view.footage} ft` : 'not available yet'}
+            {live.footageAvailable ? formatFootage(live.footageFt) : 'not available yet'}
           </div>
           {view.footageIncomplete && (
             <span className="text-xs text-amber-700">Some drawn logs lack a measured length — footage may be partial.</span>
           )}
         </label>
         <label className="block text-sm">
-          <span className="text-ink-3">Cost per foot ($) — operator-entered</span>
+          <span className="text-ink-3">Cost per foot ($) — staging rate, editable</span>
           <input
             value={costPerFoot}
             onChange={(e) => setCostPerFoot(e.target.value)}
             inputMode="decimal"
-            placeholder="enter your rate (blank = none)"
+            placeholder={`staging default ${STAGING_RATE_PER_FT}`}
             className="mt-1 w-full rounded-md border border-line px-3 py-2 font-mono text-ink"
           />
         </label>
@@ -162,13 +163,17 @@ export function ProductOperatorPricing({ jobId }: { jobId: string }) {
         </button>
       </div>
 
-      {/* Totals (server-computed from operator inputs) */}
+      {/* Totals — LIVE (footage × rate + exceptions), recomputed client-side on every edit. */}
       <div className="mt-3 rounded-md border border-line bg-white p-3 text-sm">
-        <div className="flex justify-between"><span className="text-ink-3">Base total (footage × rate)</span><span className="font-mono font-semibold text-ink">{money(view.baseTotal)}</span></div>
-        <div className="mt-1 flex justify-between"><span className="text-ink-3">Exception total</span><span className="font-mono text-ink">{money(view.exceptionTotal)}</span></div>
-        <div className="mt-1 flex justify-between border-t border-line pt-1"><span className="font-medium text-ink">Final total (operator-entered, unverified)</span><span className="font-mono font-bold text-ink">{money(view.finalTotal)}</span></div>
-        {view.totalsNote && <p className="mt-1.5 text-xs text-ink-3">{view.totalsNote}</p>}
-        <p className="mt-1.5 text-[11px] text-ink-3">Totals reflect saved values. Edit above and Save to recompute.</p>
+        <div className="flex justify-between"><span className="text-ink-3">Base price (footage × rate)</span><span className="font-mono font-semibold text-ink">{formatUSD(live.baseTotal)}</span></div>
+        <div className="mt-1 flex justify-between"><span className="text-ink-3">Exception total</span><span className="font-mono text-ink">{formatUSD(live.exceptionTotal)}</span></div>
+        <div className="mt-1 flex justify-between border-t border-line pt-1"><span className="font-medium text-ink">Final total (live estimate, unverified)</span><span className="font-mono font-bold text-ink">{formatUSD(live.finalTotal)}</span></div>
+        {!live.footageAvailable && (
+          <p className="mt-1.5 text-xs text-amber-700">
+            Footage isn’t available yet — a placed redline provides the measured length. The price appears once footage is available (never a fake $0).
+          </p>
+        )}
+        <p className="mt-1.5 text-[11px] text-ink-3">Live estimate at ${STAGING_RATE_PER_FT}/ft (staging rate). Save to persist the rate + exceptions.</p>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
