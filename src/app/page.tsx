@@ -18,6 +18,9 @@ interface LandingCard {
   readonly cta: string;
 }
 
+// The finished-redline gallery card was removed on purpose: /showcase is an internal-flavored surface
+// (it reads a gallery job the generic staging store no longer seeds), and the sidebar already keeps the
+// gallery unadvertised. The landing advertises exactly one path — the real product workspace.
 const LANDING_CARDS: readonly LandingCard[] = [
   {
     href: '/intake?workspace=1',
@@ -25,13 +28,6 @@ const LANDING_CARDS: readonly LandingCard[] = [
     body: 'Create a project and upload your plan PDF, KMZ/KML route, and bore log (plus photos for reference). FieldRoute places the redline, flags any uncertain placement for your review, then assembles a closeout package to download and print.',
     icon: FolderPlus,
     cta: 'Open your projects',
-  },
-  {
-    href: '/showcase',
-    title: 'Finished redline gallery',
-    body: 'Finished output quality — real drawn red redline strokes on real plan sheets, from deterministic redline data. This is what a completed package looks like.',
-    icon: ImageIcon,
-    cta: 'View finished redlines',
   },
 ];
 
