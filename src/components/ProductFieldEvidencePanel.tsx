@@ -15,7 +15,10 @@ import { useCallback, useEffect, useState } from 'react';
 
 import {
   fetchFieldEvidenceList,
+  fetchFieldEvidencePhotoBlob,
+  shouldShowPhotoThumb,
   type FieldEvidencePackage,
+  type FieldEvidencePhoto,
   type FieldEvidenceProblem,
   type FieldEvidenceReading,
 } from '@/lib/api/fieldEvidence';
@@ -35,6 +38,48 @@ const TONE_CHIP: Record<FieldEvidenceTone, string> = {
   blocked: 'bg-amber-100 text-amber-800',
   neutral: 'bg-gray-100 text-gray-700',
 };
+
+/** One stored photo's thumbnail, fetched as a header-bearing blob (a plain <img src> cannot send the
+ *  identity headers). Rendered ONLY behind the explicit thumbs opt-in and ONLY for a photo bound to a
+ *  real upload. A failed fetch degrades to an honest "Photo unavailable." — never a placeholder image. */
+function PhotoThumb({ jobId, photo, label }: { jobId: string; photo: FieldEvidencePhoto; label: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!photo.uploadId) return;
+    let active = true;
+    let objectUrl: string | null = null;
+    fetchFieldEvidencePhotoBlob(jobId, photo.uploadId)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [jobId, photo.uploadId]);
+
+  return (
+    <figure className="min-w-0">
+      <figcaption className="mb-1 truncate text-[11px] text-ink-3">{label}</figcaption>
+      {failed ? (
+        <p className="rounded border border-line bg-white px-2 py-3 text-center text-xs italic text-ink-3">
+          Photo unavailable.
+        </p>
+      ) : url ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src={url} alt={label} className="h-24 w-full rounded border border-line bg-white object-cover" />
+      ) : (
+        <p className="rounded border border-line bg-white px-2 py-3 text-center text-xs text-ink-3">Loading…</p>
+      )}
+    </figure>
+  );
+}
 
 /** Small attached/missing chip for one required photo slot — bound-to-a-real-photo truth only. */
 function PhotoSlot({ label, attached }: { label: string; attached: boolean }) {
@@ -113,12 +158,15 @@ function ReadingsTable({ readings }: { readings: readonly FieldEvidenceReading[]
   );
 }
 
-function PackageCard({ pkg }: { pkg: FieldEvidencePackage }) {
+function PackageCard({ jobId, pkg }: { jobId: string; pkg: FieldEvidencePackage }) {
   const present = presentFieldEvidenceStatus(pkg);
   const missing = missingEvidenceSummary(pkg);
   const startAttached = pkg.photos.some((p) => p.kind === 'START_STATION' && p.uploadId !== null);
   const endAttached = pkg.photos.some((p) => p.kind === 'END_STATION' && p.uploadId !== null);
   const contextPhotos = pkg.photos.filter((p) => p.kind === 'OPTIONAL_CONTEXT');
+  // Thumbnails are an explicit opt-in (NEXT_PUBLIC_TL2_FIELD_EVIDENCE_THUMBS) and only ever show photos
+  // bound to a real upload — the attached/missing truth above stays the default surface.
+  const thumbPhotos = pkg.photos.filter((p) => shouldShowPhotoThumb(p.uploadId));
 
   return (
     <div className="rounded-md border border-line bg-white p-3">
@@ -147,6 +195,14 @@ function PackageCard({ pkg }: { pkg: FieldEvidencePackage }) {
             <li key={line}>{line}</li>
           ))}
         </ul>
+      )}
+
+      {thumbPhotos.length > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {thumbPhotos.map((photo) => (
+            <PhotoThumb key={photo.evidenceId} jobId={jobId} photo={photo} label={photoKindLabel(photo.kind)} />
+          ))}
+        </div>
       )}
 
       {pkg.problems.length > 0 && (
@@ -232,7 +288,7 @@ export function ProductFieldEvidencePanel({ jobId, refreshKey }: { jobId: string
         ) : (
           <div className="space-y-3">
             {packages.map((pkg) => (
-              <PackageCard key={pkg.segmentId} pkg={pkg} />
+              <PackageCard key={pkg.segmentId} jobId={jobId} pkg={pkg} />
             ))}
           </div>
         )}

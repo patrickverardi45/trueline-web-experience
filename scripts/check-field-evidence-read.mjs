@@ -10,6 +10,9 @@ import {
   composeFieldEvidenceList,
   composeFieldEvidencePackage,
   fetchFieldEvidenceList,
+  fetchFieldEvidencePhotoBlob,
+  fieldEvidenceThumbsEnabled,
+  shouldShowPhotoThumb,
 } from '../src/lib/api/fieldEvidence.ts';
 import {
   FIELD_EVIDENCE_SUPPORT_LINE,
@@ -169,6 +172,48 @@ try {
   threw = true;
 }
 check('network failure throws (no mock fallback)', threw);
+
+globalThis.fetch = realFetch;
+
+console.log('— photo thumbnails (explicit opt-in; bound photos only; never mock) —');
+delete process.env.NEXT_PUBLIC_TL2_FIELD_EVIDENCE_THUMBS;
+check('thumbs default OFF', fieldEvidenceThumbsEnabled() === false);
+check('no fetch decision without the flag (even with a bound photo)', shouldShowPhotoThumb('up-1') === false);
+process.env.NEXT_PUBLIC_TL2_FIELD_EVIDENCE_THUMBS = '1';
+check('flag ON + bound photo -> thumbnail', shouldShowPhotoThumb('up-1') === true);
+check('flag ON + unbound photo (null uploadId) -> NO fetch, chip truth stays', shouldShowPhotoThumb(null) === false && shouldShowPhotoThumb('') === false);
+delete process.env.NEXT_PUBLIC_TL2_FIELD_EVIDENCE_THUMBS;
+
+let photoSeen = null;
+globalThis.fetch = async (url, init) => {
+  photoSeen = { url: String(url), headers: init.headers, method: init.method };
+  return { ok: true, status: 200, blob: async () => ({ size: 3, type: 'image/jpeg' }) };
+};
+const photoBlob = await fetchFieldEvidencePhotoBlob('job-x', 'up-1');
+check('photo blob fetch hits the byte-serving route with identity headers',
+  photoSeen.url === 'http://127.0.0.1:8100/v2/product/jobs/job-x/uploads/up-1/photo'
+  && photoSeen.method === 'GET'
+  && photoSeen.headers['X-TL-Tenant'] === 'tenant-check'
+  && photoSeen.headers['X-TL-Session'] === 'web-readonly'
+  && photoBlob.type === 'image/jpeg');
+
+globalThis.fetch = async () => ({ ok: false, status: 404, blob: async () => ({}) });
+let photo404 = false;
+try {
+  await fetchFieldEvidencePhotoBlob('job-x', 'up-gone');
+} catch (e) {
+  photo404 = /HTTP 404/.test(e.message);
+}
+check('missing photo throws HTTP-404-tagged error (panel shows honest unavailable, never mock)', photo404);
+
+globalThis.fetch = async () => { throw new Error('network down'); };
+let photoThrew = false;
+try {
+  await fetchFieldEvidencePhotoBlob('job-x', 'up-1');
+} catch {
+  photoThrew = true;
+}
+check('photo network failure throws (no mock fallback)', photoThrew);
 
 globalThis.fetch = realFetch;
 
