@@ -124,6 +124,9 @@ export function ProductWorkspace(props: WorkspaceProps) {
   // Any in-step action (upload / extract / generate / accept / correct / assemble) bumps this so the gate
   // read + every read section re-reads the now-current state and the rail re-evaluates which steps unlock.
   const [flowVersion, setFlowVersion] = useState(0);
+  // Presentation-only lift from the readiness section (reset authoritatively on every readiness reload):
+  // a source-backed REVIEW candidate exists, so the strict-engine panel defers its ABSTAIN copy to it.
+  const [hasSourceBackedCandidate, setHasSourceBackedCandidate] = useState(false);
   const refreshKey = `${uploadsKey}:${flowVersion}`;
   const bump = useCallback(() => setFlowVersion((v) => v + 1), []);
   const onChanged = useCallback(() => {
@@ -277,6 +280,8 @@ export function ProductWorkspace(props: WorkspaceProps) {
               onChanged={onChanged}
               onGoToReview={() => scrollToId('redline-review')}
               onGoToCloseout={() => goto('export')}
+              sourceBackedCandidateAvailable={hasSourceBackedCandidate}
+              onGoToCandidate={() => scrollToId('source-backed-candidate')}
             />
             {/* Multi-bore recognized package: step through each bore log's redline on its plan sheet.
                 Renders nothing until a redline is placed, or for a single-REVIEW / abstain job. */}
@@ -293,8 +298,11 @@ export function ProductWorkspace(props: WorkspaceProps) {
               />
             </div>
             {/* Source-backed completeness gate (distinct from the Phase-6 accept/reject lane above): is the
-                uploaded package complete enough to generate a REVIEW candidate? Read-only; places nothing. */}
-            <ProductReviewReadiness jobId={sid} refreshKey={refreshKey} />
+                uploaded package complete enough to generate a REVIEW candidate? Read-only; places nothing.
+                When it holds a READY candidate it becomes the step's PRIMARY review surface (onState). */}
+            <div id="source-backed-candidate">
+              <ProductReviewReadiness jobId={sid} refreshKey={refreshKey} onState={setHasSourceBackedCandidate} />
+            </div>
             {/* Evidence the crew captured/submitted from the field (photos, problem areas, bore readings).
                 Display-only review support; calm empty/not-enabled state when there is none. */}
             <ProductFieldEvidencePanel jobId={sid} refreshKey={refreshKey} />

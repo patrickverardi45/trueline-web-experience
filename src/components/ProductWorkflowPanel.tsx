@@ -20,6 +20,12 @@ import {
   type JobArtifactRef,
   type ProductRedlineOutcome,
 } from '@/lib/api/productWrites';
+import {
+  ABSTAIN_DEFER_BLURB,
+  ABSTAIN_DEFER_CTA,
+  ABSTAIN_DEFER_TITLE,
+  SOURCE_BACKED_CANDIDATE_HINT,
+} from '@/lib/reviewReadinessStatus';
 
 const PATH_COPY: Record<string, { title: string; tone: string; blurb: string }> = {
   RECOGNIZED_DETERMINISTIC: {
@@ -70,6 +76,8 @@ export function ProductWorkflowPanel({
   onChanged,
   onGoToReview,
   onGoToCloseout,
+  sourceBackedCandidateAvailable = false,
+  onGoToCandidate,
 }: {
   jobId: string;
   refreshKey?: string;
@@ -79,6 +87,10 @@ export function ProductWorkflowPanel({
   onChanged?: () => void; // refresh the job detail (slots) so Review/Closeout react to a fresh Generate
   onGoToReview?: () => void; // scroll to the Review section
   onGoToCloseout?: () => void; // scroll to the Closeout section
+  // Presentation-only lift from the readiness section: a source-backed REVIEW candidate exists below, so an
+  // ABSTAIN here defers to it instead of reading like the whole step failed. Never changes what runs.
+  sourceBackedCandidateAvailable?: boolean;
+  onGoToCandidate?: () => void; // scroll to the source-backed candidate section
 }) {
   const [outcome, setOutcome] = useState<ProductRedlineOutcome | null>(null);
   const [images, setImages] = useState<readonly Img[]>([]);
@@ -144,10 +156,15 @@ export function ProductWorkflowPanel({
   }
 
   const path = outcome?.path ?? '';
-  const pathCopy = PATH_COPY[path];
   const isReview = path === 'UPLOADED_REVIEW';
   const isAuto = path === 'RECOGNIZED_DETERMINISTIC' || path === 'UPLOADED_AUTO';
   const isAbstain = path === 'ABSTAIN';
+  // An ABSTAIN with a source-backed candidate below DEFERS to that candidate (copy only — the abstain, its
+  // plain-English reasons, and the collapsed technical details all stay visible and honest).
+  const defersToCandidate = isAbstain && sourceBackedCandidateAvailable;
+  const pathCopy = defersToCandidate
+    ? { title: ABSTAIN_DEFER_TITLE, tone: 'text-amber-700', blurb: ABSTAIN_DEFER_BLURB }
+    : PATH_COPY[path];
 
   return (
     <Card>
@@ -164,6 +181,15 @@ export function ProductWorkflowPanel({
         Generate the redline from your plan and bore log. It’s placed automatically when possible, or offered
         for your review — never guessed.
       </p>
+      {/* Pre-click primacy hint: the readiness section below already holds a source-backed candidate. */}
+      {!outcome && !showRehydrated && sourceBackedCandidateAvailable && (
+        <p className="mt-2 text-xs font-semibold text-emerald-700">
+          {SOURCE_BACKED_CANDIDATE_HINT}{' '}
+          <button onClick={onGoToCandidate} className="font-semibold text-accent-strong hover:underline">
+            Review it below ↓
+          </button>
+        </p>
+      )}
 
       {/* Rehydrated: a redline is already placed (earlier visit) and no fresh outcome yet. */}
       {showRehydrated && (
@@ -216,6 +242,15 @@ export function ProductWorkflowPanel({
               onClick={onGoToCloseout}
               className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
               Continue to closeout ↓
+            </button>
+          )}
+
+          {/* ABSTAIN deferral — a source-backed candidate exists below: one clear pointer to it. */}
+          {defersToCandidate && (
+            <button
+              onClick={onGoToCandidate}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
+              {ABSTAIN_DEFER_CTA}
             </button>
           )}
 

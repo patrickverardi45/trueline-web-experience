@@ -22,9 +22,12 @@ import {
   type ReviewReadinessSpanRow,
 } from '@/lib/api/reviewReadiness';
 import {
+  hasSourceBackedReviewCandidate,
   presentNextInput,
   presentReadinessStatus,
   REVIEW_CANDIDATE_LABEL,
+  SOURCE_BACKED_CANDIDATE_HEADING,
+  SOURCE_BACKED_CANDIDATE_SUPPORT_LINE,
   type ReviewReadinessTone,
 } from '@/lib/reviewReadinessStatus';
 
@@ -191,7 +194,18 @@ function CandidateOverlay({
   );
 }
 
-export function ProductReviewReadiness({ jobId, refreshKey }: { jobId: string; refreshKey?: string }) {
+export function ProductReviewReadiness({
+  jobId,
+  refreshKey,
+  onState,
+}: {
+  jobId: string;
+  refreshKey?: string;
+  /** Presentation-only lift: reports whether a source-backed REVIEW candidate is currently the primary
+   *  review surface, so sibling sections (the strict-engine panel) can defer their copy to it. Never
+   *  couples the backend lanes. */
+  onState?: (hasSourceBackedCandidate: boolean) => void;
+}) {
   const [result, setResult] = useState<ReviewReadinessResult | null>(null);
   const [notRun, setNotRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -220,10 +234,12 @@ export function ProductReviewReadiness({ jobId, refreshKey }: { jobId: string; r
 
   const load = useCallback(async () => {
     setError(null);
+    onState?.(false);                       // authoritative reset: never a stale "primary" while (re)loading
     try {
       const res = await fetchReviewReadiness(jobId);
       setNotRun(false);
       setResult(res);
+      onState?.(hasSourceBackedReviewCandidate(res));
       await loadImages(res);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'unavailable';
@@ -252,6 +268,7 @@ export function ProductReviewReadiness({ jobId, refreshKey }: { jobId: string; r
       const res = await runReviewReadiness(jobId);
       setNotRun(false);
       setResult(res);
+      onState?.(hasSourceBackedReviewCandidate(res));
       await loadImages(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'the readiness check could not be run');
@@ -265,15 +282,22 @@ export function ProductReviewReadiness({ jobId, refreshKey }: { jobId: string; r
   const present = result ? presentReadinessStatus(result.readinessStatus) : null;
   const nextStep = result ? presentNextInput(result.recommendedNextInput) : null;
   const showCandidate = result?.candidate != null && result.artifacts.length > 0;
+  // Candidate PRIMACY: when the spine reports READY with a served candidate, this section IS the step's
+  // primary review surface — the heading says so, and the strict-engine panel above defers to it.
+  const candidatePrimary = result !== null && hasSourceBackedReviewCandidate(result);
 
   return (
     <section className="rounded-lg border border-line bg-paper p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-ink">Source-backed redline readiness</h3>
+          <h3 className="text-sm font-semibold text-ink">
+            {candidatePrimary ? SOURCE_BACKED_CANDIDATE_HEADING : 'Source-backed redline readiness'}
+          </h3>
           <p className="mt-1 text-xs text-ink-3">
-            Checks whether your uploaded package is complete enough to generate a REVIEW candidate. Read-only —
-            it places nothing and changes no status.
+            {candidatePrimary
+              ? SOURCE_BACKED_CANDIDATE_SUPPORT_LINE
+              : 'Checks whether your uploaded package is complete enough to generate a REVIEW candidate. ' +
+                'Read-only — it places nothing and changes no status.'}
           </p>
         </div>
         <button

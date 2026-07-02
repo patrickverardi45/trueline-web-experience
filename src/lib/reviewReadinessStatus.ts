@@ -133,3 +133,43 @@ export function presentNextInput(code: string | null): string | null {
 
 /** The fixed, non-negotiable label for a REVIEW candidate overlay. It is NEVER AUTO or final placement. */
 export const REVIEW_CANDIDATE_LABEL = 'REVIEW candidate — not AUTO, not final placement';
+
+// --- source-backed candidate PRIMACY (presentation-only; no lane coupling) --------------------------- //
+// The strict /workflow/redline engine lane and the readiness lane read the bore log with DIFFERENT
+// parsers, so they can honestly disagree: the readiness spine can hold a source-backed REVIEW candidate
+// while full engine placement abstains. When that happens the candidate is the step's primary review
+// surface and the strict abstain DEFERS to it — the abstain itself stays honest and fully visible.
+
+/** True exactly when the readiness spine reports READY with a candidate + served artifacts — the
+ *  source-backed REVIEW candidate is then the primary review surface. Pure; presentation only. */
+export function hasSourceBackedReviewCandidate(result: {
+  readonly readinessStatus: string;
+  readonly candidate: unknown;
+  readonly artifacts: readonly unknown[];
+}): boolean {
+  return (
+    result.readinessStatus === 'READY_FOR_REVIEW_REDLINE' &&
+    result.candidate !== null &&
+    result.candidate !== undefined &&
+    result.artifacts.length > 0
+  );
+}
+
+/** Panel heading when the candidate is the primary review surface. */
+export const SOURCE_BACKED_CANDIDATE_HEADING = 'Review source-backed candidate';
+
+/** Review-only framing for the primary candidate — never acceptance, closeout, or anything final. */
+export const SOURCE_BACKED_CANDIDATE_SUPPORT_LINE =
+  'This candidate is supported by the uploaded source span. It is for office review only — not AUTO and ' +
+  'not final placement.';
+
+/** Pre-click hint in the strict-engine section while a source-backed candidate already exists below. */
+export const SOURCE_BACKED_CANDIDATE_HINT =
+  'A source-backed review candidate is already available below.';
+
+/** Strict-engine ABSTAIN verdict, reframed ONLY when a source-backed candidate exists below. */
+export const ABSTAIN_DEFER_TITLE = 'Full engine placement isn’t available for this package';
+export const ABSTAIN_DEFER_BLURB =
+  'Full engine placement needs a complete, engine-readable bore log — it doesn’t guess. A source-backed ' +
+  'review candidate is available below; review it there.';
+export const ABSTAIN_DEFER_CTA = 'Review source-backed candidate ↓';

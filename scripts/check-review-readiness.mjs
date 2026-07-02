@@ -13,10 +13,17 @@ import {
   runReviewReadiness,
 } from '../src/lib/api/reviewReadiness.ts';
 import {
+  ABSTAIN_DEFER_BLURB,
+  ABSTAIN_DEFER_CTA,
+  ABSTAIN_DEFER_TITLE,
+  hasSourceBackedReviewCandidate,
   KNOWN_READINESS_STATUSES,
   presentNextInput,
   presentReadinessStatus,
   REVIEW_CANDIDATE_LABEL,
+  SOURCE_BACKED_CANDIDATE_HEADING,
+  SOURCE_BACKED_CANDIDATE_HINT,
+  SOURCE_BACKED_CANDIDATE_SUPPORT_LINE,
 } from '../src/lib/reviewReadinessStatus.ts';
 
 let failures = 0;
@@ -245,6 +252,33 @@ async function run() {
 
   globalThis.fetch = realFetch;
   setEnv({});
+
+  // --- candidate PRIMACY (presentation-only): primary exactly when READY + candidate + artifacts --------
+  const readyView = composeReviewReadiness(READY_DOC);
+  check('primacy: READY + candidate + artifacts -> source-backed candidate is primary',
+    hasSourceBackedReviewCandidate(readyView) === true);
+  check('primacy: refusal (no candidate) -> not primary',
+    hasSourceBackedReviewCandidate(composeReviewReadiness(REFUSAL_DOC)) === false);
+  check('primacy: READY without served artifacts -> not primary (defensive)',
+    hasSourceBackedReviewCandidate({ ...readyView, artifacts: [] }) === false);
+  check('primacy: non-READY status keeps the strict lane primary even with a candidate',
+    hasSourceBackedReviewCandidate({ ...readyView, readinessStatus: 'ANCHOR_BLOCKED' }) === false);
+
+  // --- combined-state copy: the READY-candidate + strict-ABSTAIN shape renders non-contradictorily —
+  //     the abstain defers to the candidate; nothing reads as total failure; review-only stays explicit ---
+  const combined = [ABSTAIN_DEFER_TITLE, ABSTAIN_DEFER_BLURB, ABSTAIN_DEFER_CTA,
+    SOURCE_BACKED_CANDIDATE_HEADING, SOURCE_BACKED_CANDIDATE_SUPPORT_LINE, SOURCE_BACKED_CANDIDATE_HINT];
+  check('combined-state copy is plain English (no raw backend codes / underscored tokens / HTTP)',
+    combined.every((c) => !/[A-Z]{2,}_[A-Z_]+/.test(c) && !c.includes('HTTP')));
+  check('abstain deferral points at the source-backed candidate, not total failure',
+    ABSTAIN_DEFER_BLURB.includes('source-backed') && ABSTAIN_DEFER_CTA.startsWith('Review')
+    && !/fail|error|crash/i.test(ABSTAIN_DEFER_TITLE + ABSTAIN_DEFER_BLURB));
+  check('abstain deferral keeps the full-engine refusal honest (needs an engine-readable bore log)',
+    ABSTAIN_DEFER_BLURB.includes('engine-readable bore log') && ABSTAIN_DEFER_BLURB.includes('doesn’t guess'));
+  check('candidate primacy copy stays review-only (no acceptance/closeout/final/AUTO-success claim)',
+    SOURCE_BACKED_CANDIDATE_SUPPORT_LINE.includes('office review only')
+    && SOURCE_BACKED_CANDIDATE_SUPPORT_LINE.includes('not final placement')
+    && !/closeout|accepted|placed automatically/i.test(combined.join(' ')));
 
   if (failures > 0) {
     console.error(`\nreview-readiness checks FAILED: ${failures} failure(s).`);
