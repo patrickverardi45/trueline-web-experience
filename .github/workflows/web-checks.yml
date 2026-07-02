@@ -32,10 +32,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node 20
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Node 24 to match local/dev: the pure check scripts import .ts source directly and rely on
+          # Node's native type-stripping (unavailable on Node 20 -> ERR_UNKNOWN_FILE_EXTENSION).
+          node-version: "24"
           cache: npm
 
       - name: Install dependencies
