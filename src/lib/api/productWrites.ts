@@ -191,6 +191,24 @@ export async function fetchProductJobDetail(jobId: string): Promise<ProductJobDe
   return composeJobDetail(await getProductJson(`/v2/product/jobs/${jobId}`));
 }
 
+export interface ProductJobDeleteResult {
+  readonly deleted: boolean;
+  readonly jobId: string;
+  readonly statusBeforeDelete: string | null;
+}
+
+/** Permanently delete the tenant's job (record + uploads + all artifacts / stage subdirs). Tenant-safe +
+ *  path-safe server-side. Uses POST (not DELETE) so no CORS method change is needed. Throws on a failed live
+ *  write (404 missing / 403 cross-tenant); never a mock fallback. */
+export async function deleteProductJob(jobId: string): Promise<ProductJobDeleteResult> {
+  const d = asRecord(await postProductJson(`/v2/product/jobs/${jobId}/delete`, {}), 'job-delete');
+  return {
+    deleted: d.deleted === true,
+    jobId: str(d.job_id),
+    statusBeforeDelete: strOrNull(d.status_before_delete),
+  };
+}
+
 /** Register one upload (UNTRUSTED, stays extraction_status="queued" — no OCR). Bytes are base64-JSON
  *  (the backend route's contract; no multipart). Throws on a non-OK response. */
 export async function uploadProductFile(

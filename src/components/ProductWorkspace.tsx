@@ -18,7 +18,9 @@ import { ProductOperatorPricing } from '@/components/ProductOperatorPricing';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
+import { ProductFieldEvidencePanel } from '@/components/ProductFieldEvidencePanel';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
+import { ProductReviewReadiness } from '@/components/ProductReviewReadiness';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
 import { ProductBoreStepThrough } from '@/components/ProductBoreStepThrough';
 import { ProductRouteMap } from '@/components/ProductRouteMap';
@@ -29,6 +31,7 @@ import { jobTitle } from '@/lib/jobLabels';
 import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   assembleCloseoutPackage,
+  deleteProductJob,
   downloadCloseoutPdfBlob,
   downloadExportBundleBlob,
   downloadRouteKmzBlob,
@@ -121,6 +124,9 @@ export function ProductWorkspace(props: WorkspaceProps) {
   // Any in-step action (upload / extract / generate / accept / correct / assemble) bumps this so the gate
   // read + every read section re-reads the now-current state and the rail re-evaluates which steps unlock.
   const [flowVersion, setFlowVersion] = useState(0);
+  // Presentation-only lift from the readiness section (reset authoritatively on every readiness reload):
+  // a source-backed REVIEW candidate exists, so the strict-engine panel defers its ABSTAIN copy to it.
+  const [hasSourceBackedCandidate, setHasSourceBackedCandidate] = useState(false);
   const refreshKey = `${uploadsKey}:${flowVersion}`;
   const bump = useCallback(() => setFlowVersion((v) => v + 1), []);
   const onChanged = useCallback(() => {
@@ -212,6 +218,13 @@ export function ProductWorkspace(props: WorkspaceProps) {
     router.push(stepHref(selectedJobId, key));
   }, [router, selectedJobId]);
 
+  // Delete a job (test/demo cleanup). Refresh the list; if the open job was deleted, drop the selection.
+  const onDeleteJob = useCallback(async (jobId: string) => {
+    await deleteProductJob(jobId);
+    if (selectedJobId === jobId) router.push(stepHref(null, 'project'));
+    loadProjectAndJobs();
+  }, [selectedJobId, loadProjectAndJobs, router]);
+
   const idx = stepIndex(active);
   const def = STEPPER_STEPS[idx];
   const nextKey: StepKey | null = idx < STEPPER_STEPS.length - 1 ? STEPPER_STEPS[idx + 1].key : null;
@@ -228,6 +241,7 @@ export function ProductWorkspace(props: WorkspaceProps) {
           actionError={actionError}
           onStartProject={onStartProject}
           onOpenJob={(id) => router.push(stepHref(id, 'project'))}
+          onDeleteJob={onDeleteJob}
           onContinue={() => goto(firstActionable())}
         />
       );
@@ -266,6 +280,8 @@ export function ProductWorkspace(props: WorkspaceProps) {
               onChanged={onChanged}
               onGoToReview={() => scrollToId('redline-review')}
               onGoToCloseout={() => goto('export')}
+              sourceBackedCandidateAvailable={hasSourceBackedCandidate}
+              onGoToCandidate={() => scrollToId('source-backed-candidate')}
             />
             {/* Multi-bore recognized package: step through each bore log's redline on its plan sheet.
                 Renders nothing until a redline is placed, or for a single-REVIEW / abstain job. */}
@@ -281,6 +297,15 @@ export function ProductWorkspace(props: WorkspaceProps) {
                 onChanged={onChanged}
               />
             </div>
+            {/* Source-backed completeness gate (distinct from the Phase-6 accept/reject lane above): is the
+                uploaded package complete enough to generate a REVIEW candidate? Read-only; places nothing.
+                When it holds a READY candidate it becomes the step's PRIMARY review surface (onState). */}
+            <div id="source-backed-candidate">
+              <ProductReviewReadiness jobId={sid} refreshKey={refreshKey} onState={setHasSourceBackedCandidate} />
+            </div>
+            {/* Evidence the crew captured/submitted from the field (photos, problem areas, bore readings).
+                Display-only review support; calm empty/not-enabled state when there is none. */}
+            <ProductFieldEvidencePanel jobId={sid} refreshKey={refreshKey} />
           </div>
         );
       case 'export':
@@ -406,7 +431,7 @@ function StepperRail({ statuses, onSelect, lockReason }: {
 // Step 1 — Project. Simple new-customer entry: type a name, we silently initialize the workspace and create
 // the project (no "Set up workspace", no slug, no disabled button). Existing projects are listed to resume.
 // --------------------------------------------------------------------------- //
-function ProjectStep({ jobs, selectedJobId, detail, busy, actionError, onStartProject, onOpenJob, onContinue }: {
+function ProjectStep({ jobs, selectedJobId, detail, busy, actionError, onStartProject, onOpenJob, onDeleteJob, onContinue }: {
   jobs: readonly ProductJobSummary[];
   selectedJobId: string | null;
   detail: ProductJobDetail | null;
@@ -414,10 +439,28 @@ function ProjectStep({ jobs, selectedJobId, detail, busy, actionError, onStartPr
   actionError: string | null;
   onStartProject: (name: string) => Promise<void> | void;
   onOpenJob: (jobId: string) => void;
+  onDeleteJob: (jobId: string) => Promise<void>;
   onContinue: () => void;
 }) {
   const [name, setName] = useState('');
+  // Per-job delete confirmation: clicking Delete arms an inline "Delete? / Cancel" on that job only.
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const selected = selectedJobId && detail ? { jobId: selectedJobId, detail } : null;
+
+  async function confirmDelete(jobId: string) {
+    setDeletingId(jobId);
+    setDeleteError(null);
+    try {
+      await onDeleteJob(jobId);
+      setConfirmId(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'delete failed');
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -450,15 +493,40 @@ function ProjectStep({ jobs, selectedJobId, detail, busy, actionError, onStartPr
           <h3 className="font-semibold text-ink">Your projects</h3>
           <ul className="mt-2 grid gap-2 sm:grid-cols-2">
             {jobs.map((j) => (
-              <li key={j.jobId}>
-                <button
-                  onClick={() => onOpenJob(j.jobId)}
-                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                    selectedJobId === j.jobId ? 'border-accent bg-accent-soft' : 'border-line hover:border-accent/50'
-                  }`}>
-                  <span className="block text-sm font-medium text-ink">{jobTitle(j.jobId)}</span>
-                  <span className="block text-xs text-ink-3">{friendlyStage(j.status)} · {j.uploadCount} file(s)</span>
-                </button>
+              <li key={j.jobId} className={`rounded-lg border ${selectedJobId === j.jobId ? 'border-accent' : 'border-line'}`}>
+                <div className="flex items-stretch">
+                  <button
+                    onClick={() => onOpenJob(j.jobId)}
+                    className={`min-w-0 flex-1 rounded-l-lg px-3 py-2 text-left transition-colors ${
+                      selectedJobId === j.jobId ? 'bg-accent-soft' : 'hover:bg-paper'
+                    }`}>
+                    <span className="block truncate text-sm font-medium text-ink">{jobTitle(j.jobId)}</span>
+                    <span className="block text-xs text-ink-3">{friendlyStage(j.status)} · {j.uploadCount} file(s)</span>
+                  </button>
+                  <button
+                    onClick={() => { setConfirmId(j.jobId); setDeleteError(null); }}
+                    aria-label={`Delete ${jobTitle(j.jobId)}`}
+                    className="shrink-0 rounded-r-lg border-l border-line px-3 text-xs font-medium text-ink-3 hover:bg-paper hover:text-red-600">
+                    Delete
+                  </button>
+                </div>
+                {confirmId === j.jobId && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
+                    <span className="text-xs text-ink-2">Delete this project permanently? This removes its files and redlines.</span>
+                    <button
+                      onClick={() => void confirmDelete(j.jobId)}
+                      disabled={deletingId === j.jobId}
+                      className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">
+                      {deletingId === j.jobId ? 'Deleting…' : 'Delete'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      className="rounded-md border border-line px-2.5 py-1 text-xs text-ink-2 hover:text-ink">
+                      Cancel
+                    </button>
+                    {deleteError && <span className="text-xs text-red-600">{deleteError}</span>}
+                  </div>
+                )}
               </li>
             ))}
           </ul>
