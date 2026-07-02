@@ -47,7 +47,9 @@ missing the engine abstains with a named reason. Nothing is invented.
 
 Product mode is enabled with `NEXT_PUBLIC_TL2_PRODUCT_API=1` plus `NEXT_PUBLIC_TL2_API_BASE`
 and `NEXT_PUBLIC_TL2_TENANT`. (These env var names are internal and are never shown to
-customers.)
+customers.) `NEXT_PUBLIC_TL2_FIELD_EVIDENCE_THUMBS=1` (default OFF) additionally renders
+photo thumbnails in the Field Evidence review panel — enable it only on deployments whose
+backend serves the field-evidence photo route.
 
 ## Internal / dev tooling
 

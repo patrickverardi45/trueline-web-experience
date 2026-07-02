@@ -46,6 +46,12 @@ async function getProductJson(path: string): Promise<unknown> {
   return response.json();
 }
 
+async function getProductBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${apiBase()}${path}`, { method: 'GET', cache: 'no-store', headers: headers() });
+  if (!response.ok) throw new Error(`product GET ${path} failed with HTTP ${response.status}`);
+  return response.blob();
+}
+
 // --- pure value coercion (unit-checkable) ----------------------------------------------------------- //
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -225,5 +231,28 @@ export async function fetchFieldEvidenceList(jobId: string): Promise<FieldEviden
 export async function fetchFieldEvidencePackage(jobId: string, segmentId: string): Promise<FieldEvidencePackage> {
   return composeFieldEvidencePackage(
     await getProductJson(`/v2/product/jobs/${jobId}/field-evidence/${encodeURIComponent(segmentId)}`),
+  );
+}
+
+// --- photo thumbnails (opt-in display of the stored PHOTO bytes a package references) ---------------- //
+
+/** Thumbnail rendering is an EXPLICIT opt-in: the backend byte-serving route ships behind the same
+ *  field-evidence flag, so the panel keeps its attached/missing-truth default until this deployment
+ *  confirms the route is live. Default OFF. */
+export function fieldEvidenceThumbsEnabled(): boolean {
+  return (process.env.NEXT_PUBLIC_TL2_FIELD_EVIDENCE_THUMBS ?? '').trim() === '1';
+}
+
+/** Pure display predicate: fetch/render a thumbnail ONLY when thumbnails are enabled AND the photo slot
+ *  is bound to a real uploaded photo. A claimed-but-unbound slot never fetches — nothing is invented. */
+export function shouldShowPhotoThumb(uploadId: string | null): boolean {
+  return fieldEvidenceThumbsEnabled() && uploadId !== null && uploadId !== '';
+}
+
+/** Header-bearing fetch of ONE stored PHOTO upload's bytes -> Blob (a plain <img src> cannot send the
+ *  identity headers). Throws on a non-OK response — never a placeholder/mock image. */
+export async function fetchFieldEvidencePhotoBlob(jobId: string, uploadId: string): Promise<Blob> {
+  return getProductBlob(
+    `/v2/product/jobs/${encodeURIComponent(jobId)}/uploads/${encodeURIComponent(uploadId)}/photo`,
   );
 }
