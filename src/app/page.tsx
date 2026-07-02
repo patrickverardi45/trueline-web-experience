@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, FolderPlus, ImageIcon } from 'lucide-react';
+import { ArrowRight, FolderOpen, FolderPlus, ImageIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 
@@ -20,14 +20,22 @@ interface LandingCard {
 
 // The finished-redline gallery card was removed on purpose: /showcase is an internal-flavored surface
 // (it reads a gallery job the generic staging store no longer seeds), and the sidebar already keeps the
-// gallery unadvertised. The landing advertises exactly one path — the real product workspace.
+// gallery unadvertised. The landing advertises exactly one destination — the real product workspace —
+// through the two doors an owner actually looks for: start something new, or continue existing work.
 const LANDING_CARDS: readonly LandingCard[] = [
   {
     href: '/intake?workspace=1',
     title: 'Start a new project',
     body: 'Create a project and upload your plan PDF, KMZ/KML route, and bore log (plus photos for reference). FieldRoute places the redline, flags any uncertain placement for your review, then assembles a closeout package to download and print.',
     icon: FolderPlus,
-    cta: 'Open your projects',
+    cta: 'Create a project',
+  },
+  {
+    href: '/intake?workspace=1',
+    title: 'Open your projects',
+    body: 'Continue where you left off. Your project list opens the guided workspace — upload package, route context, bore logs, redline proof, and export — one step at a time.',
+    icon: FolderOpen,
+    cta: 'Open the workspace',
   },
 ];
 
@@ -57,7 +65,7 @@ export default function HomePage() {
         {LANDING_CARDS.map((card) => {
           const Icon = card.icon;
           return (
-            <Link key={card.href} href={card.href} className="group">
+            <Link key={card.title} href={card.href} className="group">
               <Card className="h-full transition-shadow group-hover:shadow-md">
                 <div className="flex items-start gap-4">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-strong">
