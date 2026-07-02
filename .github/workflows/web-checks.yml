@@ -1,0 +1,64 @@
+# Web checks — typecheck, lint, the stable pure-node check scripts, and a production build.
+#
+# All steps are network-free and deterministic. The check-*.mjs scripts stub `globalThis.fetch`, so they
+# never call a live backend; `check-live-product-read.mjs` (which DOES need a running backend) is
+# intentionally excluded. The build runs with served-mode redline fetch OFF (no network) and placeholder
+# NEXT_PUBLIC_* values so it cannot depend on a real deployment. This workflow does NOT deploy.
+name: web-checks
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "next.config.ts"
+      - ".github/workflows/web-checks.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "next.config.ts"
+      - ".github/workflows/web-checks.yml"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Contract parity (skips cleanly when the mobile checkout is absent)
+        run: node scripts/check-contract-parity.mjs
+
+      - name: Pure check scripts
+        run: |
+          node scripts/check-pricing.mjs
+          node scripts/check-field-evidence-read.mjs
+          node scripts/check-review-readiness.mjs
+
+      - name: Production build (served-mode fetch OFF; placeholder public env)
+        env:
+          NEXT_PUBLIC_TL2_PRODUCT_API: "1"
+          NEXT_PUBLIC_TL2_API_BASE: "https://ci.invalid"
+          NEXT_PUBLIC_TL2_TENANT: "ci"
+        run: npm run build
