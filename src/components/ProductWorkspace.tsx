@@ -18,6 +18,7 @@ import { ProductOperatorPricing } from '@/components/ProductOperatorPricing';
 import { ProductUploadPanel } from '@/components/ProductUploadPanel';
 import { ProductUploadInventory } from '@/components/ProductUploadInventory';
 import { ProductReviewedBoreLogGate } from '@/components/ProductReviewedBoreLogGate';
+import { ProductFieldEvidencePanel } from '@/components/ProductFieldEvidencePanel';
 import { ProductReviewCandidates } from '@/components/ProductReviewCandidates';
 import { ProductReviewReadiness } from '@/components/ProductReviewReadiness';
 import { ProductWorkflowPanel } from '@/components/ProductWorkflowPanel';
@@ -294,6 +295,9 @@ export function ProductWorkspace(props: WorkspaceProps) {
             {/* Source-backed completeness gate (distinct from the Phase-6 accept/reject lane above): is the
                 uploaded package complete enough to generate a REVIEW candidate? Read-only; places nothing. */}
             <ProductReviewReadiness jobId={sid} refreshKey={refreshKey} />
+            {/* Evidence the crew captured/submitted from the field (photos, problem areas, bore readings).
+                Display-only review support; calm empty/not-enabled state when there is none. */}
+            <ProductFieldEvidencePanel jobId={sid} refreshKey={refreshKey} />
           </div>
         );
       case 'export':
