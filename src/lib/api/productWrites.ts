@@ -153,6 +153,20 @@ async function getProductJson(path: string): Promise<unknown> {
   return response.json();
 }
 
+// Best-effort server-stated reason (the backend's HTTPException `detail` string) so a refusal surfaces to
+// the user as the honest named blocker (e.g. BORE_LOG_FORMAT_UNRECOGNIZED with its specific reasons)
+// instead of a bare status code. Never throws; never fabricates a reason when the body carries none.
+async function serverDetail(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    const detail = (body as { detail?: unknown } | null)?.detail;
+    if (typeof detail === 'string' && detail.trim()) return `: ${detail.trim().slice(0, 400)}`;
+  } catch {
+    // no readable JSON body — the status line is all we honestly know
+  }
+  return '';
+}
+
 async function postProductJson(path: string, body: unknown): Promise<unknown> {
   const response = await fetch(`${apiBase()}${path}`, {
     method: 'POST',
@@ -160,7 +174,9 @@ async function postProductJson(path: string, body: unknown): Promise<unknown> {
     headers: { 'Content-Type': 'application/json', ...headers() },
     body: JSON.stringify(body ?? {}),
   });
-  if (!response.ok) throw new Error(`product POST ${path} failed with HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`product POST ${path} failed with HTTP ${response.status}${await serverDetail(response)}`);
+  }
   return response.json();
 }
 
