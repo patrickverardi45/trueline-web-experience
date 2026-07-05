@@ -683,9 +683,11 @@ async function getProductBlob(path: string): Promise<Blob> {
 /** Read-only PNG raster of ONE uploaded PLAN_PDF page (the plan AS-IS — NO redline overlay). Header-
  *  bearing fetch -> Blob (a plain <img src> cannot send the identity headers). Throws on non-OK (no mock). */
 export async function fetchPlanPageRasterBlob(
-  jobId: string, planUploadId: string, pageNumber: number,
+  jobId: string, planUploadId: string, pageNumber: number, zoom?: number,
 ): Promise<Blob> {
-  return getProductBlob(`/v2/product/jobs/${jobId}/plan-pages/${planUploadId}/${pageNumber}/raster`);
+  // Optional on-demand higher-DPI raster (the backend clamps it to a safe range). Omitted -> default raster.
+  const qs = typeof zoom === 'number' && Number.isFinite(zoom) && zoom > 0 ? `?zoom=${zoom}` : '';
+  return getProductBlob(`/v2/product/jobs/${jobId}/plan-pages/${planUploadId}/${pageNumber}/raster${qs}`);
 }
 
 export interface ControlPointInput {

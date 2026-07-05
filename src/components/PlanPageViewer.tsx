@@ -8,12 +8,19 @@
 // is a live preview of the human-marked route, not a rendered/placed redline.
 //
 // The plan sheet is dense, so the inline preview is small. An "Enlarge to mark" control opens a fullscreen
-// modal with zoom (1x–5x of fit-width) + scroll-to-pan; clicking marks points at the SAME accuracy as inline
-// because the screen->display-space mapping is resolution-independent (it uses the rendered bounding rect).
+// modal that fetches an on-demand HIGHER-DPI raster (so station labels stay sharp when magnified), with
+// zoom + scroll-or-drag pan + Fit; clicking marks points at the SAME accuracy at any zoom/pan because the
+// screen->display-space mapping is resolution-independent (it uses the rendered bounding rect).
 
 import { useEffect, useRef, useState } from 'react';
 
 import { fetchPlanPageRasterBlob, type ControlPointInput, type PlanPageBounds } from '@/lib/api/productWrites';
+
+// On-demand higher-DPI raster requested for the fullscreen mark modal so dense station labels stay sharp
+// when magnified (the backend clamps this to a safe range; the inline preview keeps the default raster).
+const HI_DPI_ZOOM = 4;
+// Max CSS magnification of the (already higher-DPI) modal raster.
+const MODAL_MAX_ZOOM = 8;
 
 interface PlanPageViewerProps {
   readonly jobId: string;
@@ -38,9 +45,17 @@ export function PlanPageViewer({
   const [raster, setRaster] = useState<Raster>({ phase: 'loading' });
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [enlarged, setEnlarged] = useState(false);
-  const [zoom, setZoom] = useState(1); // multiple of fit-to-modal-width (1 = fit, up to 5x)
+  const [zoom, setZoom] = useState(1); // multiple of fit-to-modal-width (1 = fit)
+  // On-demand higher-DPI raster for the modal (fetched only while enlarged); falls back to the base raster
+  // until it is ready, so the modal is never blank.
+  const [modalRaster, setModalRaster] = useState<Raster | null>(null);
   const inlineImg = useRef<HTMLImageElement | null>(null);
   const modalImg = useRef<HTMLImageElement | null>(null);
+  const panBox = useRef<HTMLDivElement | null>(null);
+  // Drag-to-pan bookkeeping (refs, so a drag never re-renders): the active drag origin, and whether the
+  // last pointer interaction moved far enough to count as a pan (so the following click does NOT mark).
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const didPan = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -63,6 +78,31 @@ export function PlanPageViewer({
     };
   }, [jobId, planUploadId, pageNumber]);
 
+  // Fetch the higher-DPI raster ONLY while the mark modal is open (on-demand). Revoke on close/unmount.
+  useEffect(() => {
+    if (!enlarged) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setModalRaster(null);
+      return;
+    }
+    let active = true;
+    let url: string | null = null;
+    setModalRaster({ phase: 'loading' });
+    fetchPlanPageRasterBlob(jobId, planUploadId, pageNumber, HI_DPI_ZOOM)
+      .then((blob) => {
+        if (!active) return;
+        url = URL.createObjectURL(blob);
+        setModalRaster({ phase: 'ready', url });
+      })
+      .catch((e: unknown) =>
+        active && setModalRaster({ phase: 'error', message: e instanceof Error ? e.message : 'unavailable' }),
+      );
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [enlarged, jobId, planUploadId, pageNumber]);
+
   // Close the modal on Escape.
   useEffect(() => {
     if (!enlarged) return;
@@ -83,6 +123,26 @@ export function PlanPageViewer({
     const fracX = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const fracY = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
     onAddPoint({ x: bounds.x0 + fracX * spanX, y: bounds.y0 + fracY * spanY });
+  }
+
+  // Drag-to-pan the enlarged canvas (in addition to native scroll). A drag past a small threshold sets
+  // ``didPan`` so the trailing click does NOT mark a point — click-to-mark accuracy is unaffected.
+  function onPanStart(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0 || !panBox.current) return;
+    didPan.current = false;
+    drag.current = { x: e.clientX, y: e.clientY, left: panBox.current.scrollLeft, top: panBox.current.scrollTop };
+  }
+  function onPanMove(e: React.MouseEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d || !panBox.current) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didPan.current = true;
+    panBox.current.scrollLeft = d.left - dx;
+    panBox.current.scrollTop = d.top - dy;
+  }
+  function endPan() {
+    drag.current = null;
   }
 
   function toPx(p: ControlPointInput): { px: number; py: number } | null {
@@ -159,7 +219,7 @@ export function PlanPageViewer({
               <button onClick={() => setZoom((z) => Math.max(1, Math.round((z - 0.5) * 10) / 10))}
                       className="rounded-md border border-line px-2 py-1 text-ink-2 hover:text-ink">−</button>
               <span className="w-12 text-center font-mono text-xs text-ink-2">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom((z) => Math.min(5, Math.round((z + 0.5) * 10) / 10))}
+              <button onClick={() => setZoom((z) => Math.min(MODAL_MAX_ZOOM, Math.round((z + 0.5) * 10) / 10))}
                       className="rounded-md border border-line px-2 py-1 text-ink-2 hover:text-ink">+</button>
               <button onClick={() => setZoom(1)}
                       className="rounded-md border border-line px-2 py-1 text-xs text-ink-2 hover:text-ink">Fit</button>
@@ -172,15 +232,26 @@ export function PlanPageViewer({
             <button onClick={() => setEnlarged(false)}
                     className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-white hover:bg-accent-strong">Done</button>
           </div>
-          {/* scroll-to-pan canvas; the image is sized as a multiple of the container width (zoom) */}
-          <div className="flex-1 overflow-auto bg-neutral-200 p-4">
+          {/* scroll- or drag-to-pan canvas; the image is sized as a multiple of the container width (zoom).
+              The modal shows the on-demand higher-DPI raster once ready, falling back to the base raster. */}
+          <div
+            ref={panBox}
+            onMouseDown={onPanStart}
+            onMouseMove={onPanMove}
+            onMouseUp={endPan}
+            onMouseLeave={endPan}
+            className="flex-1 cursor-grab overflow-auto bg-neutral-200 p-4">
             <div className="relative mx-auto" style={{ width: `${zoom * 100}%` }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 ref={modalImg}
-                src={raster.url}
+                src={modalRaster && modalRaster.phase === 'ready' ? modalRaster.url : raster.url}
                 alt={`Uploaded plan page ${pageNumber} (enlarged)`}
-                onClick={(e) => clickToPoint(e, modalImg.current)}
+                onClick={(e) => {
+                  if (didPan.current) { didPan.current = false; return; } // a drag-pan is not a mark
+                  clickToPoint(e, modalImg.current);
+                }}
+                draggable={false}
                 className="block w-full cursor-crosshair rounded bg-white shadow-lg"
               />
               {overlay}
@@ -188,7 +259,8 @@ export function PlanPageViewer({
           </div>
           <div className="border-t border-line bg-white px-4 py-2 text-xs text-ink-3">
             Click the bore route: first click = start, last = end, middle clicks = bends. Zoom in for accuracy;
-            scroll to pan. Click <span className="font-semibold">Done</span> when finished, then confirm + render below.
+            scroll or drag to pan. Click <span className="font-semibold">Done</span> when finished, then confirm + render below.
+            {modalRaster?.phase === 'loading' && <span className="ml-1 text-ink-2">Loading a sharper view…</span>}
           </div>
         </div>
       )}
