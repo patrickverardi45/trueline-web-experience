@@ -14,6 +14,7 @@ import {
   createSourceAnchor,
   fetchJobArtifactBlob,
   fetchPlanPageMetadata,
+  fetchPlanPageRasterBlob,
   fetchReviewedBoreLog,
   renderSourceAnchor,
   type ControlPointInput,
@@ -79,6 +80,16 @@ export function ProductSourceAnchorCapture({
   const [renderError, setRenderError] = useState<string | null>(null);
   const [renderResult, setRenderResult] = useState<SourceAnchorRenderResult | null>(null);
   const [renderedImages, setRenderedImages] = useState<readonly { path: string; url: string }[]>([]);
+  // Page-identity SNAPSHOT captured when the anchor is CREATED (never the live page dropdown), so the
+  // placed-proof label + "full marked sheet" toggle keep naming the page that was actually rendered even if
+  // the user later changes the page selector.
+  const [renderedPage, setRenderedPage] = useState<
+    { readonly planUploadId: string; readonly pageNumber: number; readonly planSheetLabel: string | null } | null
+  >(null);
+  const [showFullSheet, setShowFullSheet] = useState(false);
+  const [fullSheet, setFullSheet] = useState<
+    { phase: 'loading' } | { phase: 'ready'; url: string } | { phase: 'error'; message: string } | null
+  >(null);
 
   const loadMeta = useCallback(async (uploadId: string) => {
     setMeta(null);
@@ -207,6 +218,10 @@ export function ProductSourceAnchorCapture({
         endIdentity: { station: endStation || undefined, structureLabel: endLabel || undefined },
       });
       setResult(r);
+      // Freeze the page identity of the anchor we just created, so the placed-proof label + full-sheet
+      // toggle name the RENDERED page — never the live dropdown, which the user may change afterwards.
+      setRenderedPage({ planUploadId, pageNumber, planSheetLabel: page?.planSheetLabel ?? null });
+      setShowFullSheet(false);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'failed to create source anchor');
     } finally {
@@ -258,6 +273,32 @@ export function ProductSourceAnchorCapture({
       for (const url of created) URL.revokeObjectURL(url);
     };
   }, [jobId, renderResult]);
+
+  // "View full marked sheet": fetch the SAME plan_upload_id + page_number the anchor was rendered from,
+  // via the EXISTING plan-page raster route (no new backend). Loaded only while the toggle is on; the object
+  // URL is revoked on toggle-off / snapshot change / unmount.
+  useEffect(() => {
+    if (!showFullSheet || !renderedPage) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFullSheet(null);
+      return;
+    }
+    let active = true;
+    let url: string | null = null;
+    setFullSheet({ phase: 'loading' });
+    fetchPlanPageRasterBlob(jobId, renderedPage.planUploadId, renderedPage.pageNumber)
+      .then((blob) => {
+        if (!active) return;
+        url = URL.createObjectURL(blob);
+        setFullSheet({ phase: 'ready', url });
+      })
+      .catch((e: unknown) =>
+        active && setFullSheet({ phase: 'error', message: e instanceof Error ? e.message : 'unavailable' }));
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [showFullSheet, renderedPage, jobId]);
 
   if (planUploads.length === 0) return null;
 
@@ -491,18 +532,62 @@ export function ProductSourceAnchorCapture({
                 project’s <span className="font-medium">placed redline</span> — it becomes the redline
                 evidence in your closeout package and export.
               </p>
+              {renderedPage && (
+                <p className="mt-2 text-xs text-ink-3">
+                  Rendered from{' '}
+                  <span className="font-medium text-ink-2">
+                    PDF p{renderedPage.pageNumber}
+                    {renderedPage.planSheetLabel ? ` · Sheet ${renderedPage.planSheetLabel}` : ''}
+                  </span>{' '}
+                  — cropped to the route you marked.
+                </p>
+              )}
               {renderedImages.length > 0 ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {renderedImages.map((img) => (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      key={img.path}
-                      src={img.url}
-                      alt={`Placed redline drawn from your marked points (${img.path})`}
-                      className="w-full rounded-lg border border-line bg-white"
-                    />
-                  ))}
-                </div>
+                <>
+                  {renderedPage && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setShowFullSheet((v) => !v)}
+                        className="rounded-md border border-line px-2.5 py-1 font-medium text-ink-2 hover:text-ink">
+                        {showFullSheet ? 'View cropped proof' : 'View full marked sheet'}
+                      </button>
+                      <span className="text-ink-3">
+                        {showFullSheet
+                          ? `Full PDF p${renderedPage.pageNumber} — same page you marked (redline not drawn on this view).`
+                          : 'Showing the evidence crop around your marked route.'}
+                      </span>
+                    </div>
+                  )}
+                  {showFullSheet && renderedPage ? (
+                    <div className="mt-3">
+                      {fullSheet && fullSheet.phase === 'ready' ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={fullSheet.url}
+                          alt={`Full marked plan page ${renderedPage.pageNumber}`}
+                          className="w-full rounded-lg border border-line bg-white"
+                        />
+                      ) : fullSheet && fullSheet.phase === 'error' ? (
+                        <p className="text-xs text-ink-3">Full sheet unavailable — {fullSheet.message}</p>
+                      ) : (
+                        <p className="text-xs text-ink-3">Loading the full marked sheet…</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {renderedImages.map((img) => (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          key={img.path}
+                          src={img.url}
+                          alt={`Placed redline drawn from your marked points (${img.path})`}
+                          className="w-full rounded-lg border border-line bg-white"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="mt-2 text-xs text-ink-3">
                   Real redline artifact(s) published to this job. (Preview unavailable — the artifacts are
