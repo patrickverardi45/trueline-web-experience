@@ -784,6 +784,24 @@ export interface JobArtifactRef {
   readonly kind: string;
 }
 
+/** One clickable interval/footage dot along a HUMAN-confirmed redline (backend-computed; provenance is
+ *  always HUMAN_CONFIRMED_CONTROL_POINTS — never AUTO). Dots mark 0' (start), every 50', and the final
+ *  endpoint; info fields are the bore row's own values (null when the row doesn't carry them). */
+export interface StationDot {
+  readonly index: number;
+  readonly footageAlong: number;
+  readonly station: string | null;
+  readonly xyDisplay: { readonly x: number; readonly y: number };
+  readonly depth: string | null;
+  readonly boc: string | null;
+  readonly date: string | null;
+  readonly crew: string | null;
+  readonly print: string | null;
+  readonly notes: string | null;
+  readonly boreLogId: string | null;
+  readonly provenance: string;
+}
+
 export interface SourceAnchorRenderResult {
   readonly status: string;            // SUCCEEDED on a real publish
   readonly bundleId: string | null;
@@ -791,6 +809,34 @@ export interface SourceAnchorRenderResult {
   readonly artifactCount: number;
   readonly sourceAnchorIds: readonly string[];
   readonly artifacts: readonly JobArtifactRef[];
+  // Additive: {source_anchor_id: [dot, ...]} from the published manifest ({} when the row had no footage).
+  readonly stationDotsByLog: Readonly<Record<string, readonly StationDot[]>>;
+}
+
+function composeStationDot(d: Record<string, unknown>): StationDot {
+  const xy = (typeof d.xy_display === 'object' && d.xy_display !== null)
+    ? (d.xy_display as Record<string, unknown>) : {};
+  return {
+    index: int(d.index),
+    footageAlong: typeof d.footage_along === 'number' ? d.footage_along : Number(d.footage_along ?? 0),
+    station: strOrNull(d.station),
+    xyDisplay: { x: Number(xy.x ?? 0), y: Number(xy.y ?? 0) },
+    depth: strOrNull(d.depth), boc: strOrNull(d.boc), date: strOrNull(d.date), crew: strOrNull(d.crew),
+    print: strOrNull(d.print), notes: strOrNull(d.notes), boreLogId: strOrNull(d.bore_log_id),
+    provenance: str(d.provenance),
+  };
+}
+
+function composeStationDotsByLog(value: unknown): Record<string, readonly StationDot[]> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, readonly StationDot[]> = {};
+  for (const [logId, dots] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(dots)) continue;
+    out[logId] = dots
+      .filter((d): d is Record<string, unknown> => typeof d === 'object' && d !== null && !Array.isArray(d))
+      .map(composeStationDot);
+  }
+  return out;
 }
 
 function composeArtifactRefList(value: unknown): JobArtifactRef[] {
@@ -812,6 +858,7 @@ export function composeSourceAnchorRenderResult(doc: unknown): SourceAnchorRende
     artifactCount: int(d.artifact_count),
     sourceAnchorIds: strList(d.source_anchor_ids),
     artifacts: composeArtifactRefList(d.artifacts),
+    stationDotsByLog: composeStationDotsByLog(d.station_dots),
   };
 }
 

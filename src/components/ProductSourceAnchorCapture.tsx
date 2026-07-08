@@ -23,6 +23,7 @@ import {
   type PlanPageMetadata,
   type SourceAnchorRenderResult,
   type SourceAnchorResult,
+  type StationDot,
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
 import { PlanPageViewer } from '@/components/PlanPageViewer';
@@ -79,6 +80,8 @@ export function ProductSourceAnchorCapture({
   const [renderBusy, setRenderBusy] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [renderResult, setRenderResult] = useState<SourceAnchorRenderResult | null>(null);
+  // Which station dot's bore info is open (index into the flattened dot list); reset per render.
+  const [selectedDot, setSelectedDot] = useState<number | null>(null);
   const [renderedImages, setRenderedImages] = useState<readonly { path: string; url: string }[]>([]);
   // Page-identity SNAPSHOT captured when the anchor is CREATED (never the live page dropdown), so the
   // placed-proof label + "full marked sheet" toggle keep naming the page that was actually rendered even if
@@ -236,6 +239,7 @@ export function ProductSourceAnchorCapture({
     try {
       const r = await renderSourceAnchor(jobId, sourceAnchorId);
       setRenderResult(r);
+      setSelectedDot(null);
       // The corrected redline is now this job's placed redline. Tell the parent so the Review card reflects
       // it (the engine candidate becomes superseded) and Redlines/Closeout offer Assemble without a reload.
       if (r.status === 'SUCCEEDED') onChanged?.();
@@ -300,6 +304,13 @@ export function ProductSourceAnchorCapture({
     };
   }, [showFullSheet, renderedPage, jobId]);
 
+  // Flattened clickable station dots from the render result (backend-computed along the human redline:
+  // 0' start, every 50', final endpoint). Empty when the bore row carries no footage.
+  const stationDots: readonly StationDot[] = useMemo(
+    () => Object.values(renderResult?.stationDotsByLog ?? {}).flat(),
+    [renderResult],
+  );
+
   if (planUploads.length === 0) return null;
 
   return (
@@ -353,6 +364,9 @@ export function ProductSourceAnchorCapture({
       {meta && meta.pageCount > 1 && (
         resolvedSuggestions.length > 0 ? (
           <div className="mt-2 space-y-1.5 text-xs">
+            <p className="rounded-md border border-accent/30 bg-accent-soft px-2.5 py-1.5 text-sm font-medium text-accent-strong">
+              Correct page found. Manual review required — click start and end on the plan below.
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-ink-3">Suggested plan sheet(s) from your bore log:</span>
               {resolvedSuggestions.map((s) => (
@@ -524,8 +538,14 @@ export function ProductSourceAnchorCapture({
           renderResult.status === 'SUCCEEDED' ? 'border-green-600/40 bg-green-50' : 'border-line bg-white'}`}>
           {renderResult.status === 'SUCCEEDED' ? (
             <>
-              <p className="text-sm font-semibold text-ink">
-                Placed redline proof — drawn from your {points.length} marked point(s)
+              <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+                <span>Placed redline proof — drawn from your {points.length} marked point(s)</span>
+                <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Human-reviewed
+                </span>
+              </p>
+              <p className="mt-0.5 text-[11px] text-ink-3">
+                Placed by you from marked points — not an automatic engine placement.
               </p>
               <p className="mt-1 text-xs text-ink-2">
                 This is the redline FieldRoute drew from the route you marked on the plan. It is now this
@@ -593,6 +613,54 @@ export function ProductSourceAnchorCapture({
                   Real redline artifact(s) published to this job. (Preview unavailable — the artifacts are
                   listed in the redline gallery.)
                 </p>
+              )}
+              {/* Station dots — backend-computed footage marks along YOUR redline (0' start, every 50',
+                  final endpoint). Click a dot to see that point's bore-log info. */}
+              {stationDots.length > 0 && (
+                <div className="mt-3 rounded-md border border-line bg-white p-2.5">
+                  <p className="text-xs font-semibold text-ink">
+                    Station dots ({stationDots.length}) — every 50&#8242; along your redline, plus start and end
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {stationDots.map((d, i) => (
+                      <button
+                        key={`${d.index}-${d.footageAlong}`}
+                        type="button"
+                        onClick={() => setSelectedDot((prev) => (prev === i ? null : i))}
+                        className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+                          selectedDot === i
+                            ? 'border-accent bg-accent-soft text-accent-strong'
+                            : 'border-line text-ink-2 hover:text-ink'
+                        }`}>
+                        {d.station ?? `${d.footageAlong}′`}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedDot != null && stationDots[selectedDot] && (() => {
+                    const d = stationDots[selectedDot];
+                    const rows: readonly (readonly [string, string | null])[] = [
+                      ['Footage', `${d.footageAlong}′ from start`],
+                      ['Station', d.station],
+                      ['Depth', d.depth],
+                      ['BOC', d.boc],
+                      ['Date', d.date],
+                      ['Crew', d.crew],
+                      ['Print', d.print],
+                      ['Notes', d.notes],
+                      ['Bore log', d.boreLogId],
+                    ];
+                    return (
+                      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-md bg-paper px-3 py-2 text-xs sm:grid-cols-3">
+                        {rows.filter(([, v]) => v != null && v !== '').map(([k, v]) => (
+                          <div key={k}>
+                            <dt className="text-ink-3">{k}</dt>
+                            <dd className="font-medium text-ink">{v}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    );
+                  })()}
+                </div>
               )}
               {/* Next action — accept-by-continuing, or re-mark if the placement is wrong. */}
               <div className="mt-3 rounded-md border border-line bg-white p-2.5 text-xs text-ink-2">
