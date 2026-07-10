@@ -391,22 +391,42 @@ function composeSourceEvidence(value: unknown): SourceEvidenceView | null {
   };
 }
 
-function composeCellEvidence(value: unknown): Record<string, CellEvidenceView> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
-  const out: Record<string, CellEvidenceView> = {};
+// VARIED is meaningful ONLY for depth_ft/boc_ft (per-station readings can legitimately disagree there — see
+// StationReadingView). Any OTHER field arriving as VARIED, or ANY field arriving with a status outside the
+// known enum, is non-conforming wire data: it is enforced HERE — the single decoder — down to NOT_PRESENT
+// plus a row-level warning, so no renderer can accidentally show a bogus "varies" chip on e.g. a bore_id.
+const VARIED_ALLOWED_FIELDS = new Set(['depth_ft', 'boc_ft']);
+
+interface CellEvidenceCompose {
+  readonly view: Record<string, CellEvidenceView>;
+  readonly warnings: readonly string[];
+}
+
+function composeCellEvidence(value: unknown): CellEvidenceCompose {
+  const view: Record<string, CellEvidenceView> = {};
+  const warnings: string[] = [];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return { view, warnings };
   for (const [field, entry] of Object.entries(value as Record<string, unknown>)) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
     const e = entry as Record<string, unknown>;
-    const status = (CELL_STATUSES as readonly string[]).includes(e.status as string)
-      ? (e.status as CellStatus) : 'NOT_PRESENT';
-    out[field] = {
+    const rawStatus = e.status;
+    const recognized = (CELL_STATUSES as readonly string[]).includes(rawStatus as string);
+    const conforms = recognized && (rawStatus !== 'VARIED' || VARIED_ALLOWED_FIELDS.has(field));
+    let status: CellStatus;
+    if (conforms) {
+      status = rawStatus as CellStatus;
+    } else {
+      status = 'NOT_PRESENT';
+      warnings.push(`Non-conforming evidence status for ${field} — treated as not present`);
+    }
+    view[field] = {
       status,
       pageIndex: numOrNull(e.page_index),
       region: regionOrNull(e.region),
       verbatim: strOrNull(e.verbatim),
     };
   }
-  return out;
+  return { view, warnings };
 }
 
 function composeStationReading(value: unknown): StationReadingView | null {
@@ -440,6 +460,7 @@ export function composeReviewedRow(value: unknown): ReviewedRowView {
     ? (row.review as Record<string, unknown>) : {};
   const confidenceRaw = extraction.confidence;
   const confidence = confidenceRaw === 'LOW' || confidenceRaw === 'MEDIUM' ? confidenceRaw : null;
+  const cells = composeCellEvidence(extraction.cell_evidence);
   return {
     rowId: str(row.row_id),
     startStation: str(normalized.start_station) || str(raw.start_station),
@@ -462,9 +483,10 @@ export function composeReviewedRow(value: unknown): ReviewedRowView {
     notes: strOrNull(raw.notes),
     stationReadings: composeStationReadings(raw.station_readings),
     sourceEvidence: composeSourceEvidence(extraction.source_evidence),
-    cellEvidence: composeCellEvidence(extraction.cell_evidence),
+    cellEvidence: cells.view,
     confidence,
-    warnings: strList(extraction.warnings),
+    // Server-reported warnings first, then any decoder-enforced non-conforming-evidence warnings.
+    warnings: [...strList(extraction.warnings), ...cells.warnings],
   };
 }
 
@@ -606,9 +628,36 @@ export async function fetchReviewQueue(jobId: string, rblId: string): Promise<Re
     await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/review-queue`));
 }
 
+// One reviewed-bore-log the extraction call created — fan-out for a handwritten multi-bore package (one
+// uploaded file, several detected bores). `sourceUploadId`/`rowId`/`pageIndex`/`runIndex` are each optional
+// (an older backend may report the id alone); array is in creation order and ABSENT entirely for the
+// ordinary single-RBL lanes — the caller falls back to the bounded id probe in that case.
+export interface CreatedReviewedBoreLog {
+  readonly reviewedBoreLogId: string;
+  readonly sourceUploadId: string | null;
+  readonly rowId: string | null;
+  readonly pageIndex: number | null;
+  readonly runIndex: number | null;
+}
+
+function composeCreatedReviewedBoreLogs(value: unknown): CreatedReviewedBoreLog[] {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
+    .map((x) => ({
+      reviewedBoreLogId: str(x.reviewed_bore_log_id),
+      sourceUploadId: strOrNull(x.source_upload_id),
+      rowId: strOrNull(x.row_id),
+      pageIndex: numOrNull(x.page_index),
+      runIndex: numOrNull(x.run_index),
+    }))
+    .filter((x) => x.reviewedBoreLogId !== '');
+}
+
 export interface ExtractRowsResult {
   readonly extractedCount: number;
   readonly extractedRowIds: readonly string[];
+  readonly createdReviewedBoreLogs: readonly CreatedReviewedBoreLog[];
 }
 
 /** Deterministic, read-only TABLE extraction of the reviewed-bore-log's SOURCE upload (.xlsx/.csv) into
@@ -618,7 +667,11 @@ export async function extractBoreLogRows(jobId: string, rblId: string): Promise<
   const d = asRecord(
     await postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/extract`, {}),
     'extract-rows');
-  return { extractedCount: int(d.extracted_count), extractedRowIds: strList(d.extracted_row_ids) };
+  return {
+    extractedCount: int(d.extracted_count),
+    extractedRowIds: strList(d.extracted_row_ids),
+    createdReviewedBoreLogs: composeCreatedReviewedBoreLogs(d.created_reviewed_bore_logs),
+  };
 }
 
 // ====================================================================================================

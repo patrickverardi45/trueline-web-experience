@@ -23,6 +23,7 @@ import {
   fetchReviewedBoreLog,
   reviewReviewedRow,
   setGroupingStatus,
+  type CreatedReviewedBoreLog,
   type ManualRowInput,
   type ReviewedBoreLogView,
   type ReviewedRowView,
@@ -52,9 +53,10 @@ function gid(): string {
 }
 
 // A single uploaded file can fan out into SEVERAL reviewed-bore-logs (a handwritten multi-bore package —
-// ids like "rbl-hw-p0-r1", "rbl-hw-p0-r2", …). We don't invent a listing endpoint for this: bounded-probe
-// the "-rN" suffix upward from the primary id and stop at the first gap. Ordinary ids ("rbl-main", "rbl-2")
-// never match the suffix, so this is a zero-cost no-op for every non-fan-out job/lane.
+// ids like "rbl-hw-p0-r1", "rbl-hw-p0-r2", …). The extract response's `created_reviewed_bore_logs` is the
+// AUTHORITATIVE source for this (see extractCreatedRbls state below); this bounded "-rN" suffix probe is
+// ONLY a fallback for an older backend that hasn't landed that field yet — stop at the first gap. Ordinary
+// ids ("rbl-main", "rbl-2") never match the suffix, so this stays a zero-cost no-op for non-fan-out jobs.
 const FAN_OUT_SUFFIX_RE = /^(.*)-r(\d+)$/;
 const MAX_FAN_OUT_PROBE = 8;
 function fanOutCandidateIds(primaryId: string): string[] {
@@ -104,6 +106,10 @@ export function ProductReviewedBoreLogGate({
   // Sibling reviewed-bore-logs fanned out from the SAME uploaded file (handwritten multi-bore packages).
   // Empty for every ordinary (non-fan-out) job — see fanOutCandidateIds.
   const [siblingBores, setSiblingBores] = useState<readonly BoreCardData[]>([]);
+  // AUTHORITATIVE fan-out ids, per uploaded-file index, as reported by the extract call itself
+  // (created_reviewed_bore_logs). Populated in onExtract(); the id probe below is only a fallback for
+  // uploads that haven't been (re-)extracted yet against a backend new enough to report it.
+  const [extractCreatedRbls, setExtractCreatedRbls] = useState<Record<number, readonly CreatedReviewedBoreLog[]>>({});
 
   const load = useCallback(async () => {
     if (!active) { setPhase('absent'); setSiblingBores([]); return; }
@@ -115,14 +121,32 @@ export function ProductReviewedBoreLogGate({
       setPhase('ready');
       setReadyMap((prev) => ({ ...prev, [sel]: q.engineReady }));
 
-      // Bounded probe for fan-out siblings of THIS rbl id; stop at the first missing one.
+      // Sibling ids: prefer what the backend told us at extraction time; fall back to the bounded -rN
+      // probe only when that field is absent (older backend / not yet (re-)extracted this session).
+      const backendSiblingIds = (extractCreatedRbls[sel] ?? [])
+        .map((c) => c.reviewedBoreLogId)
+        .filter((id): id is string => !!id && id !== activeRbl);
+
       const siblings: BoreCardData[] = [];
-      for (const candidateId of fanOutCandidateIds(activeRbl)) {
-        try {
-          const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
-          siblings.push({ rblId: candidateId, label: `Bore ${siblings.length + 2}`, rbl: srbl, queue: squeue });
-        } catch {
-          break; // first gap (404) or any other error — stop probing, keep what we found
+      if (backendSiblingIds.length > 0) {
+        // Known ids from the same extract call — a single missing one doesn't stop the rest.
+        for (const candidateId of backendSiblingIds) {
+          try {
+            const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
+            siblings.push({ rblId: candidateId, label: `Bore ${siblings.length + 2}`, rbl: srbl, queue: squeue });
+          } catch {
+            // skip this one; the rest are independent known ids, not a sequential guess
+          }
+        }
+      } else {
+        // Fallback bounded probe for fan-out siblings of THIS rbl id; stop at the first missing one.
+        for (const candidateId of fanOutCandidateIds(activeRbl)) {
+          try {
+            const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
+            siblings.push({ rblId: candidateId, label: `Bore ${siblings.length + 2}`, rbl: srbl, queue: squeue });
+          } catch {
+            break; // first gap (404) or any other error — stop probing, keep what we found
+          }
         }
       }
       setSiblingBores(siblings);
@@ -136,7 +160,7 @@ export function ProductReviewedBoreLogGate({
       setError(e instanceof Error ? e.message : 'unavailable');
       setPhase('error');
     }
-  }, [jobId, activeRbl, active, sel]);
+  }, [jobId, activeRbl, active, sel, extractCreatedRbls]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -209,7 +233,10 @@ export function ProductReviewedBoreLogGate({
     if (!effectiveSourceUploadId) return;
     await act(async () => {
       if (phase === 'absent') await createReviewedBoreLog(jobId, activeRbl, effectiveSourceUploadId);
-      await extractBoreLogRows(jobId, activeRbl);
+      const result = await extractBoreLogRows(jobId, activeRbl);
+      // Record the AUTHORITATIVE fan-out ids for THIS uploaded file (keyed by its index) so load() renders
+      // sibling bore cards from them instead of the id-probe fallback.
+      setExtractCreatedRbls((prev) => ({ ...prev, [sel]: result.createdReviewedBoreLogs }));
     });
   }
 
