@@ -240,9 +240,11 @@ export function ProductSourceAnchorCapture({
       const r = await renderSourceAnchor(jobId, sourceAnchorId);
       setRenderResult(r);
       setSelectedDot(null);
-      // The corrected redline is now this job's placed redline. Tell the parent so the Review card reflects
-      // it (the engine candidate becomes superseded) and Redlines/Closeout offer Assemble without a reload.
-      if (r.status === 'SUCCEEDED') onChanged?.();
+      // NOTE: the parent refresh (onChanged) is deliberately NOT fired here. Refreshing immediately swaps
+      // the parent's candidate/placed branch and UNMOUNTS this capture, destroying the just-rendered proof
+      // (HUMAN-REVIEWED badge + station dots) before the user can see it. The server state is already
+      // final (slots set, candidate superseded); the explicit "Save & continue" button below fires the
+      // refresh when the user is done reviewing the proof.
     } catch (e) {
       setRenderError(e instanceof Error ? e.message : 'failed to render source anchor');
     } finally {
@@ -666,12 +668,19 @@ export function ProductSourceAnchorCapture({
               <div className="mt-3 rounded-md border border-line bg-white p-2.5 text-xs text-ink-2">
                 <p className="font-medium text-ink">What next?</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-5">
-                  <li><span className="font-medium">Looks right?</span> You’re done — it’s saved as this
-                    project’s placed redline. Continue to the next step and assemble/download it in Export.</li>
+                  <li><span className="font-medium">Looks right?</span> It’s saved as this project’s placed
+                    redline. Click <span className="font-medium">Save &amp; continue</span> to update the project
+                    steps, then assemble/download it in Export.</li>
                   <li><span className="font-medium">Not right?</span> Use <span className="font-medium">Clear</span>{' '}
                     above (or <span className="font-medium">Enlarge to mark</span> to zoom in), re-mark the
                     bore route, then Confirm + Render again to replace this placement.</li>
                 </ul>
+                <button
+                  type="button"
+                  onClick={() => onChanged?.()}
+                  className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong">
+                  Save &amp; continue
+                </button>
               </div>
             </>
           ) : (
