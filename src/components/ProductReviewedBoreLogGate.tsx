@@ -107,9 +107,11 @@ export function ProductReviewedBoreLogGate({
   // Empty for every ordinary (non-fan-out) job — see fanOutCandidateIds.
   const [siblingBores, setSiblingBores] = useState<readonly BoreCardData[]>([]);
   // AUTHORITATIVE fan-out ids, per uploaded-file index, as reported by the extract call itself
-  // (created_reviewed_bore_logs). Populated in onExtract(); the id probe below is only a fallback for
-  // uploads that haven't been (re-)extracted yet against a backend new enough to report it.
-  const [extractCreatedRbls, setExtractCreatedRbls] = useState<Record<number, readonly CreatedReviewedBoreLog[]>>({});
+  // (created_reviewed_bore_logs). Populated in onExtract(). `undefined` for an index means "not yet known
+  // this session" OR "the backend's response didn't carry the field" — both fall back to the id probe. A
+  // defined array (even []) means the backend authoritatively answered — no probe, ever, for that index.
+  const [extractCreatedRbls, setExtractCreatedRbls] =
+    useState<Record<number, readonly CreatedReviewedBoreLog[] | undefined>>({});
 
   const load = useCallback(async () => {
     if (!active) { setPhase('absent'); setSiblingBores([]); return; }
@@ -121,15 +123,17 @@ export function ProductReviewedBoreLogGate({
       setPhase('ready');
       setReadyMap((prev) => ({ ...prev, [sel]: q.engineReady }));
 
-      // Sibling ids: prefer what the backend told us at extraction time; fall back to the bounded -rN
-      // probe only when that field is absent (older backend / not yet (re-)extracted this session).
-      const backendSiblingIds = (extractCreatedRbls[sel] ?? [])
-        .map((c) => c.reviewedBoreLogId)
-        .filter((id): id is string => !!id && id !== activeRbl);
+      // Sibling ids: the backend's created_reviewed_bore_logs (from the last extract this session) is
+      // AUTHORITATIVE the moment it's present, even if empty — the -rN probe fires ONLY when it's `undefined`
+      // (absent from the wire response / not yet extracted this session against a backend new enough to send it).
+      const created = extractCreatedRbls[sel];
+      const backendSiblingIds = created === undefined
+        ? undefined
+        : created.map((c) => c.reviewedBoreLogId).filter((id): id is string => !!id && id !== activeRbl);
 
       const siblings: BoreCardData[] = [];
-      if (backendSiblingIds.length > 0) {
-        // Known ids from the same extract call — a single missing one doesn't stop the rest.
+      if (backendSiblingIds !== undefined) {
+        // Authoritative (possibly empty) — known ids only, zero probe requests either way.
         for (const candidateId of backendSiblingIds) {
           try {
             const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];

@@ -630,8 +630,7 @@ export async function fetchReviewQueue(jobId: string, rblId: string): Promise<Re
 
 // One reviewed-bore-log the extraction call created — fan-out for a handwritten multi-bore package (one
 // uploaded file, several detected bores). `sourceUploadId`/`rowId`/`pageIndex`/`runIndex` are each optional
-// (an older backend may report the id alone); array is in creation order and ABSENT entirely for the
-// ordinary single-RBL lanes — the caller falls back to the bounded id probe in that case.
+// (an older backend may report the id alone); array is in creation order.
 export interface CreatedReviewedBoreLog {
   readonly reviewedBoreLogId: string;
   readonly sourceUploadId: string | null;
@@ -640,7 +639,12 @@ export interface CreatedReviewedBoreLog {
   readonly runIndex: number | null;
 }
 
-function composeCreatedReviewedBoreLogs(value: unknown): CreatedReviewedBoreLog[] {
+// `undefined` ONLY when the wire key itself is absent (an older backend that hasn't landed this field) —
+// the caller's bounded id-probe fallback fires ONLY on that `undefined`. A present-but-empty array (or one
+// containing only the just-extracted RBL) is the backend AUTHORITATIVELY reporting "no siblings": that
+// composes to `[]`, not `undefined`, so the caller renders no sibling cards and issues zero probe requests.
+function composeCreatedReviewedBoreLogs(value: unknown): CreatedReviewedBoreLog[] | undefined {
+  if (value === undefined) return undefined;
   const list = Array.isArray(value) ? value : [];
   return list
     .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
@@ -657,7 +661,9 @@ function composeCreatedReviewedBoreLogs(value: unknown): CreatedReviewedBoreLog[
 export interface ExtractRowsResult {
   readonly extractedCount: number;
   readonly extractedRowIds: readonly string[];
-  readonly createdReviewedBoreLogs: readonly CreatedReviewedBoreLog[];
+  // See composeCreatedReviewedBoreLogs: undefined = field absent (older backend, probe fallback applies);
+  // an array (possibly empty) = authoritative fan-out siblings, no probe.
+  readonly createdReviewedBoreLogs: readonly CreatedReviewedBoreLog[] | undefined;
 }
 
 /** Deterministic, read-only TABLE extraction of the reviewed-bore-log's SOURCE upload (.xlsx/.csv) into
