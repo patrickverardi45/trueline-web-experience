@@ -561,13 +561,15 @@ export async function reviewReviewedRow(
   });
 }
 
-// --- W3: per-row review (edit/confirm surface). SAME route as reviewReviewedRow above but the PINNED
-// {status, corrections} body — the row editor's Confirm / Save-corrections actions use this one; the legacy
-// bulk-confirm / Advanced-manual-review Confirm/Reject actions keep using reviewReviewedRow untouched. ---
+// --- W3: per-row review (edit/confirm surface). SAME route + SAME wire body as reviewReviewedRow above
+// ({to_status, corrected_values, reason?} — the pre-existing route, confirmed by the landed backend wave)
+// — the row editor's Confirm / Save-corrections actions use this one (client-facing {status, corrections}
+// shape, translated to the wire body below); the legacy bulk-confirm / Advanced-manual-review Confirm/Reject
+// actions keep using reviewReviewedRow untouched. ---
 
 export type RowReviewDecision =
-  | { readonly status: 'CONFIRMED' }
-  | { readonly status: 'CORRECTED'; readonly corrections: Readonly<Record<string, unknown>> };
+  | { readonly status: 'CONFIRMED'; readonly reason?: string }
+  | { readonly status: 'CORRECTED'; readonly corrections: Readonly<Record<string, unknown>>; readonly reason?: string };
 
 export interface RowReviewResult {
   readonly ok: boolean;
@@ -585,13 +587,21 @@ export interface RowReviewResult {
 export async function submitRowReview(
   jobId: string, rblId: string, rowId: string, decision: RowReviewDecision,
 ): Promise<RowReviewResult> {
+  // Wire body matches the pre-existing route (same one reviewReviewedRow posts to): to_status +
+  // corrected_values (CORRECTED only) + an optional reason. Field names inside corrected_values are the
+  // backend snake_case raw keys the caller already builds (see FIELDS in ProductBoreRowEditor).
+  const wireBody: Record<string, unknown> = decision.status === 'CONFIRMED'
+    ? { to_status: 'CONFIRMED' }
+    : { to_status: 'CORRECTED', corrected_values: decision.corrections };
+  if (decision.reason) wireBody.reason = decision.reason;
+
   const response = await fetch(
     `${apiBase()}/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/rows/${rowId}/review`,
     {
       method: 'POST',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json', ...headers() },
-      body: JSON.stringify(decision),
+      body: JSON.stringify(wireBody),
     },
   );
   if (response.status === 404 || response.status === 405) {
