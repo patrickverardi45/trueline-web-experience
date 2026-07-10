@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from 'lucide-react';
 
+import { ProductBoreRowEditor } from '@/components/ProductBoreRowEditor';
 import { Card } from '@/components/ui/Card';
 import { internalToolingEnabled } from '@/lib/internalMode';
 import {
@@ -24,6 +25,7 @@ import {
   setGroupingStatus,
   type ManualRowInput,
   type ReviewedBoreLogView,
+  type ReviewedRowView,
   type ReviewQueueView,
   type SegmentRelation,
 } from '@/lib/api/productWrites';
@@ -47,6 +49,29 @@ function rid(): string {
 }
 function gid(): string {
   return 'grp-' + Math.random().toString(36).slice(2, 8);
+}
+
+// A single uploaded file can fan out into SEVERAL reviewed-bore-logs (a handwritten multi-bore package —
+// ids like "rbl-hw-p0-r1", "rbl-hw-p0-r2", …). We don't invent a listing endpoint for this: bounded-probe
+// the "-rN" suffix upward from the primary id and stop at the first gap. Ordinary ids ("rbl-main", "rbl-2")
+// never match the suffix, so this is a zero-cost no-op for every non-fan-out job/lane.
+const FAN_OUT_SUFFIX_RE = /^(.*)-r(\d+)$/;
+const MAX_FAN_OUT_PROBE = 8;
+function fanOutCandidateIds(primaryId: string): string[] {
+  const m = FAN_OUT_SUFFIX_RE.exec(primaryId);
+  if (!m) return [];
+  const [, prefix, numStr] = m;
+  const start = Number(numStr) + 1;
+  const out: string[] = [];
+  for (let n = start; n < start + MAX_FAN_OUT_PROBE; n += 1) out.push(`${prefix}-r${n}`);
+  return out;
+}
+
+interface BoreCardData {
+  readonly rblId: string;
+  readonly label: string;
+  readonly rbl: ReviewedBoreLogView;
+  readonly queue: ReviewQueueView;
 }
 
 export function ProductReviewedBoreLogGate({
@@ -76,9 +101,12 @@ export function ProductReviewedBoreLogGate({
   const [relation, setRelation] = useState<SegmentRelation>('SEPARATE_BORE');
   // Per-file engine-ready status for the file list badges (one light read per uploaded bore log).
   const [readyMap, setReadyMap] = useState<Record<number, boolean | null>>({});
+  // Sibling reviewed-bore-logs fanned out from the SAME uploaded file (handwritten multi-bore packages).
+  // Empty for every ordinary (non-fan-out) job — see fanOutCandidateIds.
+  const [siblingBores, setSiblingBores] = useState<readonly BoreCardData[]>([]);
 
   const load = useCallback(async () => {
-    if (!active) { setPhase('absent'); return; }
+    if (!active) { setPhase('absent'); setSiblingBores([]); return; }
     setError(null);
     try {
       const [record, q] = [await fetchReviewedBoreLog(jobId, activeRbl), await fetchReviewQueue(jobId, activeRbl)];
@@ -86,10 +114,23 @@ export function ProductReviewedBoreLogGate({
       setQueue(q);
       setPhase('ready');
       setReadyMap((prev) => ({ ...prev, [sel]: q.engineReady }));
+
+      // Bounded probe for fan-out siblings of THIS rbl id; stop at the first missing one.
+      const siblings: BoreCardData[] = [];
+      for (const candidateId of fanOutCandidateIds(activeRbl)) {
+        try {
+          const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
+          siblings.push({ rblId: candidateId, label: `Bore ${siblings.length + 2}`, rbl: srbl, queue: squeue });
+        } catch {
+          break; // first gap (404) or any other error — stop probing, keep what we found
+        }
+      }
+      setSiblingBores(siblings);
     } catch (e) {
       if (is404(e)) {
         setPhase('absent');
         setReadyMap((prev) => ({ ...prev, [sel]: false }));
+        setSiblingBores([]);
         return;
       }
       setError(e instanceof Error ? e.message : 'unavailable');
@@ -172,22 +213,28 @@ export function ProductReviewedBoreLogGate({
     });
   }
 
-  // Confirm the selected file's extracted rows and group them so it becomes engine-ready — without diving into
-  // the Advanced manual tooling. Groups all rows as separate bores (one bore span per uploaded file).
-  async function onConfirmReady() {
+  // Bulk-confirm every not-yet-passed row of ONE reviewed-bore-log and group it so it becomes engine-ready
+  // (one bore span per RBL) — the "Confirm all remaining" fallback for the plain-table lanes. Shared by the
+  // primary card and every fan-out sibling bore card (each RBL confirms independently).
+  async function confirmAllRemaining(targetRblId: string, targetRows: readonly ReviewedRowView[], targetGroupCount: number) {
     await act(async () => {
-      for (const r of rows) {
+      for (const r of targetRows) {
         if (!PASS.has(r.reviewStatus)) {
-          await reviewReviewedRow(jobId, activeRbl, r.rowId, { toStatus: 'CONFIRMED' });
+          await reviewReviewedRow(jobId, targetRblId, r.rowId, { toStatus: 'CONFIRMED' });
         }
       }
-      const ids = rows.map((r) => r.rowId);
-      if (ids.length > 0 && (rbl?.groups.length ?? 0) === 0) {
+      const ids = targetRows.map((r) => r.rowId);
+      if (ids.length > 0 && targetGroupCount === 0) {
         const groupId = gid();
-        await defineSegmentGroup(jobId, activeRbl, groupId, ids, 'SEPARATE_BORE');
-        await setGroupingStatus(jobId, activeRbl, groupId, 'CONFIRMED');
+        await defineSegmentGroup(jobId, targetRblId, groupId, ids, 'SEPARATE_BORE');
+        await setGroupingStatus(jobId, targetRblId, groupId, 'CONFIRMED');
       }
     });
+  }
+
+  // Confirm the SELECTED (primary) file's extracted rows — without diving into the Advanced manual tooling.
+  async function onConfirmReady() {
+    await confirmAllRemaining(activeRbl, rows, rbl?.groups.length ?? 0);
   }
 
   const rows = rbl?.rows ?? [];
@@ -276,7 +323,8 @@ export function ProductReviewedBoreLogGate({
               </p>
             </Card>
           ) : ready ? (
-            /* READY: show the reviewed bore rows READ-ONLY (trusted evidence). No entry form on the main path. */
+            /* READY: the reviewed bore rows are trusted evidence — every canonical field, honestly, but
+               no Edit/Confirm actions (a banked human review grade is never reopened here). */
             <Card className="mt-3">
               <h4 className="font-medium text-ink">Bore rows from {active.filename} ({rows.length})</h4>
               <p className="mt-1 text-xs text-ink-3">
@@ -284,24 +332,13 @@ export function ProductReviewedBoreLogGate({
                 Generate the redline in the <span className="font-medium">Redline proof</span> step.
               </p>
               {rows.length > 0 && (
-                <table className="mt-2 w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-line text-left text-ink-3">
-                      <th className="py-1.5 pr-3 font-medium">Start → End station</th>
-                      <th className="py-1.5 pr-3 font-medium">Plan sheet(s)</th>
-                      <th className="py-1.5 font-medium">Review</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.rowId} className="border-b border-line/60 last:border-0">
-                        <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
-                        <td className="py-1.5 pr-3 text-ink-2">{r.sheetRefs.length > 0 ? r.sheetRefs.join(', ') : r.printRaw || '—'}</td>
-                        <td className="py-1.5 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="mt-2">
+                  {rows.map((r) => (
+                    <ProductBoreRowEditor
+                      key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
+                      row={r} readOnly onChanged={load} />
+                  ))}
+                </div>
               )}
             </Card>
           ) : rows.length === 0 ? (
@@ -326,41 +363,27 @@ export function ProductReviewedBoreLogGate({
               </p>
             </Card>
           ) : (
-            /* NOT READY, rows extracted: review + confirm them (no hand-entry on the main path). */
+            /* NOT READY, rows extracted: per-row review — see every field, edit (nullable-aware), confirm
+               each individually, or bulk-confirm the rest (no hand-entry on the main path). */
             <Card className="mt-3">
               <h4 className="font-medium text-ink">Extracted bore rows from {active.filename} — review &amp; confirm ({rows.length})</h4>
               <p className="mt-1 text-xs text-ink-3">
-                Extracted from this file (deterministic table read). Confirm them to enable redline
-                placement — nothing is placed until you do.
+                Extracted from this file. Review each row — edit anything that&rsquo;s wrong, confirm what&rsquo;s
+                right — to enable redline placement. Nothing is placed until you do.
               </p>
-              <table className="mt-2 w-full text-sm">
-                <thead>
-                  <tr className="border-b border-line text-left text-ink-3">
-                    <th className="py-1.5 pr-3 font-medium">Start → End station</th>
-                    <th className="py-1.5 pr-3 font-medium">Plan sheet(s)</th>
-                    <th className="py-1.5 pr-3 font-medium">Source</th>
-                    <th className="py-1.5 font-medium">Review</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.rowId} className="border-b border-line/60 last:border-0">
-                      <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
-                      <td className="py-1.5 pr-3 text-ink-2">{r.sheetRefs.length > 0 ? r.sheetRefs.join(', ') : r.printRaw || '—'}</td>
-                      <td className="py-1.5 pr-3 text-xs text-ink-3">
-                        {r.extractionMethod === 'TABLE_IMPORT' ? 'extracted · needs review' : 'manual · needs review'}
-                      </td>
-                      <td className="py-1.5 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-2">
+                {rows.map((r) => (
+                  <ProductBoreRowEditor
+                    key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
+                    row={r} disabled={busy} onChanged={load} />
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
                 <button
                   onClick={onConfirmReady}
                   disabled={busy}
                   className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-                  {busy ? 'Confirming…' : 'Confirm rows & mark reviewed'}
+                  {busy ? 'Confirming…' : 'Confirm all remaining'}
                 </button>
                 <button
                   onClick={onExtract}
@@ -371,6 +394,14 @@ export function ProductReviewedBoreLogGate({
               </div>
             </Card>
           )}
+
+          {/* ---- Fan-out sibling bore cards — the SAME uploaded file split into several reviewed-bore-logs
+               (handwritten multi-bore packages). Empty for every ordinary job/lane. ---- */}
+          {phase !== 'loading' && phase !== 'error' && siblingBores.map((s) => (
+            <SiblingBoreCard
+              key={s.rblId} jobId={jobId} uploadId={effectiveSourceUploadId || null} card={s}
+              busy={busy} onConfirmAll={confirmAllRemaining} onChanged={load} />
+          ))}
 
           {/* ---- Advanced manual fallback (collapsed by default) — NOT the primary workflow ---- */}
           {showAdvanced && (
@@ -541,5 +572,51 @@ function Stat({ label, v }: { label: string; v: number }) {
       <dt className="text-ink-3">{label}</dt>
       <dd className="font-mono text-ink">{v}</dd>
     </div>
+  );
+}
+
+// One fan-out sibling bore card: the SAME uploaded file, ANOTHER reviewed-bore-log (a distinct bore within
+// a handwritten multi-bore package). Its own per-row editor + its own "Confirm all remaining" — a sibling's
+// review state never affects the primary's.
+function SiblingBoreCard({
+  jobId, uploadId, card, busy, onConfirmAll, onChanged,
+}: {
+  jobId: string;
+  uploadId: string | null;
+  card: BoreCardData;
+  busy: boolean;
+  onConfirmAll: (rblId: string, rows: readonly ReviewedRowView[], groupCount: number) => Promise<void>;
+  onChanged: () => void;
+}) {
+  const rows = card.rbl.rows;
+  const ready = card.queue.engineReady;
+  return (
+    <Card className="mt-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="font-medium text-ink">{card.label} — {rows.length} row(s)</h4>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+        }`}>
+          {ready ? 'Reviewed' : 'Needs review'}
+        </span>
+      </div>
+      <div className="mt-2">
+        {rows.map((r) => (
+          <ProductBoreRowEditor
+            key={r.rowId} jobId={jobId} rblId={card.rblId} uploadId={uploadId}
+            row={r} disabled={busy} readOnly={ready} onChanged={onChanged} />
+        ))}
+      </div>
+      {!ready && rows.length > 0 && (
+        <div className="mt-3 border-t border-line/60 pt-3">
+          <button
+            onClick={() => onConfirmAll(card.rblId, rows, card.rbl.groups.length)}
+            disabled={busy}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+            {busy ? 'Confirming…' : 'Confirm all remaining'}
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }
