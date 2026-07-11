@@ -1364,20 +1364,15 @@ function isRouteAdoptionCode(code: string): boolean {
  *  re-search or manual fallback) instead of showing a generic submit error. Returns null for any other
  *  error (including a plain validation REJECTED, which never throws — see SourceAnchorResult.blockers).
  *
- *  Tolerant of every error-body shape extractRefusalCode() recognizes: PRIMARILY the structured `.code`
- *  ProductApiError attaches (covers the repo's `_to_http` string-leading-token convention AND a `detail`
- *  object AND a top-level `code` field — see extractRefusalCode). Falls back to a substring search over the
- *  thrown Error's message for a non-ProductApiError (e.g. a network failure surfaced as a plain Error, or an
- *  older code path) so a message that happens to already carry the code string is still honored. */
+ *  STRICT and EXACT: every route_adoption create call flows through postProductJson, so a real adoption
+ *  refusal is ALWAYS a ProductApiError, and its `.code` is checked for an EXACT match against
+ *  ROUTE_ADOPTION_REFUSAL_CODES (extractRefusalCode already anchors the string-detail case to the leading
+ *  token — see there). Deliberately NO substring/`.includes` scan over the message, and NO fallback for a
+ *  non-ProductApiError: a message merely mentioning a code in prose (e.g. `"...ROUTE_ADOPTION_STALE..."`)
+ *  or a near-miss code (e.g. `ROUTE_ADOPTION_STALE_X`) must NEVER be treated as that refusal. */
 export function routeAdoptionRefusalCode(err: unknown): string | null {
-  if (err instanceof ProductApiError && err.code && isRouteAdoptionCode(err.code)) {
-    return err.code;
-  }
-  if (!(err instanceof Error)) return null;
-  for (const code of ROUTE_ADOPTION_REFUSAL_CODES) {
-    if (err.message.includes(code)) return code;
-  }
-  return null;
+  if (!(err instanceof ProductApiError)) return null;
+  return err.code !== null && isRouteAdoptionCode(err.code) ? err.code : null;
 }
 
 // --- M2 Slice 3: render a validated source anchor -> real redline bundle + job-scoped artifact reads --- //
