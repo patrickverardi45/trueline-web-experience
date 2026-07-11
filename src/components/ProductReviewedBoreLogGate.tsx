@@ -8,7 +8,7 @@
 // table read of the .xlsx/.csv, NOT OCR, nothing guessed) then review + confirm. Hand-entry is demoted to a
 // collapsed "Advanced manual review" gated behind the internal flag — never the primary workflow.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from 'lucide-react';
 
 import { ProductBoreRowEditor } from '@/components/ProductBoreRowEditor';
@@ -102,6 +102,30 @@ export function ProductReviewedBoreLogGate({
   // defined array (even []) means the backend authoritatively answered — no probe, ever, for that index.
   const [extractCreatedRbls, setExtractCreatedRbls] =
     useState<Record<number, readonly CreatedReviewedBoreLog[] | undefined>>({});
+  // One-shot-per-file guard for the SELF-HEALING re-extraction below: a fresh page load (new tab/reload)
+  // starts with extractCreatedRbls EMPTY even for an already-extracted fan-out job — without this, load()
+  // (which reruns after every action) would silently re-call extract every time that rediscovery attempt
+  // itself fails, instead of trying once and falling back to the bounded probe.
+  const [rediscoverAttempted, setRediscoverAttempted] = useState<Record<number, boolean>>({});
+
+  // load() is defined below; ensureRblGroupedThenReload needs to call the LATEST load() without making
+  // itself (and every row editor holding it) re-render/re-bind on every load() identity change — a ref
+  // (kept current by the effect right after load's definition) breaks that circularity cleanly.
+  const loadRef = useRef<() => Promise<void>>(async () => {});
+
+  // Direct, SINGLE-RBL grouping-ensure — the editor's per-row-review SUCCESS callback uses this (not the
+  // broader sweep below) so a review success on ONE RBL is never blocked by another RBL's fetch/grouping
+  // trouble elsewhere. Best-effort: a failure here doesn't surface as an error — the self-heal sweep in
+  // load() (below) retries it on the next visit/action regardless.
+  const ensureRblGroupedThenReload = useCallback(async (rblId: string) => {
+    try {
+      const freshRbl = await fetchReviewedBoreLog(jobId, rblId);
+      await ensureGroupingConfirmed(jobId, rblId, freshRbl.rows, freshRbl.groups);
+    } catch {
+      // best-effort — see comment above
+    }
+    await loadRef.current();
+  }, [jobId]);
 
   const load = useCallback(async () => {
     if (!active) { setPhase('absent'); setSiblingBores([]); return; }
@@ -109,19 +133,36 @@ export function ProductReviewedBoreLogGate({
     try {
       const record = await fetchReviewedBoreLog(jobId, activeRbl);
       let q = await fetchReviewQueue(jobId, activeRbl);
-      // Idempotently ensure grouping the moment ALL of this RBL's rows are reviewed (per-row review has no
-      // grouping step of its own) — a no-op for the (typically empty) primary in a fan-out package.
-      if (await ensureGroupingConfirmed(jobId, activeRbl, record.rows, record.groups)) {
-        q = await fetchReviewQueue(jobId, activeRbl);
-      }
+      // SELF-HEALING (a): idempotently ensure grouping the moment ALL of this RBL's rows are reviewed
+      // (per-row review has no grouping step of its own) — a no-op for the (typically empty) primary in a
+      // fan-out package. Never lets a grouping failure block rendering the primary's own data.
+      try {
+        if (await ensureGroupingConfirmed(jobId, activeRbl, record.rows, record.groups)) {
+          q = await fetchReviewQueue(jobId, activeRbl);
+        }
+      } catch { /* best-effort — retried on the next load() */ }
       setRbl(record);
       setQueue(q);
       setPhase('ready');
 
       // Sibling ids: the backend's created_reviewed_bore_logs (from the last extract this session) is
-      // AUTHORITATIVE the moment it's present, even if empty — the -rN probe fires ONLY when it's `undefined`
-      // (absent from the wire response / not yet extracted this session against a backend new enough to send it).
-      const created = extractCreatedRbls[sel];
+      // AUTHORITATIVE the moment it's present, even if empty — the -rN probe fires ONLY when it's `undefined`.
+      let created = extractCreatedRbls[sel];
+      if (created === undefined && !rediscoverAttempted[sel]) {
+        // SELF-HEALING (b), the critical case: a totally fresh page load has NO session memory of
+        // created_reviewed_bore_logs, and the bounded -rN probe below can only extend an id that ITSELF
+        // ends in "-rN" — activeRbl ("rbl-main"/"rbl-N") never does, so it can never rediscover fan-out
+        // siblings like "rbl-hw-p0-r1" on its own. Re-running this RBL's (idempotent, read-only,
+        // deterministic table-read) extraction ONCE rediscovers the authoritative sibling ids the same way
+        // the original extract did — this is what makes an already-extracted-but-stuck job heal itself on
+        // the next visit, with no user action. One attempt per file per session either way.
+        setRediscoverAttempted((prev) => ({ ...prev, [sel]: true }));
+        try {
+          const result = await extractBoreLogRows(jobId, activeRbl);
+          created = result.createdReviewedBoreLogs;
+          setExtractCreatedRbls((prev) => ({ ...prev, [sel]: created }));
+        } catch { /* leave created undefined -> the bounded probe below still applies */ }
+      }
       const backendSiblingIds = created === undefined
         ? undefined
         : created.map((c) => c.reviewedBoreLogId).filter((id): id is string => !!id && id !== activeRbl);
@@ -134,11 +175,15 @@ export function ProductReviewedBoreLogGate({
 
       const siblings: BoreCardData[] = [];
       async function pushSibling(candidateId: string) {
+        // FETCH always pushes the card (so a sibling with reviewed-but-ungrouped rows stays VISIBLE, never
+        // silently vanishes). Grouping-ENSURE is a separate best-effort step — its failure never hides data.
         const srbl = await fetchReviewedBoreLog(jobId, candidateId);
         let squeue = await fetchReviewQueue(jobId, candidateId);
-        if (await ensureGroupingConfirmed(jobId, candidateId, srbl.rows, srbl.groups)) {
-          squeue = await fetchReviewQueue(jobId, candidateId);
-        }
+        try {
+          if (await ensureGroupingConfirmed(jobId, candidateId, srbl.rows, srbl.groups)) {
+            squeue = await fetchReviewQueue(jobId, candidateId);
+          }
+        } catch { /* best-effort — retried on the next load() */ }
         siblings.push({ rblId: candidateId, label: labelFor(siblings.length), rbl: srbl, queue: squeue });
       }
       if (backendSiblingIds !== undefined) {
@@ -172,7 +217,11 @@ export function ProductReviewedBoreLogGate({
       setError(e instanceof Error ? e.message : 'unavailable');
       setPhase('error');
     }
-  }, [jobId, activeRbl, active, sel, extractCreatedRbls]);
+  }, [jobId, activeRbl, active, sel, extractCreatedRbls, rediscoverAttempted]);
+
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -423,7 +472,8 @@ export function ProductReviewedBoreLogGate({
                 {rows.map((r) => (
                   <ProductBoreRowEditor
                     key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
-                    uploadFilename={active?.filename ?? null} row={r} disabled={busy} onChanged={load} />
+                    uploadFilename={active?.filename ?? null} row={r} disabled={busy}
+                    onChanged={() => ensureRblGroupedThenReload(activeRbl)} />
                 ))}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
@@ -449,7 +499,7 @@ export function ProductReviewedBoreLogGate({
             <SiblingBoreCard
               key={s.rblId} jobId={jobId} uploadId={effectiveSourceUploadId || null}
               uploadFilename={active?.filename ?? null} card={s}
-              busy={busy} onConfirmAll={confirmAllRemaining} onChanged={load} />
+              busy={busy} onConfirmAll={confirmAllRemaining} onRowChanged={ensureRblGroupedThenReload} />
           ))}
 
           {/* ---- Advanced manual fallback (collapsed by default) — NOT the primary workflow ---- */}
@@ -628,7 +678,7 @@ function Stat({ label, v }: { label: string; v: number }) {
 // a handwritten multi-bore package). Its own per-row editor + its own "Confirm all remaining" — a sibling's
 // review state never affects the primary's.
 function SiblingBoreCard({
-  jobId, uploadId, uploadFilename, card, busy, onConfirmAll, onChanged,
+  jobId, uploadId, uploadFilename, card, busy, onConfirmAll, onRowChanged,
 }: {
   jobId: string;
   uploadId: string | null;
@@ -636,7 +686,9 @@ function SiblingBoreCard({
   card: BoreCardData;
   busy: boolean;
   onConfirmAll: (rblId: string, rows: readonly ReviewedRowView[], groups: readonly ReviewedGroupView[]) => Promise<void>;
-  onChanged: () => void;
+  // Fired by a row editor on a SUCCESSFUL confirm/correction — ensures grouping for THIS card's rblId
+  // directly (not via the parent's broader sibling-discovery sweep) before reloading the whole gate.
+  onRowChanged: (rblId: string) => Promise<void>;
 }) {
   const rows = card.rbl.rows;
   const ready = card.queue.engineReady;
@@ -654,7 +706,8 @@ function SiblingBoreCard({
         {rows.map((r) => (
           <ProductBoreRowEditor
             key={r.rowId} jobId={jobId} rblId={card.rblId} uploadId={uploadId}
-            uploadFilename={uploadFilename} row={r} disabled={busy} readOnly={ready} onChanged={onChanged} />
+            uploadFilename={uploadFilename} row={r} disabled={busy} readOnly={ready}
+            onChanged={() => onRowChanged(card.rblId)} />
         ))}
       </div>
       {!ready && rows.length > 0 && (
