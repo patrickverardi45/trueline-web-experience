@@ -16,6 +16,9 @@ import {
   fetchPlanPageMetadata,
   fetchPlanPageRasterBlob,
   fetchReviewedBoreLog,
+  listSourceAnchors,
+  manualRoutePointsEnabled,
+  nearestSegmentInsertionIndex,
   renderSourceAnchor,
   requestSourceRouteProposal,
   routeAdoptionInputFromProposal,
@@ -23,6 +26,7 @@ import {
   sourceRouteAdoptionEnabled,
   type ControlPointInput,
   type JobArtifactRef,
+  type ManualRouteInput,
   type PlanPageInfo,
   type PlanPageMetadata,
   type ReviewedRowView,
@@ -78,7 +82,10 @@ export function ProductSourceAnchorCapture({
   const [boreLoaded, setBoreLoaded] = useState(false);
   // Apply the suggested default page exactly once per plan upload (so a later user pick is never overridden).
   const appliedFor = useRef<string | null>(null);
-  const [anchorId] = useState(defaultAnchorId());
+  // Mission 8: setter added so reload hydration can retarget an already-confirmed anchor's id (a fresh
+  // mount otherwise always generates a brand-new random id — see the hydration effect below). Every
+  // non-hydration code path is unchanged (still a stable random id for the lifetime of an unhydrated mount).
+  const [anchorId, setAnchorId] = useState(defaultAnchorId());
   const [startStation, setStartStation] = useState('');
   const [startLabel, setStartLabel] = useState('');
   const [endStation, setEndStation] = useState('');
@@ -122,6 +129,51 @@ export function ProductSourceAnchorCapture({
   // Set true on a 404 from the proposals endpoint (route not mounted / backend flag off) — the search
   // affordance is then hidden for the rest of this session, a silent fall-back to pure manual UX.
   const [routeProposalsUnavailable, setRouteProposalsUnavailable] = useState(false);
+
+  // --- Mission 8: manual N-point bend editing + honest representative labeling (flag-gated) ------------ //
+  // Default-OFF: with the flag unset, manualRouteOn is false, and every piece of state below is either never
+  // read or never diverges from its initial value — clicks always append (never insert), the confirm body
+  // never carries manual_route, and no reload-hydration read is ever issued. Byte-identical to pre-Mission-8.
+  const manualRouteOn = manualRoutePointsEnabled();
+  // Which intermediate marked point (index into `points`) is selected for the "Remove bend" control.
+  const [selectedBendIndex, setSelectedBendIndex] = useState<number | null>(null);
+  // The LAST route-search refusal this session, retained through subsequent point edits (Sol Q1/binding wire
+  // re-verify #3) so a manual/representative confirm can honestly report it via manual_route.
+  // reported_route_search — cleared only when a LATER search in this session actually succeeds (a fresh
+  // PROPOSAL outcome means the most recent search was not a refusal).
+  const [lastRouteSearchRefusal, setLastRouteSearchRefusal] =
+    useState<{ code: string; upstreamReasonCode: string | null } | null>(null);
+  // Reload hydration (Q7): a found-but-not-yet-applied confirmed anchor, waiting for `meta`/`boreLoaded` to
+  // catch up with a plan-upload switch before it overwrites points/pageNumber (see the two effects below —
+  // this two-step apply avoids a race against loadMeta's own points-reset on a plan-upload change).
+  const [pendingHydration, setPendingHydration] = useState<{
+    readonly sourceAnchorId: string;
+    readonly planUploadId: string;
+    readonly pageNumber: number;
+    readonly controlPoints: readonly ControlPointInput[];
+    readonly renderable: boolean;
+    readonly result: SourceAnchorResult;
+  } | null>(null);
+  // Guards the hydration LOOKUP (not the apply) to run at most once per (jobId, reviewedBoreLogId) pair —
+  // never re-fires on a later local edit (which doesn't change jobId/rblId), and re-fires honestly if the
+  // caller switches to a different job/row.
+  const hydratedKeyRef = useRef<string | null>(null);
+  // Fix-wave-2: the post-hydration render-evidence (PNG/dots/cards) fetch is decoupled into its OWN effect
+  // (below), keyed on this. WRITE CONTRACT (truthful, not aspirational): the only writers are this hook's
+  // `useState(null)` initializer and the apply effect's single `setHydratedRenderFetch(...)` call once a
+  // hydration is actually applied — nothing ever clears it back to null afterward (the fetch effect below
+  // only READS it). That is safe today because `rblId` is captured once per mount (immutable for the
+  // lifetime of a mounted row) and the hydration LOOKUP runs at most once per (jobId, rblId) — so this
+  // component instance ever applies at most one hydration, i.e. at most one non-null value is ever set. A
+  // different row/job is a REMOUNT (new component instance, fresh `useState(null)`), not a same-instance
+  // reset. If a future change allows re-hydrating within one mount (e.g. multiple anchors per row), this
+  // will need an explicit reset — this comment is the tripwire to catch that assumption breaking.
+  // Necessary because the apply effect below necessarily writes ITS OWN dependencies while applying
+  // (pendingHydration object -> null; previously also points 0 -> N once fix-wave-1 added points.length to
+  // its deps) — any of those changes schedules that SAME effect's cleanup to run before an in-flight promise
+  // held in its closure resolves, silently discarding the result. Isolating the fetch in an effect whose OWN
+  // deps (`hydratedRenderFetch`, `jobId`) are never written to by itself makes it immune to that failure mode.
+  const [hydratedRenderFetch, setHydratedRenderFetch] = useState<string | null>(null);
 
   const loadMeta = useCallback(async (uploadId: string) => {
     setMeta(null);
@@ -251,10 +303,166 @@ export function ProductSourceAnchorCapture({
     if (planUploadId) void loadMeta(planUploadId);
   }, [planUploadId, loadMeta]);
 
+  // Mission 8 (Q7, flag-gated): on init, look up whether this row already has a CONFIRMED source-anchor via
+  // the EXISTING list surface (no new backend route) and stage it for hydration. Runs at most once per
+  // (jobId, rblId) — a later local edit (Clear/re-mark) never re-triggers it. Picks the match with the
+  // lexicographically-greatest updated_at/created_at (ISO-8601 strings sort correctly lexically) when more
+  // than one source-anchor exists for this row (e.g. across several reload cycles). A listing failure (or no
+  // match) leaves the component in its normal fresh/unconfirmed state — never a hard error.
+  useEffect(() => {
+    if (!manualRouteOn) return;
+    const key = `${jobId}::${rblId}`;
+    if (hydratedKeyRef.current === key) return;
+    hydratedKeyRef.current = key;
+    let active = true;
+    (async () => {
+      try {
+        const anchors = await listSourceAnchors(jobId);
+        const matches = anchors.filter((a) => a.reviewedBoreLogId === rblId);
+        if (matches.length === 0 || !active) return;
+        const latest = matches.reduce((best, cur) => {
+          const bestKey = best.updatedAt ?? best.createdAt ?? '';
+          const curKey = cur.updatedAt ?? cur.createdAt ?? '';
+          return curKey >= bestKey ? cur : best;
+        });
+        if (!active) return;
+        setPendingHydration({
+          sourceAnchorId: latest.result.sourceAnchorId,
+          planUploadId: latest.planUploadId,
+          pageNumber: latest.pageNumber,
+          controlPoints: latest.controlPoints,
+          renderable: latest.result.renderable,
+          result: latest.result,
+        });
+      } catch {
+        // listing failed — honest no-op; the component stays in its normal fresh/unconfirmed state.
+      }
+    })();
+    return () => { active = false; };
+  }, [manualRouteOn, jobId, rblId]);
+
+  // Mission 8 (Q7): APPLY a staged hydration once `meta`/`boreLoaded` for the restored plan upload are ready
+  // — deliberately gated on that readiness (rather than applying immediately alongside the lookup above) so
+  // this effect runs STRICTLY AFTER loadMeta's own points-reset and the suggested-default-page effect above
+  // have already settled for the restored plan upload; this write then wins unconditionally, eliminating the
+  // race rather than guessing at effect-ordering. `appliedFor.current` is set here too, so the suggested-
+  // page effect never overwrites the restored pageNumber on a later render.
+  useEffect(() => {
+    if (!pendingHydration) return;
+    // Fix-wave-1 F1: a slow list-fetch can resolve AFTER the user has already started marking their own
+    // points at mount — never clobber in-progress work. Drop the pending hydration silently (the confirmed
+    // record stays server-side and can still be reached by a later reload); this check is a GATE, not a
+    // fetch-time check, so it re-evaluates every time this effect re-runs (e.g. after the plan-switch below).
+    if (points.length !== 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPendingHydration(null);
+      return;
+    }
+    if (pendingHydration.planUploadId !== planUploadId) {
+      // Retarget the plan-upload selector first; loadMeta's own effect (dep: planUploadId) will fetch this
+      // plan's metadata, and this effect re-runs (dep: planUploadId) once that happens.
+      setPlanUploadId(pendingHydration.planUploadId);
+      return;
+    }
+    // Fix-wave-1 F2: `meta` is whatever plan-upload's metadata last resolved — during a plan-switch retarget
+    // above, this effect can re-run with the PREVIOUS plan's still-non-null `meta` still in closure before
+    // loadMeta's fetch for the NEW plan has landed. Verify `meta` actually belongs to the plan we're
+    // hydrating before deriving restoredPage/planSheetLabel from it; on a mismatch, defer — loadMeta's own
+    // effect will re-render with the correct `meta` once its fetch resolves, and this effect re-fires (dep:
+    // meta).
+    if (!meta || !boreLoaded || meta.planUploadId !== pendingHydration.planUploadId) return;
+    appliedFor.current = planUploadId;
+    const restoredPage = meta.pages.find((p) => p.pageNumber === pendingHydration.pageNumber) ?? null;
+    setPageNumber(pendingHydration.pageNumber);
+    setPoints([...pendingHydration.controlPoints]);
+    setSelectedBendIndex(null);
+    setAnchorId(pendingHydration.sourceAnchorId);
+    setResult(pendingHydration.result);
+    setRenderedPage({
+      planUploadId: pendingHydration.planUploadId,
+      pageNumber: pendingHydration.pageNumber,
+      planSheetLabel: restoredPage?.planSheetLabel ?? null,
+    });
+    setShowFullSheet(false);
+    // Fix-wave-2: hand the render-evidence fetch off to the SEPARATE effect below instead of firing it
+    // inline here — this effect's own writes (setPendingHydration(null), just below) change ITS OWN
+    // dependency, which would otherwise schedule ITS OWN cleanup to run (cancelling an in-flight promise
+    // held in this closure) before the fetch could resolve. See hydratedRenderFetch's declaration for the
+    // full trace.
+    if (pendingHydration.renderable) setHydratedRenderFetch(pendingHydration.sourceAnchorId);
+    setPendingHydration(null);
+    // `points.length` (read by the F1 guard above) is listed here for exhaustive-deps honesty; unlike
+    // before fix-wave-2, a self-triggered re-run of THIS effect is now harmless — there is no cancellable
+    // async work left in its body (the render-evidence fetch lives in the separate effect below).
+  }, [pendingHydration, planUploadId, meta, boreLoaded, jobId, points.length]);
+
+  // Fix-wave-2: owns the idempotent post-hydration render-evidence (PNG/dots/cards) re-fetch. Deliberately a
+  // SEPARATE effect from the apply effect above, whose own writes (pendingHydration -> null) would otherwise
+  // self-trigger a cleanup that cancels this exact fetch before it resolves (observed live: hydration
+  // restored points/status but the "Placed redline proof" block, HUMAN-REVIEWED badge, and station-dot cards
+  // never appeared). This effect's OWN dependencies (`hydratedRenderFetch`, `jobId`) are never written to by
+  // its own body, so it is immune to that failure mode; a NEWER hydratedRenderFetch value correctly cancels
+  // an older in-flight fetch via the same `active` idiom used throughout this file.
+  useEffect(() => {
+    if (!hydratedRenderFetch) return;
+    let active = true;
+    // render_source_anchor_route is idempotent for identical content (docstring-guaranteed), so this NEVER
+    // creates new geometry, only republishes the artifact summary for a redline that already exists.
+    renderSourceAnchor(jobId, hydratedRenderFetch)
+      .then((r) => { if (active) setRenderResult(r); })
+      .catch(() => {
+        // Non-fatal: the confirmed record/points/label are already restored by the apply effect above; only
+        // the PNG/dots/cards panel stays absent if this idempotent re-render read fails.
+      });
+    return () => { active = false; };
+  }, [hydratedRenderFetch, jobId]);
+
   const page = meta?.pages.find((p) => p.pageNumber === pageNumber) ?? null;
 
+  // Mission 8: with the flag ON and >= 2 points already placed, a further click INSERTS the new point at
+  // the nearest-segment index (ordering only — see nearestSegmentInsertionIndex; the coordinate itself is
+  // NEVER adjusted). Flag OFF, or fewer than 2 points so far, behaves exactly as before (plain append) —
+  // byte-identical for the first two clicks (start + end) regardless of the flag.
   function addPoint(p: ControlPointInput) {
-    setPoints((prev) => [...prev, p]);
+    setPoints((prev) => {
+      if (manualRouteOn && prev.length >= 2) {
+        const idx = nearestSegmentInsertionIndex(prev, p);
+        const next = prev.slice();
+        next.splice(idx, 0, p);
+        return next;
+      }
+      return [...prev, p];
+    });
+    // Fix-wave-1 F3: an insert can shift every later index — the previously-selected bend's index no longer
+    // names the same point (or may now name a DIFFERENT point entirely), so any selection/"Remove bend"
+    // target must be dropped rather than silently migrating to the wrong circle. Unconditional (matches the
+    // existing Undo/Clear handlers, which already clear it too) — a no-op when nothing is selected.
+    setSelectedBendIndex(null);
+  }
+
+  // Mission 8: drag-MOVE an intermediate point (never the first/last — endpoints keep the pre-existing
+  // click-to-mark flow). `index` is validated defensively even though PlanPageViewer only ever wires this
+  // for an intermediate circle, so a stale/out-of-range index can never corrupt an endpoint.
+  function moveBend(index: number, point: ControlPointInput) {
+    setPoints((prev) => {
+      if (index <= 0 || index >= prev.length - 1) return prev;
+      const next = prev.slice();
+      next[index] = point;
+      return next;
+    });
+  }
+
+  // Mission 8: remove the currently-selected intermediate point (same endpoint guard as moveBend above).
+  function removeSelectedBend() {
+    if (selectedBendIndex == null) return;
+    const index = selectedBendIndex;
+    setPoints((prev) => {
+      if (index <= 0 || index >= prev.length - 1) return prev;
+      const next = prev.slice();
+      next.splice(index, 1);
+      return next;
+    });
+    setSelectedBendIndex(null);
   }
 
   // `adoption` is Ticket W-C / W-C-ECHO only (undefined for the ordinary "Confirm route" path — the request
@@ -267,6 +475,19 @@ export function ProductSourceAnchorCapture({
     setResult(null);
     setRenderResult(null);
     setRenderError(null);
+    // Mission 8: built ONLY for a non-adoption confirm, flag ON, with >= 2 points — mutually exclusive with
+    // `adoption` by construction (never both on the same request). `representativeStatus` follows the
+    // COUNT<->STATUS rule the backend enforces (2 -> REPRESENTATIVE_STRAIGHT_ACCEPTED; >=3 ->
+    // MANUAL_POLYLINE_CONFIRMED). `reportedRouteSearch` carries the retained last-refusal code/upstream
+    // reason when this session's search refused, omitted entirely otherwise (never a guessed value).
+    const manualRoute: ManualRouteInput | undefined =
+      !adoption && manualRouteOn && points.length >= 2
+        ? {
+            confirmed: true,
+            representativeStatus: points.length >= 3 ? 'MANUAL_POLYLINE_CONFIRMED' : 'REPRESENTATIVE_STRAIGHT_ACCEPTED',
+            ...(lastRouteSearchRefusal ? { reportedRouteSearch: lastRouteSearchRefusal } : {}),
+          }
+        : undefined;
     try {
       const r = await createSourceAnchor(jobId, {
         sourceAnchorId: anchorId,
@@ -277,6 +498,7 @@ export function ProductSourceAnchorCapture({
         startIdentity: { station: startStation || undefined, structureLabel: startLabel || undefined },
         endIdentity: { station: endStation || undefined, structureLabel: endLabel || undefined },
         ...(adoption ? { routeAdoption: adoption } : {}),
+        ...(manualRoute ? { manualRoute } : {}),
       });
       setResult(r);
       // Freeze the page identity of the anchor we just created, so the placed-proof label + full-sheet
@@ -318,8 +540,14 @@ export function ProductSourceAnchorCapture({
       });
       if (outcome.kind === 'PROPOSAL') {
         setProposalState({ phase: 'proposal', proposal: outcome.proposal });
+        // Mission 8: the most recent search succeeded — no refusal to (honestly) report anymore.
+        setLastRouteSearchRefusal(null);
       } else if (outcome.kind === 'REFUSAL') {
         setProposalState({ phase: 'refusal', refusal: outcome.refusal });
+        // Mission 8: retained through subsequent point edits until submission (or a later successful search).
+        setLastRouteSearchRefusal({
+          code: outcome.refusal.code, upstreamReasonCode: outcome.refusal.upstreamReasonCode,
+        });
       } else {
         // 404 — feature-absent: fall back to pure manual UX silently, no error toast.
         setRouteProposalsUnavailable(true);
@@ -410,6 +638,25 @@ export function ProductSourceAnchorCapture({
     () => Object.values(renderResult?.stationDotsByLog ?? {}).flat(),
     [renderResult],
   );
+
+  // Mission 8 (Q6, binding exact copy + visibility rule): shown while EITHER (a) the current UNCONFIRMED
+  // preview polyline is exactly 2 points AND no engineering route is currently adopted for this anchor (an
+  // adopted route's render polyline is NOT a straight chord even though only 2 human marks were placed —
+  // this exclusion prevents a false "representative" label on a real adopted redline), OR (b) the last
+  // CONFIRMED/hydrated result carries representative_status REPRESENTATIVE_STRAIGHT_ACCEPTED — (b) is keyed
+  // off the PERSISTED record, not the live point count, so the label survives BOTH confirmation and a page
+  // reload, and stays attached to a still-representative rendered stroke even if the user starts editing new
+  // (not-yet-confirmed) points afterward.
+  const REPRESENTATIVE_LABEL = 'Representative straight segment — not the engineering route';
+  const adoptedNow = result?.geometryBasis === 'OBSERVER_BACKBONE_HUMAN_ADOPTED';
+  const showRepresentativeLabel = manualRouteOn && (
+    (points.length === 2 && !adoptedNow) || result?.manualRepresentativeStatus === 'REPRESENTATIVE_STRAIGHT_ACCEPTED'
+  );
+  const confirmLabel = busy
+    ? 'Submitting…'
+    : manualRouteOn && points.length >= 2
+      ? (points.length >= 3 ? `Confirm manual route (${points.length} points)` : 'Confirm representative straight segment')
+      : 'Confirm route';
 
   if (planUploads.length === 0) return null;
 
@@ -539,21 +786,38 @@ export function ProductSourceAnchorCapture({
                 ? proposalState.proposal.proposedRenderPoints
                 : undefined
             }
+            onMoveBend={manualRouteOn ? moveBend : undefined}
+            selectedBendIndex={manualRouteOn ? selectedBendIndex : undefined}
+            onSelectBend={manualRouteOn ? setSelectedBendIndex : undefined}
           />
+          {showRepresentativeLabel && (
+            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800">
+              {REPRESENTATIVE_LABEL}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-ink-3">{points.length} point(s) marked</span>
             <button
-              onClick={() => setPoints((prev) => prev.slice(0, -1))}
+              onClick={() => { setPoints((prev) => prev.slice(0, -1)); setSelectedBendIndex(null); }}
               disabled={points.length === 0}
               className="rounded-md border border-line px-2 py-1 text-ink-2 hover:text-ink disabled:opacity-50">
               Undo
             </button>
             <button
-              onClick={() => setPoints([])}
+              onClick={() => { setPoints([]); setSelectedBendIndex(null); }}
               disabled={points.length === 0}
               className="rounded-md border border-line px-2 py-1 text-ink-2 hover:text-ink disabled:opacity-50">
               Clear
             </button>
+            {/* Mission 8: appears only while an intermediate (bend) point is selected — a no-drag click on
+                its circle in PlanPageViewer (never the first/last point). */}
+            {manualRouteOn && selectedBendIndex != null && (
+              <button
+                onClick={removeSelectedBend}
+                className="rounded-md border border-red-300 bg-red-50 px-2 py-1 font-medium text-red-700 hover:bg-red-100">
+                Remove bend
+              </button>
+            )}
           </div>
 
           {/* Ticket W-C: optional source-backed route search — never gates or blocks the manual Confirm
@@ -586,7 +850,14 @@ export function ProductSourceAnchorCapture({
                   {proposalState.phase === 'searching' ? 'Searching source linework…' : 'Search for engineering route'}
                 </button>
                 {points.length !== 2 && (
-                  <span className="text-ink-3">Mark exactly 2 points (start + end) to search.</span>
+                  <span className="text-ink-3">
+                    {/* Mission 8: the more-specific ">2 points" hint is gated behind manualRouteOn — with the
+                        flag off, points.length CAN still exceed 2 (pre-existing "middle clicks = bends"), so
+                        this copy stays byte-identical to before unless the flag is actually on. */}
+                    {manualRouteOn && points.length > 2
+                      ? 'Search uses only your start and end points — it seeds from the two termini.'
+                      : 'Mark exactly 2 points (start + end) to search.'}
+                  </span>
                 )}
                 {points.length === 2 && stationBearingRows.length === 0 && boreLoaded && (
                   <span className="text-ink-3">No bore-log row with a station range was found for this job.</span>
@@ -614,6 +885,12 @@ export function ProductSourceAnchorCapture({
                       <span className="ml-1 font-mono text-[11px]">({proposalState.refusal.code})</span>
                     )}
                   </p>
+                  {/* Mission 8: existing copy/code display above is unchanged — this is an ADDITIVE line. */}
+                  {manualRouteOn && (
+                    <p className="mt-1 text-ink-3">
+                      You can add bend points so the segment follows the engineering alignment before you confirm.
+                    </p>
+                  )}
                 </div>
               )}
               {proposalState.phase === 'error' && (
@@ -657,12 +934,16 @@ export function ProductSourceAnchorCapture({
         </div>
       </div>
 
+      {/* Mission 8: echoed above the confirm control (Q6) — same visibility rule as the viewer-adjacent copy. */}
+      {showRepresentativeLabel && (
+        <p className="mt-3 text-xs font-semibold text-amber-800">{REPRESENTATIVE_LABEL}</p>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           onClick={() => onSubmit()}
           disabled={busy || points.length < 2 || !planUploadId || anchorId.trim().length === 0}
           className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-          {busy ? 'Submitting…' : 'Confirm route'}
+          {confirmLabel}
         </button>
         {points.length < 2 && (
           <span className="text-xs text-ink-3">Mark at least 2 points (start + end).</span>
@@ -800,22 +1081,41 @@ export function ProductSourceAnchorCapture({
                     Station dots ({stationDots.length}) — every 50&#8242; along your redline, plus start and end
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {stationDots.map((d, i) => (
-                      <button
-                        key={`${d.index}-${d.footageAlong}`}
-                        type="button"
-                        onClick={() => setSelectedDot((prev) => (prev === i ? null : i))}
-                        className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
-                          selectedDot === i
-                            ? 'border-accent bg-accent-soft text-accent-strong'
-                            : 'border-line text-ink-2 hover:text-ink'
-                        }`}>
-                        {d.station ?? `${d.footageAlong}′`}
-                      </button>
-                    ))}
+                    {stationDots.map((d, i) => {
+                      // Mission-8 ADDENDUM: `origin` is additive/absence-tolerant — a legacy payload without
+                      // it (origin === null) renders exactly as before (no secondary styling ever applied).
+                      const isDerived = d.origin === 'DERIVED_INTERVAL';
+                      return (
+                        <button
+                          key={`${d.index}-${d.footageAlong}`}
+                          type="button"
+                          onClick={() => setSelectedDot((prev) => (prev === i ? null : i))}
+                          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+                            selectedDot === i
+                              ? 'border-accent bg-accent-soft text-accent-strong'
+                              : isDerived
+                                ? 'border-dashed border-line text-ink-3 hover:text-ink-2'
+                                : 'border-line text-ink-2 hover:text-ink'
+                          }`}>
+                          {d.station ?? `${d.footageAlong}′`}
+                        </button>
+                      );
+                    })}
                   </div>
                   {selectedDot != null && stationDots[selectedDot] && (() => {
                     const d = stationDots[selectedDot];
+                    // Honest per-dot provenance line (Mission-8 ADDENDUM). `origin === null` (legacy payload,
+                    // field absent) renders nothing here — never guessed. Depth/BOC/notes need no extra
+                    // handling below: a DERIVED_INTERVAL dot's wire object omits those keys entirely, so the
+                    // existing strOrNull() decode already yields `null` for them and the row filter below
+                    // already drops null/empty rows — no placeholder dashes implying a measurement.
+                    const provenanceLine = d.origin === 'SOURCE_RECORDED'
+                      ? `Recorded station — read from the bore log${
+                          d.stationEvidence?.confidence ? ` · ${d.stationEvidence.confidence} confidence` : ''
+                        }`
+                      : d.origin === 'DERIVED_INTERVAL'
+                        ? 'Derived 50′ interval marker — not a recorded station'
+                        : null;
                     const rows: readonly (readonly [string, string | null])[] = [
                       ['Footage', `${d.footageAlong}′ from start`],
                       ['Station', d.station],
@@ -828,14 +1128,23 @@ export function ProductSourceAnchorCapture({
                       ['Bore log', d.boreLogId],
                     ];
                     return (
-                      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-md bg-paper px-3 py-2 text-xs sm:grid-cols-3">
-                        {rows.filter(([, v]) => v != null && v !== '').map(([k, v]) => (
-                          <div key={k}>
-                            <dt className="text-ink-3">{k}</dt>
-                            <dd className="font-medium text-ink">{v}</dd>
-                          </div>
-                        ))}
-                      </dl>
+                      <>
+                        {provenanceLine && (
+                          <p className={`mt-2 text-[11px] font-medium ${
+                            d.origin === 'DERIVED_INTERVAL' ? 'text-ink-3' : 'text-accent-strong'
+                          }`}>
+                            {provenanceLine}
+                          </p>
+                        )}
+                        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-md bg-paper px-3 py-2 text-xs sm:grid-cols-3">
+                          {rows.filter(([, v]) => v != null && v !== '').map(([k, v]) => (
+                            <div key={k}>
+                              <dt className="text-ink-3">{k}</dt>
+                              <dd className="font-medium text-ink">{v}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </>
                     );
                   })()}
                 </div>

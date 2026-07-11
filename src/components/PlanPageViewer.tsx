@@ -14,7 +14,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { fetchPlanPageRasterBlob, type ControlPointInput, type PlanPageBounds } from '@/lib/api/productWrites';
+import {
+  fetchPlanPageRasterBlob, manualRoutePointsEnabled, type ControlPointInput, type PlanPageBounds,
+} from '@/lib/api/productWrites';
 
 // On-demand higher-DPI raster requested for the fullscreen mark modal so dense station labels stay sharp
 // when magnified (the backend clamps this to a safe range; the inline preview keeps the default raster).
@@ -37,6 +39,18 @@ interface PlanPageViewerProps {
   // never a new coordinate transform. Drawn as a dashed line visually distinct from the marked-points
   // overlay (lighter red, wider dash gaps), underneath it so the human's own marks stay on top.
   readonly proposalPoints?: readonly ControlPointInput[];
+  // Mission 8 (optional, default absent -> no change): drag-to-MOVE an INTERMEDIATE marked point (never the
+  // first/last — start/end re-placement keeps the pre-existing click-to-mark flow untouched). Fired once per
+  // completed drag with the point's new display-space coordinate (the exact pointer position — no snapping).
+  // Only wired by the caller when manualRoutePointsEnabled() is true; when absent, every circle renders
+  // exactly as before (decorative, pointer-events-none).
+  readonly onMoveBend?: (index: number, point: ControlPointInput) => void;
+  // Mission 8: which intermediate point (by index into `points`) is currently selected for removal, so its
+  // circle can be highlighted. `null`/undefined -> no highlight.
+  readonly selectedBendIndex?: number | null;
+  // Mission 8: fired on a NO-DRAG click of an intermediate circle — toggles that index's selection (the
+  // caller shows a "Remove bend" control while selected). Never fired for the first/last circle.
+  readonly onSelectBend?: (index: number | null) => void;
 }
 
 type Raster =
@@ -46,7 +60,12 @@ type Raster =
 
 export function PlanPageViewer({
   jobId, planUploadId, pageNumber, bounds, points, onAddPoint, onUndo, onClear, pageLabel, proposalPoints,
+  onMoveBend, selectedBendIndex, onSelectBend,
 }: PlanPageViewerProps) {
+  // Mission 8: default-OFF runtime gate (manualRoutePointsEnabled()) — with it unset, `bendEditingOn` is
+  // always false, so the interactive-circle branch below never renders extra attributes and onPanStart's
+  // extra guard never matches anything (no circle ever carries `data-bend-circle`). Byte-identical output.
+  const bendEditingOn = manualRoutePointsEnabled() && !!onMoveBend;
   const [raster, setRaster] = useState<Raster>({ phase: 'loading' });
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [enlarged, setEnlarged] = useState(false);
@@ -61,6 +80,12 @@ export function PlanPageViewer({
   // last pointer interaction moved far enough to count as a pan (so the following click does NOT mark).
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const didPan = useRef(false);
+  // Mission 8: bend-drag bookkeeping (refs, so a drag never re-renders) — mirrors the pan-drag pattern above
+  // (origin + ~3px-threshold "did this become a real drag" flag), but tracks ONE intermediate circle by its
+  // points-array index. `didDrag` false at pointer-up means "this was a plain click" (-> selection toggle,
+  // never a move); true means a real drag happened (-> onMoveBend fired during the drag, no selection toggle
+  // on release, and see onPanStart below for why this never ALSO triggers a pan).
+  const bendDrag = useRef<{ index: number; startX: number; startY: number; didDrag: boolean } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -130,10 +155,67 @@ export function PlanPageViewer({
     onAddPoint({ x: bounds.x0 + fracX * spanX, y: bounds.y0 + fracY * spanY });
   }
 
+  // Mission 8: SAME screen->display-space math as clickToPoint above, but keyed off an arbitrary element's
+  // own bounding rect rather than a specific `<img>` ref. A bend circle's overlay <svg> is always sized
+  // `absolute inset-0 h-full w-full` over whichever image container currently holds it (inline preview OR
+  // the enlarged modal — the SAME overlay JSX is mounted in both places), so asking the EVENT'S OWN
+  // ancestor <svg> for its rect is correct regardless of which copy received the pointer — never a new/
+  // different coordinate transform, just resolved dynamically instead of via a fixed `img` ref.
+  function screenToDisplayPoint(clientX: number, clientY: number, rect: DOMRect): ControlPointInput | null {
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const fracX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const fracY = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+    return { x: bounds.x0 + fracX * spanX, y: bounds.y0 + fracY * spanY };
+  }
+
+  // Mission 8: pointer handlers for an INTERMEDIATE circle (never wired for the first/last point). Pointer
+  // events (not mouse-only) so mouse + touch share one path, per the touch-action:none circle style below.
+  function onBendPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    bendDrag.current = { index, startX: e.clientX, startY: e.clientY, didDrag: false };
+  }
+  function onBendPointerMove(e: React.PointerEvent<SVGCircleElement>, index: number) {
+    const d = bendDrag.current;
+    if (!d || d.index !== index) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.didDrag = true;
+    if (!d.didDrag) return; // below threshold — not yet a real drag (mirrors didPan's 3px threshold)
+    const svg = e.currentTarget.ownerSVGElement;
+    const rect = svg?.getBoundingClientRect();
+    if (!rect) return;
+    const pt = screenToDisplayPoint(e.clientX, e.clientY, rect);
+    if (pt) onMoveBend?.(index, pt);
+  }
+  function onBendPointerUp(e: React.PointerEvent<SVGCircleElement>, index: number) {
+    const d = bendDrag.current;
+    bendDrag.current = null;
+    if (!d || d.index !== index) return;
+    if (!d.didDrag) {
+      // A plain click (no drag past the threshold) toggles this bend's selection — never a move, never an
+      // endpoint replacement, never click-through to the image below (this event never reaches the <img>;
+      // it targets the circle, a sibling element, not an ancestor/descendant of the image).
+      onSelectBend?.(selectedBendIndex === index ? null : index);
+    }
+  }
+  // Fix-wave-1 F4: pointercancel (e.g. an interrupted touch gesture — a system gesture takes over, the
+  // pointer leaves the viewport) must ABORT the interaction, never complete it. Wiring this to
+  // onBendPointerUp would toggle selection on a cancelled non-drag tap, which is not a real click. Dedicated
+  // handler: reset the drag ref only, no onSelectBend/onMoveBend call.
+  function onBendPointerCancel(_e: React.PointerEvent<SVGCircleElement>, index: number) {
+    const d = bendDrag.current;
+    if (d && d.index === index) bendDrag.current = null;
+  }
+
   // Drag-to-pan the enlarged canvas (in addition to native scroll). A drag past a small threshold sets
   // ``didPan`` so the trailing click does NOT mark a point — click-to-mark accuracy is unaffected.
   function onPanStart(e: React.MouseEvent<HTMLDivElement>) {
     if (e.button !== 0 || !panBox.current) return;
+    // Mission 8: a mouse interaction that started on an interactive bend circle (data-bend-circle) is a
+    // bend drag, never a pan — bend circles only ever carry this attribute when bendEditingOn, so this
+    // guard is a no-op (never matches) whenever the flag is off.
+    if ((e.target as Element).closest?.('[data-bend-circle]')) return;
     didPan.current = false;
     drag.current = { x: e.clientX, y: e.clientY, left: panBox.current.scrollLeft, top: panBox.current.scrollTop };
   }
@@ -197,11 +279,28 @@ export function PlanPageViewer({
         <polyline points={polyline} fill="none" stroke="#dc1919" strokeWidth={w * 2}
                   strokeDasharray={`${r * 1.5} ${r}`} />
       )}
-      {pxPoints.map((p, i) => (
-        <circle key={i} cx={p.px} cy={p.py} r={r}
-                fill={i === 0 ? '#16a34a' : i === pxPoints.length - 1 ? '#dc1919' : '#ffffff'}
-                stroke="#dc1919" strokeWidth={w} />
-      ))}
+      {pxPoints.map((p, i) => {
+        // Mission 8: ONLY an intermediate point (never first/last — start/end re-placement keeps the
+        // pre-existing click-to-mark flow untouched) is interactive, and only while bendEditingOn.
+        const isIntermediate = i > 0 && i < pxPoints.length - 1;
+        const interactive = bendEditingOn && isIntermediate;
+        const selected = interactive && selectedBendIndex === i;
+        return (
+          <circle
+            key={i} cx={p.px} cy={p.py} r={selected ? r * 1.4 : r}
+            fill={i === 0 ? '#16a34a' : i === pxPoints.length - 1 ? '#dc1919' : selected ? '#fde68a' : '#ffffff'}
+            stroke="#dc1919" strokeWidth={selected ? w * 1.5 : w}
+            {...(interactive ? {
+              'data-bend-circle': 'true',
+              style: { pointerEvents: 'auto' as const, touchAction: 'none' as const, cursor: 'grab' as const },
+              onPointerDown: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerDown(e, i),
+              onPointerMove: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerMove(e, i),
+              onPointerUp: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerUp(e, i),
+              onPointerCancel: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerCancel(e, i),
+            } : {})}
+          />
+        );
+      })}
     </svg>
   ) : null;
 

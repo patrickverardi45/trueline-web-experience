@@ -84,6 +84,17 @@ export function sourceRouteAdoptionEnabled(): boolean {
   return (process.env.NEXT_PUBLIC_TL2_SOURCE_ROUTE_ADOPTION ?? '').trim() === '1';
 }
 
+/** Manual N-point bend editing + honest representative-straight labeling gate (Mission 8): the ADD/MOVE/
+ *  REMOVE bend affordances on the plan viewer, the persistent "Representative straight segment — not the
+ *  engineering route" label, the state-dependent confirm-control copy, the reload hydration of an
+ *  already-confirmed anchor, and the `manual_route` field on the source-anchor create write. Default
+ *  OFF/absent — with the flag unset every one of those stays byte-identical to pre-Mission-8 behavior (plain
+ *  click-to-append, "Confirm route", no reload hydration, no `manual_route` key ever sent). Same
+ *  NEXT_PUBLIC_* runtime-gate pattern as sourceRouteAdoptionEnabled() above. */
+export function manualRoutePointsEnabled(): boolean {
+  return (process.env.NEXT_PUBLIC_TL2_MANUAL_ROUTE_POINTS ?? '').trim() === '1';
+}
+
 // --- pure helpers (unit-checkable) ----------------------------------------------------------------- //
 
 /** Map a filename to its upload kind. `.pdf` is ambiguous (plan vs bore-log) so the caller's selected
@@ -1130,6 +1141,45 @@ export interface ControlPointInput {
   readonly y: number;
 }
 
+// --- Mission 8: nearest-segment insertion ordering (NOT coordinate snapping) ------------------------ //
+
+/** Squared distance from `p` to the CLAMPED closest point on segment `a`->`b` (clamped to the segment, not
+ *  the infinite line) — squared so callers comparing many segments never pay for an unnecessary sqrt. */
+function clampedPerpendicularDistSq(p: ControlPointInput, a: ControlPointInput, b: ControlPointInput): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq : 0;
+  t = Math.min(1, Math.max(0, t));
+  const cx = a.x + t * dx;
+  const cy = a.y + t * dy;
+  const ex = p.x - cx;
+  const ey = p.y - cy;
+  return ex * ex + ey * ey;
+}
+
+/** Doctrinally an ORDERING decision only — never coordinate snapping (Sol Q5, binding). Given the CURRENT
+ *  ordered polyline and a newly clicked point (display-space, unrounded, exactly as clicked), returns the
+ *  ARRAY INDEX at which the click should be inserted: the segment with the minimum clamped-perpendicular-
+ *  projection distance to the click, tie-broken deterministically by the LOWEST segment index (strict `<`
+ *  comparison below, so the first segment achieving the minimum wins). The caller inserts the click's own
+ *  coordinates VERBATIM at the returned index — this function never reads/writes/rounds/clamps the
+ *  coordinate itself, only decides where in the ordered list it belongs. Fewer than 2 existing points
+ *  returns `points.length` (append) so a degenerate call never throws — the ordinary "first two clicks
+ *  place start+end" flow is unaffected. */
+export function nearestSegmentInsertionIndex(
+  points: readonly ControlPointInput[], click: ControlPointInput,
+): number {
+  if (points.length < 2) return points.length;
+  let bestIndex = 0;
+  let bestDistSq = Infinity;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const d = clampedPerpendicularDistSq(click, points[i], points[i + 1]);
+    if (d < bestDistSq) { bestDistSq = d; bestIndex = i; }
+  }
+  return bestIndex + 1;
+}
+
 export interface SourceAnchorIdentityInput {
   readonly station?: string;
   readonly structureLabel?: string;
@@ -1152,6 +1202,13 @@ export interface SourceAnchorResult {
   // backend recorded it as OBSERVER_BACKBONE_HUMAN_ADOPTED. Absent/older-backend -> null, and the caller
   // renders no chip — legacy rendering stays identical.
   readonly geometryBasis: string | null;
+  // Additive (Mission 8): the server-authored `manual_route.representative_status` when this record carries
+  // one — "REPRESENTATIVE_STRAIGHT_ACCEPTED" | "MANUAL_POLYLINE_CONFIRMED". Null for an adopted/legacy
+  // record, or an older backend that hasn't landed the manual-route block yet (absence = legacy, never
+  // guessed). Drives the PERSISTENT "Representative straight segment" label — it must read true from THIS
+  // decoded record (not re-derived from the live marked-points count alone) so the label survives
+  // confirmation and a page reload, the exact defect this mission closes.
+  readonly manualRepresentativeStatus: string | null;
 }
 
 export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
@@ -1160,6 +1217,8 @@ export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
   const blockers: SourceAnchorBlocker[] = rawBlockers
     .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null && !Array.isArray(b))
     .map((b) => ({ code: str(b.code), reason: str(b.reason) }));
+  const manualRoute = (typeof d.manual_route === 'object' && d.manual_route !== null && !Array.isArray(d.manual_route))
+    ? (d.manual_route as Record<string, unknown>) : null;
   return {
     sourceAnchorId: str(d.source_anchor_id),
     status: str(d.status),
@@ -1168,6 +1227,7 @@ export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
     coordinateSpace: str(d.coordinate_space),
     blockers,
     geometryBasis: strOrNull(d.geometry_basis),
+    manualRepresentativeStatus: manualRoute ? strOrNull(manualRoute.representative_status) : null,
   };
 }
 
@@ -1190,6 +1250,27 @@ export interface RouteAdoptionInput {
   readonly controlPoints: readonly [ControlPointInput, ControlPointInput];
 }
 
+// Mission 8: the client-attested route-search refusal a manual/representative confirm may honestly report
+// (Sol Q1 — "reported_" naming is deliberate: zero effect on geometry/render/billing/tier, server never
+// re-derives it). `upstreamReasonCode` is non-null ONLY when `code === 'ROUTE_EVIDENCE_NOT_READY'` per the
+// pinned cross-field wire invariant; every other code sends it null.
+export interface ManualRouteReportedSearch {
+  readonly code: string;
+  readonly upstreamReasonCode: string | null;
+}
+
+// Mission 8: the additive `manual_route` block on the source-anchor create write. `confirmed` is pinned
+// `true` (the type prevents a caller from ever sending false/omitted). `representativeStatus` must match the
+// COUNT<->STATUS rule the backend enforces (exactly 2 points -> REPRESENTATIVE_STRAIGHT_ACCEPTED; >= 3 ->
+// MANUAL_POLYLINE_CONFIRMED) — the caller (ProductSourceAnchorCapture) derives it from the live point count,
+// never guessed here. `reportedRouteSearch` is optional — omitted entirely (not sent as null) when this
+// session's search never refused, so the wire body carries exactly the pinned shape.
+export interface ManualRouteInput {
+  readonly confirmed: true;
+  readonly representativeStatus: 'MANUAL_POLYLINE_CONFIRMED' | 'REPRESENTATIVE_STRAIGHT_ACCEPTED';
+  readonly reportedRouteSearch?: ManualRouteReportedSearch;
+}
+
 export interface SourceAnchorCreateInput {
   readonly sourceAnchorId: string;
   readonly planUploadId: string;
@@ -1205,6 +1286,12 @@ export interface SourceAnchorCreateInput {
   // THIS anchor. Omitted entirely (not sent as null) when not adopting, so the request body a non-adopting
   // caller sends is byte-for-byte what it was before this field existed.
   readonly routeAdoption?: RouteAdoptionInput;
+  // Optional (Mission 8, default absent): confirms a HUMAN-CLICKED manual/representative-straight polyline.
+  // Mutually exclusive with `routeAdoption` — the caller never sets both (see ProductSourceAnchorCapture's
+  // onSubmit, which only builds this branch when no adoption is in play). Omitted entirely when not
+  // confirming a manual route (flag off, or the request is an adoption), so the request body stays
+  // byte-for-byte identical to what it was before this field existed.
+  readonly manualRoute?: ManualRouteInput;
 }
 
 function identityBody(identity?: SourceAnchorIdentityInput): Record<string, unknown> | null {
@@ -1256,7 +1343,80 @@ export async function createSourceAnchor(
           control_points: input.routeAdoption.controlPoints.map((p) => ({ x: p.x, y: p.y })),
         } }
       : {}),
+    // Mission 8: key omitted entirely (not `manual_route: null`) unless a manual/representative confirm is
+    // in play — byte-for-byte identical to before this field existed for every adoption / flag-off / plain
+    // legacy request. `reported_route_search` is itself optional inside the block (see ManualRouteInput).
+    ...(input.manualRoute
+      ? { manual_route: {
+          confirmed: true,
+          representative_status: input.manualRoute.representativeStatus,
+          ...(input.manualRoute.reportedRouteSearch
+            ? { reported_route_search: {
+                code: input.manualRoute.reportedRouteSearch.code,
+                upstream_reason_code: input.manualRoute.reportedRouteSearch.upstreamReasonCode,
+              } }
+            : {}),
+        } }
+      : {}),
   }));
+}
+
+// ====================================================================================================
+// Mission 8 — reload hydration (flag-gated: manualRoutePointsEnabled()). On capture/workflow init, restores
+// an already-confirmed source-anchor's ordered control points + manual/representative status from the
+// EXISTING list surface (GET /jobs/{job_id}/source-anchors — no new backend route), so the persistent
+// "Representative straight segment" label and the confirmed geometry survive a page reload instead of
+// silently reverting to session-local blank state. Read-only; throws on a failed live read (no mock).
+// ====================================================================================================
+
+function composeStoredControlPoints(value: unknown): ControlPointInput[] {
+  if (!Array.isArray(value)) return [];
+  const out: ControlPointInput[] = [];
+  for (const p of value) {
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) continue;
+    const { x, y } = p as Record<string, unknown>;
+    if (typeof x !== 'number' || !Number.isFinite(x)) continue;
+    if (typeof y !== 'number' || !Number.isFinite(y)) continue;
+    out.push({ x, y });
+  }
+  return out;
+}
+
+export interface StoredSourceAnchorRecordView {
+  readonly planUploadId: string;
+  readonly reviewedBoreLogId: string;
+  readonly pageNumber: number;
+  readonly controlPoints: readonly ControlPointInput[];
+  readonly updatedAt: string | null;
+  readonly createdAt: string | null;
+  // Reuses the SAME create-response decoder (composeSourceAnchorResult) — one source of truth for
+  // status/renderable/geometryBasis/manualRepresentativeStatus, whether the record came back from a create
+  // write or from this list read.
+  readonly result: SourceAnchorResult;
+}
+
+export function composeStoredSourceAnchorRecord(doc: unknown): StoredSourceAnchorRecordView {
+  const d = asRecord(doc, 'source-anchor-record');
+  return {
+    planUploadId: str(d.plan_upload_id),
+    reviewedBoreLogId: str(d.reviewed_bore_log_id),
+    pageNumber: int(d.page_number),
+    controlPoints: composeStoredControlPoints(d.control_points),
+    updatedAt: strOrNull(d.updated_at),
+    createdAt: strOrNull(d.created_at),
+    result: composeSourceAnchorResult(d),
+  };
+}
+
+/** List the job's stored source-anchor records (tenant + job scoped; [] if none) via the EXISTING GET list
+ *  route. Used ONLY for reload hydration (manualRoutePointsEnabled()) — never called when that flag is off.
+ *  Throws on a failed live read (no mock fallback). */
+export async function listSourceAnchors(jobId: string): Promise<StoredSourceAnchorRecordView[]> {
+  const doc = asRecord(await getProductJson(`/v2/product/jobs/${jobId}/source-anchors`), 'source-anchors-list');
+  const list = Array.isArray(doc.source_anchors) ? doc.source_anchors : [];
+  return list
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
+    .map(composeStoredSourceAnchorRecord);
 }
 
 // ====================================================================================================
@@ -1305,6 +1465,12 @@ export interface RouteProposalView {
 export interface RouteRefusalView {
   readonly code: string;
   readonly message: string;
+  // Additive (Mission 8): the upstream readiness-spine status the server carries when `code ===
+  // 'ROUTE_EVIDENCE_NOT_READY'` (non-null in that case per the pinned cross-field wire invariant); null for
+  // every other refusal code, and null on an older backend response that doesn't carry the field. Needed so
+  // a manual/representative confirm can honestly report the LAST search refusal via
+  // manual_route.reported_route_search — never fabricated when absent.
+  readonly upstreamReasonCode: string | null;
 }
 
 export type RouteProposalOutcome =
@@ -1407,7 +1573,7 @@ export function routeAdoptionInputFromProposal(proposal: RouteProposalView): Rou
 
 export function composeRouteRefusal(value: unknown): RouteRefusalView {
   const d = asRecord(value, 'route-refusal');
-  return { code: str(d.code), message: str(d.message) };
+  return { code: str(d.code), message: str(d.message), upstreamReasonCode: strOrNull(d.upstream_reason_code) };
 }
 
 export interface RouteProposalRequest {
@@ -1490,7 +1656,25 @@ export interface JobArtifactRef {
 
 /** One clickable interval/footage dot along a HUMAN-confirmed redline (backend-computed; provenance is
  *  always HUMAN_CONFIRMED_CONTROL_POINTS — never AUTO). Dots mark 0' (start), every 50', and the final
- *  endpoint; info fields are the bore row's own values (null when the row doesn't carry them). */
+ *  endpoint; info fields are the bore row's own values (null when the row doesn't carry them).
+ *
+ *  Mission-8 ADDENDUM (station-dot contract): each dot ADDITIVELY carries `origin` — whether it is an
+ *  actual station reading taken off the bore log (SOURCE_RECORDED) or an arithmetic 50' interval fill
+ *  the engine derived because the log only recorded start/end/total footage (DERIVED_INTERVAL). `origin`
+ *  is `null` on a legacy payload that predates this field — NEVER guessed from other data. Derived dots
+ *  never carry depth/boc/notes (the wire object omits those keys entirely; the existing strOrNull()-based
+ *  decode below already renders that as an honest absence, same as any other missing field). */
+export type StationDotOrigin = 'SOURCE_RECORDED' | 'DERIVED_INTERVAL';
+
+/** Per-station evidence for a SOURCE_RECORDED dot (present only when the backend attached it — a
+ *  DERIVED_INTERVAL dot never carries this, and a malformed/non-object wire value composes to `null`
+ *  rather than a fabricated placeholder). */
+export interface StationEvidenceView {
+  readonly verbatim: string | null;
+  readonly status: string | null;
+  readonly confidence: string | null;
+}
+
 export interface StationDot {
   readonly index: number;
   readonly footageAlong: number;
@@ -1504,6 +1688,8 @@ export interface StationDot {
   readonly notes: string | null;
   readonly boreLogId: string | null;
   readonly provenance: string;
+  readonly origin: StationDotOrigin | null;
+  readonly stationEvidence: StationEvidenceView | null;
 }
 
 export interface SourceAnchorRenderResult {
@@ -1515,6 +1701,33 @@ export interface SourceAnchorRenderResult {
   readonly artifacts: readonly JobArtifactRef[];
   // Additive: {source_anchor_id: [dot, ...]} from the published manifest ({} when the row had no footage).
   readonly stationDotsByLog: Readonly<Record<string, readonly StationDot[]>>;
+  // Mission-8 ADDENDUM, additive + absence-tolerant: {source_anchor_id: basis} / {source_anchor_id:
+  // [warning, ...]} mirroring stationDotsByLog's per-log grouping (the manifest's per-log station-marks
+  // metadata lives alongside that same log's dots). `{}` on any payload that doesn't carry these keys yet
+  // (legacy payload or a backend that hasn't landed this field) — never defaulted to a fabricated basis.
+  readonly stationMarksBasisByLog: Readonly<Record<string, string>>;
+  readonly stationMarksWarningsByLog: Readonly<Record<string, readonly string[]>>;
+}
+
+const STATION_DOT_ORIGINS: readonly StationDotOrigin[] = ['SOURCE_RECORDED', 'DERIVED_INTERVAL'];
+
+/** `null` on anything but an exact recognized enum value — absent (legacy payload), unrecognized, or
+ *  malformed all compose to `null` alike, so a caller can only ever branch on the two named origins or
+ *  "unknown/legacy", never on a guessed third state. */
+function composeStationDotOrigin(value: unknown): StationDotOrigin | null {
+  return typeof value === 'string' && (STATION_DOT_ORIGINS as readonly string[]).includes(value)
+    ? (value as StationDotOrigin)
+    : null;
+}
+
+/** A malformed (non-object) `station_evidence` composes to `null` — the whole object is ignored rather
+ *  than fabricated. A present object keeps whatever individual fields are actually strings (same
+ *  honest-absence convention as composeSourceEvidence above); it is never rejected wholesale just because
+ *  one field is missing. */
+function composeStationEvidence(value: unknown): StationEvidenceView | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const e = value as Record<string, unknown>;
+  return { verbatim: strOrNull(e.verbatim), status: strOrNull(e.status), confidence: strOrNull(e.confidence) };
 }
 
 function composeStationDot(d: Record<string, unknown>): StationDot {
@@ -1528,6 +1741,8 @@ function composeStationDot(d: Record<string, unknown>): StationDot {
     depth: strOrNull(d.depth), boc: strOrNull(d.boc), date: strOrNull(d.date), crew: strOrNull(d.crew),
     print: strOrNull(d.print), notes: strOrNull(d.notes), boreLogId: strOrNull(d.bore_log_id),
     provenance: str(d.provenance),
+    origin: composeStationDotOrigin(d.origin),
+    stationEvidence: composeStationEvidence(d.station_evidence),
   };
 }
 
@@ -1539,6 +1754,24 @@ function composeStationDotsByLog(value: unknown): Record<string, readonly Statio
     out[logId] = dots
       .filter((d): d is Record<string, unknown> => typeof d === 'object' && d !== null && !Array.isArray(d))
       .map(composeStationDot);
+  }
+  return out;
+}
+
+function composeStationMarksBasisByLog(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [logId, basis] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof basis === 'string' && basis.trim()) out[logId] = basis;
+  }
+  return out;
+}
+
+function composeStationMarksWarningsByLog(value: unknown): Record<string, readonly string[]> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, readonly string[]> = {};
+  for (const [logId, warnings] of Object.entries(value as Record<string, unknown>)) {
+    out[logId] = strList(warnings);
   }
   return out;
 }
@@ -1563,6 +1796,8 @@ export function composeSourceAnchorRenderResult(doc: unknown): SourceAnchorRende
     sourceAnchorIds: strList(d.source_anchor_ids),
     artifacts: composeArtifactRefList(d.artifacts),
     stationDotsByLog: composeStationDotsByLog(d.station_dots),
+    stationMarksBasisByLog: composeStationMarksBasisByLog(d.station_marks_basis),
+    stationMarksWarningsByLog: composeStationMarksWarningsByLog(d.station_marks_warnings),
   };
 }
 
