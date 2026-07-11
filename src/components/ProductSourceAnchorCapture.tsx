@@ -800,7 +800,10 @@ export function ProductSourceAnchorCapture({
                 </button>
                 {points.length !== 2 && (
                   <span className="text-ink-3">
-                    {points.length > 2
+                    {/* Mission 8: the more-specific ">2 points" hint is gated behind manualRouteOn — with the
+                        flag off, points.length CAN still exceed 2 (pre-existing "middle clicks = bends"), so
+                        this copy stays byte-identical to before unless the flag is actually on. */}
+                    {manualRouteOn && points.length > 2
                       ? 'Search uses only your start and end points — it seeds from the two termini.'
                       : 'Mark exactly 2 points (start + end) to search.'}
                   </span>
