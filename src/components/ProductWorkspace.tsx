@@ -37,10 +37,10 @@ import {
   downloadRouteKmzBlob,
   fetchCloseoutStatus,
   fetchExportStatus,
+  fetchAggregateEngineReadiness,
   fetchJobArtifactBlob,
   fetchJobArtifacts,
   fetchRecognizedCorpusHandoff,
-  fetchReviewQueue,
   fetchReviewedBoreLog,
   listReviewCandidates,
   type JobArtifactRef,
@@ -155,7 +155,9 @@ export function ProductWorkspace(props: WorkspaceProps) {
     if (!selectedJobId || !hasBore) { setGate({ engineReady: null, recognized: null }); return; }
     let engineReady: boolean | null = null;
     let recognized: boolean | null = null;
-    try { engineReady = (await fetchReviewQueue(selectedJobId, WORKSPACE_RBL_ID)).engineReady; } catch { engineReady = null; }
+    // Aggregates over a fan-out (handwritten multi-bore) upload's sibling RBLs, excluding the typically-
+    // empty primary — falls back to the primary's own engineReady when there's no such fan-out.
+    try { engineReady = await fetchAggregateEngineReadiness(selectedJobId, WORKSPACE_RBL_ID); } catch { engineReady = null; }
     if (hasPlan) { try { recognized = (await fetchRecognizedCorpusHandoff(selectedJobId)).runnable; } catch { recognized = null; } }
     setGate({ engineReady, recognized });
   }, [selectedJobId, hasBore, hasPlan]);
@@ -578,7 +580,7 @@ function PackageReadiness({ jobId, detail, refreshKey }: {
     let er: boolean | null = null;
     if (hasPlan && hasBore) {
       try { rec = (await fetchRecognizedCorpusHandoff(jobId)).runnable; } catch { rec = null; }
-      try { er = (await fetchReviewQueue(jobId, WORKSPACE_RBL_ID)).engineReady; } catch { er = null; }
+      try { er = await fetchAggregateEngineReadiness(jobId, WORKSPACE_RBL_ID); } catch { er = null; }
     }
     setRecognized(rec);
     setEngineReady(er);

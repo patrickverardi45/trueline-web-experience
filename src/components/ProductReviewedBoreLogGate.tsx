@@ -18,7 +18,10 @@ import {
   addReviewedRows,
   createReviewedBoreLog,
   defineSegmentGroup,
+  ensureGroupingConfirmed,
   extractBoreLogRows,
+  fanOutCandidateIds,
+  fetchAggregateEngineReadiness,
   fetchReviewQueue,
   fetchReviewedBoreLog,
   reviewReviewedRow,
@@ -26,6 +29,7 @@ import {
   type CreatedReviewedBoreLog,
   type ManualRowInput,
   type ReviewedBoreLogView,
+  type ReviewedGroupView,
   type ReviewedRowView,
   type ReviewQueueView,
   type SegmentRelation,
@@ -52,22 +56,8 @@ function gid(): string {
   return 'grp-' + Math.random().toString(36).slice(2, 8);
 }
 
-// A single uploaded file can fan out into SEVERAL reviewed-bore-logs (a handwritten multi-bore package —
-// ids like "rbl-hw-p0-r1", "rbl-hw-p0-r2", …). The extract response's `created_reviewed_bore_logs` is the
-// AUTHORITATIVE source for this (see extractCreatedRbls state below); this bounded "-rN" suffix probe is
-// ONLY a fallback for an older backend that hasn't landed that field yet — stop at the first gap. Ordinary
-// ids ("rbl-main", "rbl-2") never match the suffix, so this stays a zero-cost no-op for non-fan-out jobs.
-const FAN_OUT_SUFFIX_RE = /^(.*)-r(\d+)$/;
-const MAX_FAN_OUT_PROBE = 8;
-function fanOutCandidateIds(primaryId: string): string[] {
-  const m = FAN_OUT_SUFFIX_RE.exec(primaryId);
-  if (!m) return [];
-  const [, prefix, numStr] = m;
-  const start = Number(numStr) + 1;
-  const out: string[] = [];
-  for (let n = start; n < start + MAX_FAN_OUT_PROBE; n += 1) out.push(`${prefix}-r${n}`);
-  return out;
-}
+// fanOutCandidateIds (the bounded "-rN" suffix probe fallback) now lives in productWrites.ts — ONE shared
+// place, reused by fetchAggregateEngineReadiness's own probe below too.
 
 interface BoreCardData {
   readonly rblId: string;
@@ -117,11 +107,16 @@ export function ProductReviewedBoreLogGate({
     if (!active) { setPhase('absent'); setSiblingBores([]); return; }
     setError(null);
     try {
-      const [record, q] = [await fetchReviewedBoreLog(jobId, activeRbl), await fetchReviewQueue(jobId, activeRbl)];
+      const record = await fetchReviewedBoreLog(jobId, activeRbl);
+      let q = await fetchReviewQueue(jobId, activeRbl);
+      // Idempotently ensure grouping the moment ALL of this RBL's rows are reviewed (per-row review has no
+      // grouping step of its own) — a no-op for the (typically empty) primary in a fan-out package.
+      if (await ensureGroupingConfirmed(jobId, activeRbl, record.rows, record.groups)) {
+        q = await fetchReviewQueue(jobId, activeRbl);
+      }
       setRbl(record);
       setQueue(q);
       setPhase('ready');
-      setReadyMap((prev) => ({ ...prev, [sel]: q.engineReady }));
 
       // Sibling ids: the backend's created_reviewed_bore_logs (from the last extract this session) is
       // AUTHORITATIVE the moment it's present, even if empty — the -rN probe fires ONLY when it's `undefined`
@@ -131,29 +126,42 @@ export function ProductReviewedBoreLogGate({
         ? undefined
         : created.map((c) => c.reviewedBoreLogId).filter((id): id is string => !!id && id !== activeRbl);
 
+      // Sibling numbering follows CREATION order (both id sources below are already creation-ordered): when
+      // the primary carries no rows (the ordinary fan-out shape), siblings are "Bore 1..N"; when the primary
+      // itself carries rows too, it occupies "Bore 1" implicitly and siblings continue from "Bore 2".
+      const primaryHasRows = record.rows.length > 0;
+      const labelFor = (position: number) => `Bore ${primaryHasRows ? position + 2 : position + 1}`;
+
       const siblings: BoreCardData[] = [];
+      async function pushSibling(candidateId: string) {
+        const srbl = await fetchReviewedBoreLog(jobId, candidateId);
+        let squeue = await fetchReviewQueue(jobId, candidateId);
+        if (await ensureGroupingConfirmed(jobId, candidateId, srbl.rows, srbl.groups)) {
+          squeue = await fetchReviewQueue(jobId, candidateId);
+        }
+        siblings.push({ rblId: candidateId, label: labelFor(siblings.length), rbl: srbl, queue: squeue });
+      }
       if (backendSiblingIds !== undefined) {
         // Authoritative (possibly empty) — known ids only, zero probe requests either way.
         for (const candidateId of backendSiblingIds) {
-          try {
-            const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
-            siblings.push({ rblId: candidateId, label: `Bore ${siblings.length + 2}`, rbl: srbl, queue: squeue });
-          } catch {
-            // skip this one; the rest are independent known ids, not a sequential guess
-          }
+          try { await pushSibling(candidateId); } catch { /* skip; independent known ids, not a guess */ }
         }
       } else {
         // Fallback bounded probe for fan-out siblings of THIS rbl id; stop at the first missing one.
         for (const candidateId of fanOutCandidateIds(activeRbl)) {
-          try {
-            const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
-            siblings.push({ rblId: candidateId, label: `Bore ${siblings.length + 2}`, rbl: srbl, queue: squeue });
-          } catch {
-            break; // first gap (404) or any other error — stop probing, keep what we found
-          }
+          try { await pushSibling(candidateId); } catch { break; /* first gap — stop probing */ }
         }
       }
       setSiblingBores(siblings);
+
+      // File-level "reviewed & ready" (the per-file pill + this file's status pill): when fan-out siblings
+      // carry rows, aggregate over THEM (all engine-ready) and exclude the — typically empty — primary. No
+      // siblings carrying rows -> unchanged single-RBL behavior (the primary's own engineReady).
+      const siblingsWithRows = siblings.filter((s) => s.rbl.rows.length > 0);
+      const aggregateReady = siblingsWithRows.length > 0
+        ? siblingsWithRows.every((s) => s.queue.engineReady)
+        : q.engineReady;
+      setReadyMap((prev) => ({ ...prev, [sel]: aggregateReady }));
     } catch (e) {
       if (is404(e)) {
         setPhase('absent');
@@ -180,7 +188,9 @@ export function ProductReviewedBoreLogGate({
     (async () => {
       const entries = await Promise.all(
         boreLogUploads.map(async (_, i) => {
-          try { return [i, (await fetchReviewQueue(jobId, rblFor(i))).engineReady] as const; }
+          // Aggregates over that file's own fan-out siblings (excluding its empty primary) when they carry
+          // rows; falls back to the primary's own engineReady otherwise — same rule as load() above.
+          try { return [i, await fetchAggregateEngineReadiness(jobId, rblFor(i))] as const; }
           catch { return [i, false] as const; }
         }),
       );
@@ -244,35 +254,42 @@ export function ProductReviewedBoreLogGate({
     });
   }
 
-  // Bulk-confirm every not-yet-passed row of ONE reviewed-bore-log and group it so it becomes engine-ready
-  // (one bore span per RBL) — the "Confirm all remaining" fallback for the plain-table lanes. Shared by the
-  // primary card and every fan-out sibling bore card (each RBL confirms independently).
-  async function confirmAllRemaining(targetRblId: string, targetRows: readonly ReviewedRowView[], targetGroupCount: number) {
+  // Bulk-confirm every not-yet-passed row of ONE reviewed-bore-log, then idempotently ensure its grouping
+  // (the SAME shared helper the per-row review path uses via load()) so it becomes engine-ready — the
+  // "Confirm all remaining" fallback for the plain-table lanes. Shared by the primary card and every
+  // fan-out sibling bore card (each RBL confirms independently).
+  async function confirmAllRemaining(
+    targetRblId: string, targetRows: readonly ReviewedRowView[], targetGroups: readonly ReviewedGroupView[],
+  ) {
     await act(async () => {
       for (const r of targetRows) {
         if (!PASS.has(r.reviewStatus)) {
           await reviewReviewedRow(jobId, targetRblId, r.rowId, { toStatus: 'CONFIRMED' });
         }
       }
-      const ids = targetRows.map((r) => r.rowId);
-      if (ids.length > 0 && targetGroupCount === 0) {
-        const groupId = gid();
-        await defineSegmentGroup(jobId, targetRblId, groupId, ids, 'SEPARATE_BORE');
-        await setGroupingStatus(jobId, targetRblId, groupId, 'CONFIRMED');
-      }
+      // Every targetRows entry is reviewed now (just confirmed above, or already was) — ensureGroupingConfirmed
+      // re-derives the group membership from this post-confirm view and is a no-op if already grouped.
+      const reviewedRows = targetRows.map((r) => (PASS.has(r.reviewStatus) ? r : { ...r, reviewStatus: 'CONFIRMED' }));
+      await ensureGroupingConfirmed(jobId, targetRblId, reviewedRows, targetGroups);
     });
   }
 
   // Confirm the SELECTED (primary) file's extracted rows — without diving into the Advanced manual tooling.
   async function onConfirmReady() {
-    await confirmAllRemaining(activeRbl, rows, rbl?.groups.length ?? 0);
+    await confirmAllRemaining(activeRbl, rows, rbl?.groups ?? []);
   }
 
   const rows = rbl?.rows ?? [];
   const passedRows = rows.filter((r) => PASS.has(r.reviewStatus));
   const effectiveSourceUploadId = active?.uploadId ?? '';
   const hasUpload = boreLogUploads.length > 0;
-  const ready = !!queue?.engineReady;
+  // File-level "reviewed & ready" — aggregate over fan-out siblings that carry rows (excluding the
+  // typically-empty primary rbl-main) when they exist; no siblings carrying rows -> the primary's own
+  // engineReady, unchanged single-RBL behavior. Mirrors the same rule computed in load().
+  const siblingBoresWithRows = siblingBores.filter((s) => s.rbl.rows.length > 0);
+  const ready = siblingBoresWithRows.length > 0
+    ? siblingBoresWithRows.every((s) => s.queue.engineReady)
+    : !!queue?.engineReady;
   const showAdvanced = internalToolingEnabled() && hasUpload && phase !== 'loading' && phase !== 'error';
 
   return (
@@ -367,7 +384,7 @@ export function ProductReviewedBoreLogGate({
                   {rows.map((r) => (
                     <ProductBoreRowEditor
                       key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
-                      row={r} readOnly onChanged={load} />
+                      uploadFilename={active?.filename ?? null} row={r} readOnly onChanged={load} />
                   ))}
                 </div>
               )}
@@ -406,7 +423,7 @@ export function ProductReviewedBoreLogGate({
                 {rows.map((r) => (
                   <ProductBoreRowEditor
                     key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
-                    row={r} disabled={busy} onChanged={load} />
+                    uploadFilename={active?.filename ?? null} row={r} disabled={busy} onChanged={load} />
                 ))}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
@@ -430,7 +447,8 @@ export function ProductReviewedBoreLogGate({
                (handwritten multi-bore packages). Empty for every ordinary job/lane. ---- */}
           {phase !== 'loading' && phase !== 'error' && siblingBores.map((s) => (
             <SiblingBoreCard
-              key={s.rblId} jobId={jobId} uploadId={effectiveSourceUploadId || null} card={s}
+              key={s.rblId} jobId={jobId} uploadId={effectiveSourceUploadId || null}
+              uploadFilename={active?.filename ?? null} card={s}
               busy={busy} onConfirmAll={confirmAllRemaining} onChanged={load} />
           ))}
 
@@ -610,13 +628,14 @@ function Stat({ label, v }: { label: string; v: number }) {
 // a handwritten multi-bore package). Its own per-row editor + its own "Confirm all remaining" — a sibling's
 // review state never affects the primary's.
 function SiblingBoreCard({
-  jobId, uploadId, card, busy, onConfirmAll, onChanged,
+  jobId, uploadId, uploadFilename, card, busy, onConfirmAll, onChanged,
 }: {
   jobId: string;
   uploadId: string | null;
+  uploadFilename: string | null;
   card: BoreCardData;
   busy: boolean;
-  onConfirmAll: (rblId: string, rows: readonly ReviewedRowView[], groupCount: number) => Promise<void>;
+  onConfirmAll: (rblId: string, rows: readonly ReviewedRowView[], groups: readonly ReviewedGroupView[]) => Promise<void>;
   onChanged: () => void;
 }) {
   const rows = card.rbl.rows;
@@ -635,13 +654,13 @@ function SiblingBoreCard({
         {rows.map((r) => (
           <ProductBoreRowEditor
             key={r.rowId} jobId={jobId} rblId={card.rblId} uploadId={uploadId}
-            row={r} disabled={busy} readOnly={ready} onChanged={onChanged} />
+            uploadFilename={uploadFilename} row={r} disabled={busy} readOnly={ready} onChanged={onChanged} />
         ))}
       </div>
       {!ready && rows.length > 0 && (
         <div className="mt-3 border-t border-line/60 pt-3">
           <button
-            onClick={() => onConfirmAll(card.rblId, rows, card.rbl.groups.length)}
+            onClick={() => onConfirmAll(card.rblId, rows, card.rbl.groups)}
             disabled={busy}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
             {busy ? 'Confirming…' : 'Confirm all remaining'}

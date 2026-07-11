@@ -100,11 +100,15 @@ function SourcePagePreview({ jobId, uploadId, pageIndex }: { jobId: string; uplo
 }
 
 export function ProductBoreRowEditor({
-  jobId, rblId, uploadId, row, disabled, readOnly, onChanged,
+  jobId, rblId, uploadId, uploadFilename, row, disabled, readOnly, onChanged,
 }: {
   jobId: string;
   rblId: string;
   uploadId: string | null;
+  // The ORIGINAL customer-uploaded filename for this row's source file (resolved by the caller from the
+  // job's uploads list) — shown on the Source line in place of whatever internal name the backend stored
+  // the bytes under (e.g. "payload.pdf"). Null degrades to the stored name, honestly.
+  uploadFilename?: string | null;
   row: ReviewedRowView;
   disabled?: boolean;
   // Already-reviewed rows (engine-ready lane): show every field honestly but no Edit/Confirm actions — a
@@ -317,7 +321,9 @@ export function ProductBoreRowEditor({
 
           {row.sourceEvidence && (
             <p className="mt-2 text-[10px] text-ink-3">
-              Source: {row.sourceEvidence.file ?? 'uploaded file'}
+              {/* Prefer the ORIGINAL uploaded filename (resolved by the caller from the job's uploads list)
+                  over whatever internal name the backend stored the bytes under. */}
+              Source: {uploadFilename ?? row.sourceEvidence.file ?? 'uploaded file'}
               {row.sourceEvidence.pageIndex !== null ? `, page ${row.sourceEvidence.pageIndex + 1}` : ''}
               {row.sourceEvidence.sha256 ? ` · ${row.sourceEvidence.sha256.slice(0, 8)}…` : ''}
             </p>

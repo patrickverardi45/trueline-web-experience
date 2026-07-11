@@ -429,14 +429,27 @@ function composeCellEvidence(value: unknown): CellEvidenceCompose {
   return { view, warnings };
 }
 
+// A station_readings entry's fields arrive as NESTED Cell objects ({value, verbatim, status, ...}) — same
+// shape family as cell_evidence — NOT raw primitives. Unwrap to .value, falling back to .verbatim, so the
+// readings sub-table renders the actual reading instead of dashes/"[object Object]". A raw primitive
+// (older backend) passes straight through untouched.
+function cellValue(raw: unknown): unknown {
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    const c = raw as Record<string, unknown>;
+    if ('value' in c) return c.value ?? (('verbatim' in c) ? c.verbatim : null);
+    if ('verbatim' in c) return c.verbatim;
+  }
+  return raw;
+}
+
 function composeStationReading(value: unknown): StationReadingView | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const d = value as Record<string, unknown>;
   return {
-    station: strOrNull(d.station),
-    depthFt: numOrNull(d.depth_ft),
-    bocFt: numOrNull(d.boc_ft),
-    note: strOrNull(d.note),
+    station: strOrNull(cellValue(d.station)),
+    depthFt: numOrNull(cellValue(d.depth_ft)),
+    bocFt: numOrNull(cellValue(d.boc_ft)),
+    note: strOrNull(cellValue(d.note)),
   };
 }
 
@@ -636,6 +649,77 @@ export async function setGroupingStatus(
 export async function fetchReviewQueue(jobId: string, rblId: string): Promise<ReviewQueueView> {
   return composeReviewQueue(
     await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/review-queue`));
+}
+
+function is409(err: unknown): boolean {
+  return err instanceof Error && /HTTP 409/.test(err.message);
+}
+
+const REVIEWED_STATUSES = new Set(['CONFIRMED', 'CORRECTED']);
+
+/** Idempotently ensure ONE CONFIRMED segment group exists for an RBL once ALL its rows are reviewed.
+ *  Engine-readiness needs a CONFIRMED group, not just reviewed rows, and the per-row review surface (see
+ *  submitRowReview) has no grouping step of its own — this closes that gap for BOTH the primary RBL and
+ *  every fan-out sibling RBL, called after any successful per-row review AND inside a bulk "Confirm all
+ *  remaining". Skips entirely (zero calls) when the RBL has no rows, has any not-yet-reviewed row, or
+ *  already has a CONFIRMED group. Tolerates a 409 on the create call (group already exists — e.g. a prior
+ *  partial/racing attempt) and proceeds straight to confirming it. Returns true iff grouping state actually
+ *  changed, so the caller knows to re-read engine-readiness. */
+export async function ensureGroupingConfirmed(
+  jobId: string, rblId: string, rows: readonly ReviewedRowView[], groups: readonly ReviewedGroupView[],
+): Promise<boolean> {
+  if (rows.length === 0) return false;
+  if (!rows.every((r) => REVIEWED_STATUSES.has(r.reviewStatus))) return false;
+  if (groups.some((g) => g.groupingStatus === 'CONFIRMED')) return false;
+  const groupId = 'g-1';
+  try {
+    await defineSegmentGroup(jobId, rblId, groupId, rows.map((r) => r.rowId), 'SEPARATE_BORE');
+  } catch (e) {
+    if (!is409(e)) throw e;
+  }
+  await setGroupingStatus(jobId, rblId, groupId, 'CONFIRMED');
+  return true;
+}
+
+// --- W3 fan-out siblings: ONE shared pure id-probe + a read-only aggregate-readiness helper -------- //
+
+/** Bounded fallback probe for a fan-out RBL's sibling ids, for a caller that doesn't have (or hasn't yet
+ *  fetched) the backend's authoritative created_reviewed_bore_logs list — e.g. a light readiness poll with
+ *  no per-session extract-result memory. Ids like "rbl-hw-p0-r1" fan out to "rbl-hw-p0-r2", "-r3", …;
+ *  ordinary ids ("rbl-main", "rbl-2") never match the "-rN" suffix, so this is a zero-cost no-op for every
+ *  non-fan-out RBL id. This is the ONE place the suffix pattern lives — callers import it rather than
+ *  re-deriving it. */
+const FAN_OUT_SUFFIX_RE = /^(.*)-r(\d+)$/;
+const MAX_FAN_OUT_PROBE = 8;
+export function fanOutCandidateIds(primaryRblId: string): string[] {
+  const m = FAN_OUT_SUFFIX_RE.exec(primaryRblId);
+  if (!m) return [];
+  const [, prefix, numStr] = m;
+  const start = Number(numStr) + 1;
+  const out: string[] = [];
+  for (let n = start; n < start + MAX_FAN_OUT_PROBE; n += 1) out.push(`${prefix}-r${n}`);
+  return out;
+}
+
+/** Read-only AGGREGATE engine-readiness for one uploaded bore-log file, accounting for handwritten
+ *  multi-bore fan-out: when the primary RBL has fanned out into sibling RBLs that carry rows, readiness
+ *  aggregates over those siblings (ALL must be engine-ready) and the primary — typically empty in a
+ *  fan-out package — is excluded. No fanned-out siblings carrying rows -> falls back to the primary RBL's
+ *  own engineReady, unchanged (single-RBL lanes are byte-identical). Throws exactly like fetchReviewQueue
+ *  on a failed PRIMARY read (same try/catch contract callers already have); a sibling probe failure just
+ *  stops the probe (bounded, first-gap-stops), never surfaces as an error. */
+export async function fetchAggregateEngineReadiness(jobId: string, primaryRblId: string): Promise<boolean> {
+  const primaryReady = (await fetchReviewQueue(jobId, primaryRblId)).engineReady;
+  const siblingsWithRows: boolean[] = [];
+  for (const candidateId of fanOutCandidateIds(primaryRblId)) {
+    try {
+      const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
+      if (srbl.rows.length > 0) siblingsWithRows.push(squeue.engineReady);
+    } catch {
+      break; // first gap — stop probing
+    }
+  }
+  return siblingsWithRows.length > 0 ? siblingsWithRows.every(Boolean) : primaryReady;
 }
 
 // One reviewed-bore-log the extraction call created — fan-out for a handwritten multi-bore package (one
