@@ -642,7 +642,9 @@ export async function setGroupingStatus(
 ): Promise<unknown> {
   return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/groups/${groupId}/status`, {
     to_status: toStatus,
-    reason: reason ?? null,
+    // Omit the key entirely when there's no reason, rather than sending a bare null — some backends treat
+    // "key absent" differently from "key present but null" (e.g. audit-log presence checks).
+    ...(reason ? { reason } : {}),
   });
 }
 
@@ -723,10 +725,20 @@ async function handwrittenFanOutIdExists(jobId: string, candidateId: string): Pr
  *  multi-bore fan-out: when the primary RBL has fanned out into sibling RBLs that carry rows, readiness
  *  aggregates over those siblings (ALL must be engine-ready) and the primary — typically empty in a
  *  fan-out package — is excluded. No fanned-out siblings carrying rows -> falls back to the primary RBL's
- *  own engineReady, unchanged (single-RBL lanes are byte-identical: one failed probe check, no more). Throws
- *  exactly like fetchReviewQueue on a failed PRIMARY read (same try/catch contract callers already have). */
-export async function fetchAggregateEngineReadiness(jobId: string, primaryRblId: string): Promise<boolean> {
+ *  own engineReady, unchanged. Throws exactly like fetchReviewQueue on a failed PRIMARY read (same
+ *  try/catch contract callers already have).
+ *
+ *  `probeAllowed` gates the (bounded, but still real) rediscovery probe — default `false` so a plain
+ *  single-RBL job/caller costs exactly the one primary read, zero probe requests. Pass `true` only when the
+ *  caller genuinely has no other way to know this file's fan-out state this session (mirrors the gate's own
+ *  "extractCreatedRbls[i] is undefined" condition); a caller that already knows there's no fan-out (or
+ *  doesn't have per-file session context at all, e.g. the workspace's generic job-level checks) passes
+ *  `false` and skips the probe entirely. */
+export async function fetchAggregateEngineReadiness(
+  jobId: string, primaryRblId: string, probeAllowed = false,
+): Promise<boolean> {
   const primaryReady = (await fetchReviewQueue(jobId, primaryRblId)).engineReady;
+  if (!probeAllowed) return primaryReady;
   const siblingIds = await probeHandwrittenFanOutIds((id) => handwrittenFanOutIdExists(jobId, id));
   const siblingsWithRows: boolean[] = [];
   for (const candidateId of siblingIds) {

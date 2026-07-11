@@ -225,8 +225,12 @@ export function ProductReviewedBoreLogGate({
       const entries = await Promise.all(
         boreLogUploads.map(async (_, i) => {
           // Aggregates over that file's own fan-out siblings (excluding its empty primary) when they carry
-          // rows; falls back to the primary's own engineReady otherwise — same rule as load() above.
-          try { return [i, await fetchAggregateEngineReadiness(jobId, rblFor(i))] as const; }
+          // rows; falls back to the primary's own engineReady otherwise — same rule as load() above. The
+          // rediscovery probe only runs when THIS file's fan-out state isn't already known this session
+          // (extractCreatedRbls[i] undefined) — same absent-condition load() uses, so a file already
+          // resolved (empty or with known ids) costs zero extra probe requests here.
+          const probeAllowed = extractCreatedRbls[i] === undefined;
+          try { return [i, await fetchAggregateEngineReadiness(jobId, rblFor(i), probeAllowed)] as const; }
           catch { return [i, false] as const; }
         }),
       );

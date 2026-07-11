@@ -155,9 +155,10 @@ export function ProductWorkspace(props: WorkspaceProps) {
     if (!selectedJobId || !hasBore) { setGate({ engineReady: null, recognized: null }); return; }
     let engineReady: boolean | null = null;
     let recognized: boolean | null = null;
-    // Aggregates over a fan-out (handwritten multi-bore) upload's sibling RBLs, excluding the typically-
-    // empty primary — falls back to the primary's own engineReady when there's no such fan-out.
-    try { engineReady = await fetchAggregateEngineReadiness(selectedJobId, WORKSPACE_RBL_ID); } catch { engineReady = null; }
+    // probeAllowed=false: this generic job-level check has no per-file session context to know whether a
+    // probe would even be worth it, so it never pays one — a plain single-RBL job costs exactly one read.
+    // The Bore logs step itself (ProductReviewedBoreLogGate) does the real fan-out discovery + self-heal.
+    try { engineReady = await fetchAggregateEngineReadiness(selectedJobId, WORKSPACE_RBL_ID, false); } catch { engineReady = null; }
     if (hasPlan) { try { recognized = (await fetchRecognizedCorpusHandoff(selectedJobId)).runnable; } catch { recognized = null; } }
     setGate({ engineReady, recognized });
   }, [selectedJobId, hasBore, hasPlan]);
@@ -580,7 +581,8 @@ function PackageReadiness({ jobId, detail, refreshKey }: {
     let er: boolean | null = null;
     if (hasPlan && hasBore) {
       try { rec = (await fetchRecognizedCorpusHandoff(jobId)).runnable; } catch { rec = null; }
-      try { er = await fetchAggregateEngineReadiness(jobId, WORKSPACE_RBL_ID); } catch { er = null; }
+      // probeAllowed=false — see gateLoad's comment above.
+      try { er = await fetchAggregateEngineReadiness(jobId, WORKSPACE_RBL_ID, false); } catch { er = null; }
     }
     setRecognized(rec);
     setEngineReady(er);
