@@ -17,16 +17,25 @@ import {
   fetchPlanPageRasterBlob,
   fetchReviewedBoreLog,
   renderSourceAnchor,
+  requestSourceRouteProposal,
+  routeAdoptionInputFromProposal,
+  routeAdoptionRefusalCode,
+  sourceRouteAdoptionEnabled,
   type ControlPointInput,
   type JobArtifactRef,
   type PlanPageInfo,
   type PlanPageMetadata,
+  type ReviewedRowView,
+  type RouteAdoptionInput,
+  type RouteProposalView,
+  type RouteRefusalView,
   type SourceAnchorRenderResult,
   type SourceAnchorResult,
   type StationDot,
 } from '@/lib/api/productWrites';
 import { Card } from '@/components/ui/Card';
 import { PlanPageViewer } from '@/components/PlanPageViewer';
+import { SourceRouteProposalPanel } from '@/components/SourceRouteProposalPanel';
 
 interface PlanUploadRef {
   readonly uploadId: string;
@@ -94,6 +103,26 @@ export function ProductSourceAnchorCapture({
     { phase: 'loading' } | { phase: 'ready'; url: string } | { phase: 'error'; message: string } | null
   >(null);
 
+  // --- Ticket W-C: source-backed route proposal + explicit adoption (flag-gated) --------------------- //
+  // Default-OFF: with the flag unset, routeAdoptionOn is false, none of the state below is ever set to
+  // anything but its initial value, and none of the effects/handlers below issue a fetch or change render
+  // output — the component stays byte-identical to pre-W-C behavior.
+  const routeAdoptionOn = sourceRouteAdoptionEnabled();
+  // Station-bearing rows (same predicate as the pre-fill above) — needed to thread a row_id into the
+  // proposal request. Auto-selected when exactly one; otherwise the user must explicitly pick one.
+  const [stationBearingRows, setStationBearingRows] = useState<readonly ReviewedRowView[]>([]);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [proposalState, setProposalState] = useState<
+    | { phase: 'idle' }
+    | { phase: 'searching' }
+    | { phase: 'proposal'; proposal: RouteProposalView }
+    | { phase: 'refusal'; refusal: RouteRefusalView }
+    | { phase: 'error'; message: string }
+  >({ phase: 'idle' });
+  // Set true on a 404 from the proposals endpoint (route not mounted / backend flag off) — the search
+  // affordance is then hidden for the rest of this session, a silent fall-back to pure manual UX.
+  const [routeProposalsUnavailable, setRouteProposalsUnavailable] = useState(false);
+
   const loadMeta = useCallback(async (uploadId: string) => {
     setMeta(null);
     setMetaError(null);
@@ -119,16 +148,40 @@ export function ProductSourceAnchorCapture({
         const sheets = Array.from(new Set(rbl.rows.flatMap((r) => r.sheetRefs)));
         setBoreSheets(sheets);
         // Pre-fill the (optional) start/end identity from the bore-log row range, only if not already typed.
-        const withStation = rbl.rows.find((r) => r.startStation || r.endStation);
-        if (withStation) {
-          setStartStation((prev) => prev || withStation.startStation || '');
-          setEndStation((prev) => prev || withStation.endStation || '');
+        const withStation = rbl.rows.filter((r) => r.startStation || r.endStation);
+        if (withStation[0]) {
+          setStartStation((prev) => prev || withStation[0].startStation || '');
+          setEndStation((prev) => prev || withStation[0].endStation || '');
         }
+        // Ticket W-C only: retain the full station-bearing row list (for row_id threading). No-op when the
+        // flag is off.
+        if (routeAdoptionOn) setStationBearingRows(withStation);
       })
-      .catch(() => { if (active) setBoreSheets([]); })
+      .catch(() => { if (active) { setBoreSheets([]); if (routeAdoptionOn) setStationBearingRows([]); } })
       .finally(() => { if (active) setBoreLoaded(true); });
     return () => { active = false; };
-  }, [jobId, rblId]);
+  }, [jobId, rblId, routeAdoptionOn]);
+
+  // Ticket W-C: auto-select the single station-bearing row, or keep/clear an explicit choice as the row set
+  // changes. No-op (no state changes) when the flag is off.
+  useEffect(() => {
+    if (!routeAdoptionOn) return;
+    if (stationBearingRows.length === 1) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedRowId(stationBearingRows[0].rowId);
+    } else {
+      setSelectedRowId((prev) => (prev && stationBearingRows.some((r) => r.rowId === prev) ? prev : null));
+    }
+  }, [routeAdoptionOn, stationBearingRows]);
+
+  // Ticket W-C: any change to the marked points, page, or selected row invalidates a pending/shown proposal
+  // (clears overlay + panel) — a stale proposal must never survive a re-mark or a row/page switch. No-op
+  // when the flag is off.
+  useEffect(() => {
+    if (!routeAdoptionOn) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProposalState({ phase: 'idle' });
+  }, [routeAdoptionOn, points, pageNumber, selectedRowId]);
 
   // Map a CONSTRUCTION-SHEET number (what the bore log / engine candidate reference, e.g. 7 = the plan
   // sheet whose title block reads "7 OF 30") to its actual PDF page. The plan set is bound behind a
@@ -204,7 +257,11 @@ export function ProductSourceAnchorCapture({
     setPoints((prev) => [...prev, p]);
   }
 
-  async function onSubmit() {
+  // `adoption` is Ticket W-C / W-C-ECHO only (undefined for the ordinary "Confirm route" path — the request
+  // body then omits route_adoption entirely, byte-identical to before this field existed). Passed by "Use
+  // engineering route" in the proposal panel below, ALREADY fully sourced verbatim from the held proposal
+  // (routeAdoptionInputFromProposal) — never rebuilt here from planUploadId/rblId/pageNumber/points.
+  async function onSubmit(adoption?: RouteAdoptionInput) {
     setBusy(true);
     setSubmitError(null);
     setResult(null);
@@ -219,16 +276,57 @@ export function ProductSourceAnchorCapture({
         controlPoints: points,
         startIdentity: { station: startStation || undefined, structureLabel: startLabel || undefined },
         endIdentity: { station: endStation || undefined, structureLabel: endLabel || undefined },
+        ...(adoption ? { routeAdoption: adoption } : {}),
       });
       setResult(r);
       // Freeze the page identity of the anchor we just created, so the placed-proof label + full-sheet
       // toggle name the RENDERED page — never the live dropdown, which the user may change afterwards.
       setRenderedPage({ planUploadId, pageNumber, planSheetLabel: page?.planSheetLabel ?? null });
       setShowFullSheet(false);
+      if (adoption) setProposalState({ phase: 'idle' }); // adoption succeeded — clear the panel/overlay
     } catch (e) {
+      if (adoption) {
+        // Named create-time adoption refusal (400/409): honest degrade — clear the stale proposal, keep the
+        // human's marks untouched, let them re-search or fall back to the plain "Confirm route" below.
+        const code = routeAdoptionRefusalCode(e);
+        if (code) {
+          setProposalState({ phase: 'idle' });
+          setSubmitError(
+            `Engineering route could not be adopted (${code}) — your marked points are kept. ` +
+            `Search again, or use Confirm route below for the straight segment. ` +
+            (e instanceof Error ? e.message : ''));
+          return;
+        }
+      }
       setSubmitError(e instanceof Error ? e.message : 'failed to create source anchor');
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Ticket W-C: search for a source-backed engineering-route proposal between the exactly-2 marked points.
+  async function onSearchRoute() {
+    if (points.length !== 2 || !selectedRowId) return;
+    setProposalState({ phase: 'searching' });
+    try {
+      const outcome = await requestSourceRouteProposal(jobId, {
+        planUploadId,
+        reviewedBoreLogId: rblId,
+        rowId: selectedRowId,
+        pageNumber,
+        controlPoints: [points[0], points[1]],
+      });
+      if (outcome.kind === 'PROPOSAL') {
+        setProposalState({ phase: 'proposal', proposal: outcome.proposal });
+      } else if (outcome.kind === 'REFUSAL') {
+        setProposalState({ phase: 'refusal', refusal: outcome.refusal });
+      } else {
+        // 404 — feature-absent: fall back to pure manual UX silently, no error toast.
+        setRouteProposalsUnavailable(true);
+        setProposalState({ phase: 'idle' });
+      }
+    } catch (e) {
+      setProposalState({ phase: 'error', message: e instanceof Error ? e.message : 'search failed' });
     }
   }
 
@@ -436,6 +534,11 @@ export function ProductSourceAnchorCapture({
                 ? `Sheet ${page.planSheetLabel} · PDF page ${page.pageNumber} of ${meta?.pageCount ?? '?'}`
                 : `PDF page ${page.pageNumber} of ${meta?.pageCount ?? '?'}`
             }
+            proposalPoints={
+              routeAdoptionOn && proposalState.phase === 'proposal'
+                ? proposalState.proposal.proposedRenderPoints
+                : undefined
+            }
           />
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-ink-3">{points.length} point(s) marked</span>
@@ -452,6 +555,72 @@ export function ProductSourceAnchorCapture({
               Clear
             </button>
           </div>
+
+          {/* Ticket W-C: optional source-backed route search — never gates or blocks the manual Confirm
+              route action below, and renders nothing at all when the flag is off or the endpoint 404s. */}
+          {routeAdoptionOn && !routeProposalsUnavailable && (
+            <div className="mt-3 rounded-lg border border-line bg-white p-3 text-xs">
+              <p className="font-semibold text-ink">Engineering route search (optional)</p>
+              {stationBearingRows.length > 1 && (
+                <label className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-ink-3">Bore-log row</span>
+                  <select
+                    value={selectedRowId ?? ''}
+                    onChange={(e) => setSelectedRowId(e.target.value || null)}
+                    className="rounded-md border border-line px-2 py-1 font-mono text-xs text-ink">
+                    <option value="">Choose a row…</option>
+                    {stationBearingRows.map((r) => (
+                      <option key={r.rowId} value={r.rowId}>
+                        {(r.startStation || '?')} → {(r.endStation || '?')} ({r.rowId})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onSearchRoute}
+                  disabled={points.length !== 2 || !selectedRowId || proposalState.phase === 'searching'}
+                  className="rounded-md border border-line px-2.5 py-1.5 font-medium text-ink-2 hover:text-ink disabled:opacity-50">
+                  {proposalState.phase === 'searching' ? 'Searching source linework…' : 'Search for engineering route'}
+                </button>
+                {points.length !== 2 && (
+                  <span className="text-ink-3">Mark exactly 2 points (start + end) to search.</span>
+                )}
+                {points.length === 2 && stationBearingRows.length === 0 && boreLoaded && (
+                  <span className="text-ink-3">No bore-log row with a station range was found for this job.</span>
+                )}
+                {points.length === 2 && stationBearingRows.length > 1 && !selectedRowId && (
+                  <span className="text-ink-3">Choose a bore-log row above to enable search.</span>
+                )}
+              </div>
+
+              {proposalState.phase === 'proposal' && (
+                <SourceRouteProposalPanel
+                  proposal={proposalState.proposal}
+                  adoption={routeAdoptionInputFromProposal(proposalState.proposal)}
+                  onAdopt={(adoption) => onSubmit(adoption)}
+                  onDismiss={() => setProposalState({ phase: 'idle' })}
+                  busy={busy}
+                />
+              )}
+              {proposalState.phase === 'refusal' && (
+                <div className="mt-2 rounded-md border border-line bg-paper p-2.5 text-ink-2">
+                  <p>No defensible engineering route found — your straight segment will be used.</p>
+                  <p className="mt-1 text-ink-3">
+                    {proposalState.refusal.message}
+                    {proposalState.refusal.code && (
+                      <span className="ml-1 font-mono text-[11px]">({proposalState.refusal.code})</span>
+                    )}
+                  </p>
+                </div>
+              )}
+              {proposalState.phase === 'error' && (
+                <p className="mt-2 text-red-600">Search failed — {proposalState.message}</p>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -490,7 +659,7 @@ export function ProductSourceAnchorCapture({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
-          onClick={onSubmit}
+          onClick={() => onSubmit()}
           disabled={busy || points.length < 2 || !planUploadId || anchorId.trim().length === 0}
           className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
           {busy ? 'Submitting…' : 'Confirm route'}
@@ -504,8 +673,15 @@ export function ProductSourceAnchorCapture({
 
       {result && (
         <div className="mt-3 rounded-lg border border-line bg-white p-3">
-          <p className="text-sm font-medium text-ink">
-            {result.renderable ? 'Route confirmed.' : 'Route not yet ready.'}
+          <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
+            <span>{result.renderable ? 'Route confirmed.' : 'Route not yet ready.'}</span>
+            {/* Ticket W-C: honest chip, present ONLY when the backend recorded an explicit route adoption.
+                Absent field (older backend, or a non-adopted anchor) -> no chip, identical to before. */}
+            {result.geometryBasis === 'OBSERVER_BACKBONE_HUMAN_ADOPTED' && (
+              <span className="rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
+                Engineering route · human-confirmed
+              </span>
+            )}
           </p>
           {result.blockers.length > 0 && (
             <>

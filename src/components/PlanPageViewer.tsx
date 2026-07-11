@@ -32,6 +32,11 @@ interface PlanPageViewerProps {
   readonly onUndo?: () => void;                    // optional: undo last point (offered inside the modal)
   readonly onClear?: () => void;                   // optional: clear all points (offered inside the modal)
   readonly pageLabel?: string;                     // e.g. "Sheet 7 OF 30 · PDF page 20 of 43" (evidence)
+  // Ticket W-C (optional, default absent -> no change): a source-backed route proposal's preview polyline,
+  // same display-space as `points`. Reuses THIS component's existing click->display-space mapping (toPx) —
+  // never a new coordinate transform. Drawn as a dashed line visually distinct from the marked-points
+  // overlay (lighter red, wider dash gaps), underneath it so the human's own marks stay on top.
+  readonly proposalPoints?: readonly ControlPointInput[];
 }
 
 type Raster =
@@ -40,7 +45,7 @@ type Raster =
   | { phase: 'ready'; url: string };
 
 export function PlanPageViewer({
-  jobId, planUploadId, pageNumber, bounds, points, onAddPoint, onUndo, onClear, pageLabel,
+  jobId, planUploadId, pageNumber, bounds, points, onAddPoint, onUndo, onClear, pageLabel, proposalPoints,
 }: PlanPageViewerProps) {
   const [raster, setRaster] = useState<Raster>({ phase: 'loading' });
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -169,11 +174,25 @@ export function PlanPageViewer({
   const r = natural ? Math.max(4, natural.w / 160) : 5;
   const w = natural ? Math.max(2, natural.w / 320) : 2;
 
+  // Ticket W-C: optional route-proposal preview, mapped through the SAME toPx (display-space -> natural
+  // pixels) used for the marked points above — no new coordinate transform.
+  const proposalPxPoints = (proposalPoints ?? [])
+    .map(toPx)
+    .filter((p): p is { px: number; py: number } => p !== null);
+  const proposalPolyline = proposalPxPoints.map((p) => `${p.px},${p.py}`).join(' ');
+
   const overlay = natural ? (
     <svg
       viewBox={`0 0 ${natural.w} ${natural.h}`}
       preserveAspectRatio="none"
       className="pointer-events-none absolute inset-0 h-full w-full">
+      {/* Route-proposal preview — drawn first (underneath) so the human's own marks stay visually on top.
+          Same red family as the marked-points overlay but a distinctly lighter tone + wider dash gaps, so
+          the two are never confused for each other. */}
+      {proposalPxPoints.length >= 2 && (
+        <polyline points={proposalPolyline} fill="none" stroke="#f0847e" strokeOpacity={0.9}
+                  strokeWidth={w * 1.5} strokeDasharray={`${r} ${r * 2.2}`} />
+      )}
       {pxPoints.length >= 2 && (
         <polyline points={polyline} fill="none" stroke="#dc1919" strokeWidth={w * 2}
                   strokeDasharray={`${r * 1.5} ${r}`} />
