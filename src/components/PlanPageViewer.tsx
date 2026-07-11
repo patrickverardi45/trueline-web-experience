@@ -199,6 +199,14 @@ export function PlanPageViewer({
       onSelectBend?.(selectedBendIndex === index ? null : index);
     }
   }
+  // Fix-wave-1 F4: pointercancel (e.g. an interrupted touch gesture — a system gesture takes over, the
+  // pointer leaves the viewport) must ABORT the interaction, never complete it. Wiring this to
+  // onBendPointerUp would toggle selection on a cancelled non-drag tap, which is not a real click. Dedicated
+  // handler: reset the drag ref only, no onSelectBend/onMoveBend call.
+  function onBendPointerCancel(_e: React.PointerEvent<SVGCircleElement>, index: number) {
+    const d = bendDrag.current;
+    if (d && d.index === index) bendDrag.current = null;
+  }
 
   // Drag-to-pan the enlarged canvas (in addition to native scroll). A drag past a small threshold sets
   // ``didPan`` so the trailing click does NOT mark a point — click-to-mark accuracy is unaffected.
@@ -288,7 +296,7 @@ export function PlanPageViewer({
               onPointerDown: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerDown(e, i),
               onPointerMove: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerMove(e, i),
               onPointerUp: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerUp(e, i),
-              onPointerCancel: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerUp(e, i),
+              onPointerCancel: (e: React.PointerEvent<SVGCircleElement>) => onBendPointerCancel(e, i),
             } : {})}
           />
         );
