@@ -1286,6 +1286,11 @@ export interface RouteProposalView {
   readonly proposedRenderPoints: readonly RouteProposalPoint[];  // full polyline to preview (display-space)
   readonly candidateRoutePoints: readonly RouteProposalPoint[];  // the source-backed interior points
   readonly humanControlPoints: readonly RouteProposalPoint[];    // echoes the 2 marks that were sent
+  // Fix-wave (blind-verification FAIL on the prior `Number(p.x ?? 0)` decoder): true when ANY point in ANY of
+  // the three arrays above failed strict decode (missing/non-finite x or y) — the three arrays are then EMPTY
+  // (never partially fabricated), so no overlay is drawn from a guessed coordinate and
+  // routeAdoptionInputFromProposal refuses to build an adoption echo from this proposal.
+  readonly pointsIncomplete: boolean;
   readonly source: RouteProposalSourceView;
   readonly connectivity: RouteProposalConnectivityView;
   readonly warnings: readonly string[];
@@ -1303,11 +1308,33 @@ export type RouteProposalOutcome =
   // error: the caller falls back to pure manual UX silently, no toast.
   | { readonly kind: 'UNAVAILABLE' };
 
-function composeRouteProposalPoints(value: unknown): RouteProposalPoint[] {
-  const list = Array.isArray(value) ? value : [];
-  return list
-    .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && !Array.isArray(p))
-    .map((p) => ({ x: Number(p.x ?? 0), y: Number(p.y ?? 0) }));
+// STRICT single-point decode (Fix-wave, blind-verification FAIL on the prior `Number(p.x ?? 0)` /
+// `Number(p.y ?? 0)` decoder): a point composes ONLY when both x and y are present, `typeof === 'number'`,
+// and finite — NEVER coerced from a string, NEVER defaulted from `undefined`/`null`/`NaN` to 0. Returns null
+// on anything else (never a fabricated coordinate).
+function decodeStrictRoutePoint(p: unknown): RouteProposalPoint | null {
+  if (typeof p !== 'object' || p === null || Array.isArray(p)) return null;
+  const { x, y } = p as Record<string, unknown>;
+  if (typeof x !== 'number' || !Number.isFinite(x)) return null;
+  if (typeof y !== 'number' || !Number.isFinite(y)) return null;
+  return { x, y };
+}
+
+// STRICT point-ARRAY decode: `value` not being an array at all composes to an empty (valid, not
+// "incomplete") list — the same honest-absence treatment every other optional array field in this file gets.
+// But once the field IS an array, EVERY element in it must decode cleanly via decodeStrictRoutePoint above —
+// a single malformed element marks the WHOLE array `null` (never silently dropped or guessed), so the caller
+// (composeRouteProposal) can flag the ENTIRE proposal `pointsIncomplete` rather than rendering an overlay or
+// building a route_adoption echo from a fabricated (0,0) coordinate mixed in with real ones.
+function composeRouteProposalPointsStrict(value: unknown): RouteProposalPoint[] | null {
+  if (!Array.isArray(value)) return [];
+  const out: RouteProposalPoint[] = [];
+  for (const p of value) {
+    const pt = decodeStrictRoutePoint(p);
+    if (pt === null) return null;
+    out.push(pt);
+  }
+  return out;
 }
 
 export function composeRouteProposal(value: unknown): RouteProposalView {
@@ -1317,11 +1344,19 @@ export function composeRouteProposal(value: unknown): RouteProposalView {
   const connectivity =
     (typeof d.connectivity === 'object' && d.connectivity !== null && !Array.isArray(d.connectivity))
       ? (d.connectivity as Record<string, unknown>) : {};
+  const proposedRenderPoints = composeRouteProposalPointsStrict(d.proposed_render_points);
+  const candidateRoutePoints = composeRouteProposalPointsStrict(d.candidate_route_points);
+  const humanControlPoints = composeRouteProposalPointsStrict(d.human_control_points);
+  // ANY malformed point in ANY of the three arrays taints the WHOLE proposal — never a partial overlay/
+  // adoption built from a mix of real and fabricated points (see the RouteProposalView.pointsIncomplete doc).
+  const pointsIncomplete =
+    proposedRenderPoints === null || candidateRoutePoints === null || humanControlPoints === null;
   return {
     proposalHash: str(d.proposal_hash),
-    proposedRenderPoints: composeRouteProposalPoints(d.proposed_render_points),
-    candidateRoutePoints: composeRouteProposalPoints(d.candidate_route_points),
-    humanControlPoints: composeRouteProposalPoints(d.human_control_points),
+    proposedRenderPoints: pointsIncomplete ? [] : proposedRenderPoints,
+    candidateRoutePoints: pointsIncomplete ? [] : candidateRoutePoints,
+    humanControlPoints: pointsIncomplete ? [] : humanControlPoints,
+    pointsIncomplete,
     source: {
       engineeringSheet: strOrNull(source.engineering_sheet),
       pdfPage: numOrNull(source.pdf_page),
@@ -1343,8 +1378,12 @@ export function composeRouteProposal(value: unknown): RouteProposalView {
 // searched against between the search and the adopt click. Returns null — never a guess/fallback — when any
 // needed field is absent from the proposal (an older/malformed proposal shape): the caller must then disable
 // adoption and surface the honest "Proposal incomplete — re-search." note rather than submitting a partial or
-// component-state-sourced echo.
+// component-state-sourced echo. Also refuses (Fix-wave) when `proposal.pointsIncomplete` is true — a proposal
+// whose point arrays failed strict decode must never yield an echo built from a fabricated coordinate, even
+// though `humanControlPoints` is already forced empty in that case (the explicit check documents the gate
+// rather than relying solely on the incidental length mismatch below).
 export function routeAdoptionInputFromProposal(proposal: RouteProposalView): RouteAdoptionInput | null {
+  if (proposal.pointsIncomplete) return null;
   const { proposalHash, source, humanControlPoints } = proposal;
   const { planUploadId, reviewedBoreLogId, rowId, pdfPage } = source;
   if (!proposalHash || !planUploadId || !reviewedBoreLogId || !rowId || pdfPage == null) return null;
