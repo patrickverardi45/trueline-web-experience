@@ -159,12 +159,20 @@ export function ProductSourceAnchorCapture({
   // caller switches to a different job/row.
   const hydratedKeyRef = useRef<string | null>(null);
   // Fix-wave-2: the post-hydration render-evidence (PNG/dots/cards) fetch is decoupled into its OWN effect
-  // (below), keyed on this — set by the apply effect, read/cleared only by that separate effect. Necessary
-  // because the apply effect below necessarily writes ITS OWN dependencies while applying (pendingHydration
-  // object -> null; previously also points 0 -> N once fix-wave-1 added points.length to its deps) — any of
-  // those changes schedules that SAME effect's cleanup to run before an in-flight promise held in its
-  // closure resolves, silently discarding the result. Isolating the fetch in a effect whose OWN deps
-  // (`hydratedRenderFetch`, `jobId`) are never written to by itself makes it immune to that failure mode.
+  // (below), keyed on this. WRITE CONTRACT (truthful, not aspirational): the only writers are this hook's
+  // `useState(null)` initializer and the apply effect's single `setHydratedRenderFetch(...)` call once a
+  // hydration is actually applied — nothing ever clears it back to null afterward (the fetch effect below
+  // only READS it). That is safe today because `rblId` is captured once per mount (immutable for the
+  // lifetime of a mounted row) and the hydration LOOKUP runs at most once per (jobId, rblId) — so this
+  // component instance ever applies at most one hydration, i.e. at most one non-null value is ever set. A
+  // different row/job is a REMOUNT (new component instance, fresh `useState(null)`), not a same-instance
+  // reset. If a future change allows re-hydrating within one mount (e.g. multiple anchors per row), this
+  // will need an explicit reset — this comment is the tripwire to catch that assumption breaking.
+  // Necessary because the apply effect below necessarily writes ITS OWN dependencies while applying
+  // (pendingHydration object -> null; previously also points 0 -> N once fix-wave-1 added points.length to
+  // its deps) — any of those changes schedules that SAME effect's cleanup to run before an in-flight promise
+  // held in its closure resolves, silently discarding the result. Isolating the fetch in an effect whose OWN
+  // deps (`hydratedRenderFetch`, `jobId`) are never written to by itself makes it immune to that failure mode.
   const [hydratedRenderFetch, setHydratedRenderFetch] = useState<string | null>(null);
 
   const loadMeta = useCallback(async (uploadId: string) => {
