@@ -158,6 +158,14 @@ export function ProductSourceAnchorCapture({
   // never re-fires on a later local edit (which doesn't change jobId/rblId), and re-fires honestly if the
   // caller switches to a different job/row.
   const hydratedKeyRef = useRef<string | null>(null);
+  // Fix-wave-2: the post-hydration render-evidence (PNG/dots/cards) fetch is decoupled into its OWN effect
+  // (below), keyed on this — set by the apply effect, read/cleared only by that separate effect. Necessary
+  // because the apply effect below necessarily writes ITS OWN dependencies while applying (pendingHydration
+  // object -> null; previously also points 0 -> N once fix-wave-1 added points.length to its deps) — any of
+  // those changes schedules that SAME effect's cleanup to run before an in-flight promise held in its
+  // closure resolves, silently discarding the result. Isolating the fetch in a effect whose OWN deps
+  // (`hydratedRenderFetch`, `jobId`) are never written to by itself makes it immune to that failure mode.
+  const [hydratedRenderFetch, setHydratedRenderFetch] = useState<string | null>(null);
 
   const loadMeta = useCallback(async (uploadId: string) => {
     setMeta(null);
@@ -355,7 +363,6 @@ export function ProductSourceAnchorCapture({
     // effect will re-render with the correct `meta` once its fetch resolves, and this effect re-fires (dep:
     // meta).
     if (!meta || !boreLoaded || meta.planUploadId !== pendingHydration.planUploadId) return;
-    let active = true;
     appliedFor.current = planUploadId;
     const restoredPage = meta.pages.find((p) => p.pageNumber === pendingHydration.pageNumber) ?? null;
     setPageNumber(pendingHydration.pageNumber);
@@ -369,21 +376,38 @@ export function ProductSourceAnchorCapture({
       planSheetLabel: restoredPage?.planSheetLabel ?? null,
     });
     setShowFullSheet(false);
-    const { sourceAnchorId: hydratedAnchorId, renderable } = pendingHydration;
+    // Fix-wave-2: hand the render-evidence fetch off to the SEPARATE effect below instead of firing it
+    // inline here — this effect's own writes (setPendingHydration(null), just below) change ITS OWN
+    // dependency, which would otherwise schedule ITS OWN cleanup to run (cancelling an in-flight promise
+    // held in this closure) before the fetch could resolve. See hydratedRenderFetch's declaration for the
+    // full trace.
+    if (pendingHydration.renderable) setHydratedRenderFetch(pendingHydration.sourceAnchorId);
     setPendingHydration(null);
-    if (renderable) {
-      // Re-fetch the rendered PNG/dots/cards for the restored anchor — render_source_anchor_route is
-      // idempotent for identical content (docstring-guaranteed), so this NEVER creates new geometry, only
-      // republishes the artifact summary for a redline that already exists.
-      renderSourceAnchor(jobId, hydratedAnchorId)
-        .then((r) => { if (active) setRenderResult(r); })
-        .catch(() => {
-          // Non-fatal: the confirmed record/points/label are already restored above; only the PNG/dots/cards
-          // panel stays absent if this idempotent re-render read fails.
-        });
-    }
-    return () => { active = false; };
+    // `points.length` (read by the F1 guard above) is listed here for exhaustive-deps honesty; unlike
+    // before fix-wave-2, a self-triggered re-run of THIS effect is now harmless — there is no cancellable
+    // async work left in its body (the render-evidence fetch lives in the separate effect below).
   }, [pendingHydration, planUploadId, meta, boreLoaded, jobId, points.length]);
+
+  // Fix-wave-2: owns the idempotent post-hydration render-evidence (PNG/dots/cards) re-fetch. Deliberately a
+  // SEPARATE effect from the apply effect above, whose own writes (pendingHydration -> null) would otherwise
+  // self-trigger a cleanup that cancels this exact fetch before it resolves (observed live: hydration
+  // restored points/status but the "Placed redline proof" block, HUMAN-REVIEWED badge, and station-dot cards
+  // never appeared). This effect's OWN dependencies (`hydratedRenderFetch`, `jobId`) are never written to by
+  // its own body, so it is immune to that failure mode; a NEWER hydratedRenderFetch value correctly cancels
+  // an older in-flight fetch via the same `active` idiom used throughout this file.
+  useEffect(() => {
+    if (!hydratedRenderFetch) return;
+    let active = true;
+    // render_source_anchor_route is idempotent for identical content (docstring-guaranteed), so this NEVER
+    // creates new geometry, only republishes the artifact summary for a redline that already exists.
+    renderSourceAnchor(jobId, hydratedRenderFetch)
+      .then((r) => { if (active) setRenderResult(r); })
+      .catch(() => {
+        // Non-fatal: the confirmed record/points/label are already restored by the apply effect above; only
+        // the PNG/dots/cards panel stays absent if this idempotent re-render read fails.
+      });
+    return () => { active = false; };
+  }, [hydratedRenderFetch, jobId]);
 
   const page = meta?.pages.find((p) => p.pageNumber === pageNumber) ?? null;
 
