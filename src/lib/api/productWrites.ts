@@ -76,6 +76,14 @@ export function handwrittenBorelogEnabled(): boolean {
   return (process.env.NEXT_PUBLIC_TL2_HANDWRITTEN_BORELOG ?? '').trim() === '1';
 }
 
+/** Source-backed route-proposal + explicit-adoption gate (Ticket W-C): the "Search for engineering route"
+ *  affordance on the source-anchor capture surface, the proposal overlay/panel, and the route_adoption field
+ *  on the source-anchor create write. Default OFF/absent — with the flag unset the capture component fetches
+ *  and renders byte-identically to today (no source-route-proposals request is ever issued). */
+export function sourceRouteAdoptionEnabled(): boolean {
+  return (process.env.NEXT_PUBLIC_TL2_SOURCE_ROUTE_ADOPTION ?? '').trim() === '1';
+}
+
 // --- pure helpers (unit-checkable) ----------------------------------------------------------------- //
 
 /** Map a filename to its upload kind. `.pdf` is ambiguous (plan vs bore-log) so the caller's selected
@@ -1092,6 +1100,10 @@ export interface SourceAnchorResult {
   readonly provenance: string;        // HUMAN_CONFIRMED_CONTROL_POINTS
   readonly coordinateSpace: string;   // pdf_display_space
   readonly blockers: readonly SourceAnchorBlocker[];
+  // Additive (Ticket W-C): set only when this anchor was created via explicit route_adoption and the
+  // backend recorded it as OBSERVER_BACKBONE_HUMAN_ADOPTED. Absent/older-backend -> null, and the caller
+  // renders no chip — legacy rendering stays identical.
+  readonly geometryBasis: string | null;
 }
 
 export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
@@ -1107,7 +1119,16 @@ export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
     provenance: str(d.provenance),
     coordinateSpace: str(d.coordinate_space),
     blockers,
+    geometryBasis: strOrNull(d.geometry_basis),
   };
+}
+
+// Ticket W-C: explicit adoption of a source-backed route proposal, carried on the EXISTING source-anchor
+// create write (never a separate write). `confirmed` is always `true` on the wire — the type pins it so a
+// caller can never accidentally send a false/omitted confirmation.
+export interface RouteAdoptionInput {
+  readonly proposalHash: string;
+  readonly confirmed: true;
 }
 
 export interface SourceAnchorCreateInput {
@@ -1121,6 +1142,10 @@ export interface SourceAnchorCreateInput {
   readonly startIdentity?: SourceAnchorIdentityInput;
   readonly endIdentity?: SourceAnchorIdentityInput;
   readonly notes?: string;
+  // Optional (Ticket W-C, default absent): adopts a previously-searched source-backed route proposal for
+  // THIS anchor. Omitted entirely (not sent as null) when not adopting, so the request body a non-adopting
+  // caller sends is byte-for-byte what it was before this field existed.
+  readonly routeAdoption?: RouteAdoptionInput;
 }
 
 function identityBody(identity?: SourceAnchorIdentityInput): Record<string, unknown> | null {
@@ -1150,7 +1175,151 @@ export async function createSourceAnchor(
     start_identity: identityBody(input.startIdentity),
     end_identity: identityBody(input.endIdentity),
     notes: input.notes ?? null,
+    // Key omitted entirely (not `route_adoption: null`) when not adopting — the non-adoption request body
+    // stays byte-for-byte identical to what it was before this field existed.
+    ...(input.routeAdoption
+      ? { route_adoption: { proposal_hash: input.routeAdoption.proposalHash, confirmed: true } }
+      : {}),
   }));
+}
+
+// ====================================================================================================
+// Ticket W-C — source-backed engineering-route PROPOSAL + explicit adoption (flag-gated:
+// sourceRouteAdoptionEnabled()). A proposal is a READ (POST that returns geometry, records nothing); the
+// caller adopts it, if at all, via the EXISTING createSourceAnchor write above (routeAdoption field). Never
+// implies AUTO placement — the proposal is only ever drawn as a dashed PREVIEW pending the human's explicit
+// "Use engineering route" choice, exactly like the marked-points preview it sits alongside.
+// ====================================================================================================
+
+export interface RouteProposalPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface RouteProposalSourceView {
+  readonly engineeringSheet: string | null;
+  readonly pdfPage: number | null;
+}
+
+export interface RouteProposalConnectivityView {
+  readonly whyConnected: string;
+}
+
+export interface RouteProposalView {
+  readonly proposalHash: string;
+  readonly proposedRenderPoints: readonly RouteProposalPoint[];  // full polyline to preview (display-space)
+  readonly candidateRoutePoints: readonly RouteProposalPoint[];  // the source-backed interior points
+  readonly humanControlPoints: readonly RouteProposalPoint[];    // echoes the 2 marks that were sent
+  readonly source: RouteProposalSourceView;
+  readonly connectivity: RouteProposalConnectivityView;
+  readonly warnings: readonly string[];
+}
+
+export interface RouteRefusalView {
+  readonly code: string;
+  readonly message: string;
+}
+
+export type RouteProposalOutcome =
+  | { readonly kind: 'PROPOSAL'; readonly proposal: RouteProposalView }
+  | { readonly kind: 'REFUSAL'; readonly refusal: RouteRefusalView }
+  // The endpoint isn't mounted (404 — route not live / backend flag off). Honest feature-absence, not an
+  // error: the caller falls back to pure manual UX silently, no toast.
+  | { readonly kind: 'UNAVAILABLE' };
+
+function composeRouteProposalPoints(value: unknown): RouteProposalPoint[] {
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && !Array.isArray(p))
+    .map((p) => ({ x: Number(p.x ?? 0), y: Number(p.y ?? 0) }));
+}
+
+export function composeRouteProposal(value: unknown): RouteProposalView {
+  const d = asRecord(value, 'route-proposal');
+  const source = (typeof d.source === 'object' && d.source !== null && !Array.isArray(d.source))
+    ? (d.source as Record<string, unknown>) : {};
+  const connectivity =
+    (typeof d.connectivity === 'object' && d.connectivity !== null && !Array.isArray(d.connectivity))
+      ? (d.connectivity as Record<string, unknown>) : {};
+  return {
+    proposalHash: str(d.proposal_hash),
+    proposedRenderPoints: composeRouteProposalPoints(d.proposed_render_points),
+    candidateRoutePoints: composeRouteProposalPoints(d.candidate_route_points),
+    humanControlPoints: composeRouteProposalPoints(d.human_control_points),
+    source: { engineeringSheet: strOrNull(source.engineering_sheet), pdfPage: numOrNull(source.pdf_page) },
+    connectivity: { whyConnected: str(connectivity.why_connected) },
+    // Treat any additional response fields (route_evidence, readiness, hashes, ...) as optional display
+    // metadata this decoder doesn't need to know about — never required, never validated away.
+    warnings: strList(d.warnings),
+  };
+}
+
+export function composeRouteRefusal(value: unknown): RouteRefusalView {
+  const d = asRecord(value, 'route-refusal');
+  return { code: str(d.code), message: str(d.message) };
+}
+
+export interface RouteProposalRequest {
+  readonly planUploadId: string;
+  readonly reviewedBoreLogId: string;
+  readonly rowId: string;
+  readonly pageNumber: number;
+  // Exactly 2 — the pinned contract's control_points shape (start + end; no bends).
+  readonly controlPoints: readonly [ControlPointInput, ControlPointInput];
+}
+
+/** Search for a source-backed engineering-route proposal between two human-marked control points. Read-only
+ *  (records nothing). A 404 means the route isn't mounted/live (feature-absent, not a failure) and composes
+ *  to `{kind:'UNAVAILABLE'}`; any other non-OK response still throws (no mock fallback). The 200 response is
+ *  always one of PROPOSAL / REFUSAL per the pinned contract. */
+export async function requestSourceRouteProposal(
+  jobId: string, input: RouteProposalRequest,
+): Promise<RouteProposalOutcome> {
+  const response = await fetch(`${apiBase()}/v2/product/jobs/${jobId}/source-route-proposals`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...headers() },
+    body: JSON.stringify({
+      plan_upload_id: input.planUploadId,
+      reviewed_bore_log_id: input.reviewedBoreLogId,
+      row_id: input.rowId,
+      page_number: input.pageNumber,
+      control_points: input.controlPoints.map((p) => ({ x: p.x, y: p.y })),
+    }),
+  });
+  if (response.status === 404) return { kind: 'UNAVAILABLE' };
+  if (!response.ok) {
+    throw new Error(
+      `product POST source-route-proposals failed with HTTP ${response.status}${await serverDetail(response)}`);
+  }
+  const doc = asRecord(await response.json(), 'route-proposal-response');
+  if (doc.outcome === 'PROPOSAL') return { kind: 'PROPOSAL', proposal: composeRouteProposal(doc.proposal) };
+  if (doc.outcome === 'REFUSAL') return { kind: 'REFUSAL', refusal: composeRouteRefusal(doc.refusal) };
+  throw new Error('product POST source-route-proposals returned an unrecognized outcome');
+}
+
+// Named create-time refusal codes for an ADOPTED anchor (route_adoption present) — the backend's _to_http
+// convention embeds the code as the exception message's leading token (`"<CODE>: ...detail"`, mirrored by
+// every other named refusal in this codebase), so a substring check is the correct, honest way to recognize
+// them from the thrown Error's message (serverDetail already folds the server's `detail` string into it).
+const ROUTE_ADOPTION_REFUSAL_CODES = [
+  'ROUTE_ADOPTION_INVALID',
+  'ROUTE_ADOPTION_CONTROL_MISMATCH',
+  'ROUTE_ADOPTION_STALE',
+  'ROUTE_ADOPTION_NO_LONGER_DEFENSIBLE',
+  'ROUTE_ADOPTION_SCOPE_MISMATCH',
+] as const;
+
+/** Recognize a named route_adoption create-time refusal (HTTP 400/409) from a thrown createSourceAnchor
+ *  error, so the caller can degrade honestly (clear the stale proposal, keep the human's marks, offer
+ *  re-search or manual fallback) instead of showing a generic submit error. Returns null for any other
+ *  error (including a plain validation REJECTED, which never throws — see SourceAnchorResult.blockers). */
+export function routeAdoptionRefusalCode(err: unknown): string | null {
+  if (!(err instanceof Error)) return null;
+  for (const code of ROUTE_ADOPTION_REFUSAL_CODES) {
+    if (err.message.includes(code)) return code;
+  }
+  return null;
 }
 
 // --- M2 Slice 3: render a validated source anchor -> real redline bundle + job-scoped artifact reads --- //
