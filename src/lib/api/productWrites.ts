@@ -68,6 +68,14 @@ function headers(): Record<string, string> {
   return { 'X-TL-Tenant': tenant(), 'X-TL-Session': SESSION };
 }
 
+/** Handwritten/scanned bore-log affordances gate (W3): jpg/png in the bore-log picker, the
+ *  extraction-assistant upload copy, and the source-page preview panel. Default OFF/absent — with the flag
+ *  unset every one of those three stays byte-identical to the pre-W3 behavior. Same NEXT_PUBLIC_* pattern as
+ *  internalToolingEnabled() / fieldEvidence's thumbs gate. */
+export function handwrittenBorelogEnabled(): boolean {
+  return (process.env.NEXT_PUBLIC_TL2_HANDWRITTEN_BORELOG ?? '').trim() === '1';
+}
+
 // --- pure helpers (unit-checkable) ----------------------------------------------------------------- //
 
 /** Map a filename to its upload kind. `.pdf` is ambiguous (plan vs bore-log) so the caller's selected
@@ -265,6 +273,35 @@ export interface ManualRowInput {
   readonly note?: string;
 }
 
+// Per-cell provenance status (W3): whether ONE canonical field was actually read off the source, and how.
+// 'VARIED' is depth_ft/boc_ft-specific — readable per-station values disagreed across the run, so the
+// row-level value stays null and the disagreement lives in stationReadings; the field is still editable
+// like any other (a human picks/enters the right number), it just isn't a single flat "not present" absence.
+export type CellStatus = 'READ' | 'UNREADABLE' | 'NOT_PRESENT' | 'VARIED';
+
+export interface CellEvidenceView {
+  readonly status: CellStatus;
+  readonly pageIndex: number | null;
+  readonly region: Readonly<Record<string, number>> | null;
+  readonly verbatim: string | null;
+}
+
+export interface SourceEvidenceView {
+  readonly sha256: string | null;
+  readonly file: string | null;
+  readonly pageIndex: number | null;
+  readonly region: Readonly<Record<string, number>> | null;
+}
+
+/** One reading taken at a point along the bore (e.g. a handwritten log's per-station depth/BOC ticks).
+ *  Optional/nullable throughout — an OCR'd or partially-legible reading may carry only some fields. */
+export interface StationReadingView {
+  readonly station: string | null;
+  readonly depthFt: number | null;
+  readonly bocFt: number | null;
+  readonly note: string | null;
+}
+
 export interface ReviewedRowView {
   readonly rowId: string;
   readonly startStation: string;
@@ -282,6 +319,18 @@ export interface ReviewedRowView {
   readonly sourceFile: string | null;
   readonly date: string | null;
   readonly crew: string | null;
+  // --- W3 (handwritten ingestion) additions — all optional/nullable; older rows without them render
+  // gracefully via the same honest-absence rules as the fields above. ---
+  readonly boreId: string | null;
+  readonly footageDerivation: string | null;   // 'DERIVED_FROM_STATIONS' when footageFt was computed, not read
+  readonly depthFt: number | null;
+  readonly bocFt: number | null;
+  readonly notes: string | null;
+  readonly stationReadings: readonly StationReadingView[];
+  readonly sourceEvidence: SourceEvidenceView | null;
+  readonly cellEvidence: Readonly<Record<string, CellEvidenceView>>;
+  readonly confidence: 'LOW' | 'MEDIUM' | null;
+  readonly warnings: readonly string[];
 }
 
 export interface ReviewedGroupView {
@@ -315,37 +364,151 @@ function strList(value: unknown): string[] {
 
 // --- pure compose (unit-checkable) ----------------------------------------------------------------- //
 
+const CELL_STATUSES: readonly CellStatus[] = ['READ', 'UNREADABLE', 'NOT_PRESENT', 'VARIED'];
+
+/** A region is whatever bounds-ish shape the extractor carried (pixel box, PDF-space box, …) — captured
+ *  presence-only (numeric keys kept, everything else dropped) since the UI never draws it, only notes it
+ *  exists as part of the evidence trail. */
+function regionOrNull(value: unknown): Record<string, number> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const r = value as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  let any = false;
+  for (const [k, v] of Object.entries(r)) {
+    if (typeof v === 'number' && Number.isFinite(v)) { out[k] = v; any = true; }
+  }
+  return any ? out : null;
+}
+
+function composeSourceEvidence(value: unknown): SourceEvidenceView | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const d = value as Record<string, unknown>;
+  return {
+    sha256: strOrNull(d.sha256),
+    file: strOrNull(d.file),
+    pageIndex: numOrNull(d.page_index),
+    region: regionOrNull(d.region),
+  };
+}
+
+// VARIED is meaningful ONLY for depth_ft/boc_ft (per-station readings can legitimately disagree there — see
+// StationReadingView). Any OTHER field arriving as VARIED, or ANY field arriving with a status outside the
+// known enum, is non-conforming wire data: it is enforced HERE — the single decoder — down to NOT_PRESENT
+// plus a row-level warning, so no renderer can accidentally show a bogus "varies" chip on e.g. a bore_id.
+const VARIED_ALLOWED_FIELDS = new Set(['depth_ft', 'boc_ft']);
+
+interface CellEvidenceCompose {
+  readonly view: Record<string, CellEvidenceView>;
+  readonly warnings: readonly string[];
+}
+
+function composeCellEvidence(value: unknown): CellEvidenceCompose {
+  const view: Record<string, CellEvidenceView> = {};
+  const warnings: string[] = [];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return { view, warnings };
+  for (const [field, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const e = entry as Record<string, unknown>;
+    const rawStatus = e.status;
+    const recognized = (CELL_STATUSES as readonly string[]).includes(rawStatus as string);
+    const conforms = recognized && (rawStatus !== 'VARIED' || VARIED_ALLOWED_FIELDS.has(field));
+    let status: CellStatus;
+    if (conforms) {
+      status = rawStatus as CellStatus;
+    } else {
+      status = 'NOT_PRESENT';
+      warnings.push(`Non-conforming evidence status for ${field} — treated as not present`);
+    }
+    view[field] = {
+      status,
+      pageIndex: numOrNull(e.page_index),
+      region: regionOrNull(e.region),
+      verbatim: strOrNull(e.verbatim),
+    };
+  }
+  return { view, warnings };
+}
+
+// A station_readings entry's fields arrive as NESTED Cell objects ({value, verbatim, status, ...}) — same
+// shape family as cell_evidence — NOT raw primitives. Unwrap to .value, falling back to .verbatim, so the
+// readings sub-table renders the actual reading instead of dashes/"[object Object]". A raw primitive
+// (older backend) passes straight through untouched.
+function cellValue(raw: unknown): unknown {
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    const c = raw as Record<string, unknown>;
+    if ('value' in c) return c.value ?? (('verbatim' in c) ? c.verbatim : null);
+    if ('verbatim' in c) return c.verbatim;
+  }
+  return raw;
+}
+
+function composeStationReading(value: unknown): StationReadingView | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const d = value as Record<string, unknown>;
+  return {
+    station: strOrNull(cellValue(d.station)),
+    depthFt: numOrNull(cellValue(d.depth_ft)),
+    bocFt: numOrNull(cellValue(d.boc_ft)),
+    note: strOrNull(cellValue(d.note)),
+  };
+}
+
+function composeStationReadings(value: unknown): StationReadingView[] {
+  const list = Array.isArray(value) ? value : [];
+  return list.map(composeStationReading).filter((r): r is StationReadingView => r !== null);
+}
+
+/** Compose ONE reviewed-bore-log row from its raw wire shape. Shared by the whole-RBL read and the
+ *  per-row review response so both stay in sync. Every W3 field is optional-safe: an older row (or an
+ *  older backend that hasn't landed the pinned shapes yet) simply composes with those fields null/empty. */
+export function composeReviewedRow(value: unknown): ReviewedRowView {
+  const row = asRecord(value, 'reviewed-row');
+  const normalized = (typeof row.normalized === 'object' && row.normalized !== null)
+    ? (row.normalized as Record<string, unknown>) : {};
+  const raw = (typeof row.raw === 'object' && row.raw !== null)
+    ? (row.raw as Record<string, unknown>) : {};
+  const extraction = (typeof row.extraction === 'object' && row.extraction !== null)
+    ? (row.extraction as Record<string, unknown>) : {};
+  const review = (typeof row.review === 'object' && row.review !== null)
+    ? (row.review as Record<string, unknown>) : {};
+  const confidenceRaw = extraction.confidence;
+  const confidence = confidenceRaw === 'LOW' || confidenceRaw === 'MEDIUM' ? confidenceRaw : null;
+  const cells = composeCellEvidence(extraction.cell_evidence);
+  return {
+    rowId: str(row.row_id),
+    startStation: str(normalized.start_station) || str(raw.start_station),
+    endStation: str(normalized.end_station) || str(raw.end_station),
+    extractionMethod: str(extraction.extraction_method),
+    reviewStatus: str(review.status),
+    reason: strOrNull(review.reason),
+    footageFt: numOrNull(raw.footage_ft),
+    depthMinFt: numOrNull(raw.depth_min_ft),
+    bocMinFt: numOrNull(raw.boc_min_ft),
+    printRaw: strOrNull(raw.print_raw),
+    sheetRefs: numList(raw.sheet_refs),
+    sourceFile: strOrNull(raw.source_file),
+    date: strOrNull(raw.date),
+    crew: strOrNull(raw.crew),
+    boreId: strOrNull(raw.bore_id),
+    footageDerivation: strOrNull(raw.footage_derivation),
+    depthFt: numOrNull(raw.depth_ft),
+    bocFt: numOrNull(raw.boc_ft),
+    notes: strOrNull(raw.notes),
+    stationReadings: composeStationReadings(raw.station_readings),
+    sourceEvidence: composeSourceEvidence(extraction.source_evidence),
+    cellEvidence: cells.view,
+    confidence,
+    // Server-reported warnings first, then any decoder-enforced non-conforming-evidence warnings.
+    warnings: [...strList(extraction.warnings), ...cells.warnings],
+  };
+}
+
 export function composeReviewedBoreLog(doc: unknown): ReviewedBoreLogView {
   const r = asRecord(doc, 'reviewed-bore-log');
   const rawRows = Array.isArray(r.rows) ? r.rows : [];
   const rows: ReviewedRowView[] = rawRows
     .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
-    .map((row) => {
-      const normalized = (typeof row.normalized === 'object' && row.normalized !== null)
-        ? (row.normalized as Record<string, unknown>) : {};
-      const raw = (typeof row.raw === 'object' && row.raw !== null)
-        ? (row.raw as Record<string, unknown>) : {};
-      const extraction = (typeof row.extraction === 'object' && row.extraction !== null)
-        ? (row.extraction as Record<string, unknown>) : {};
-      const review = (typeof row.review === 'object' && row.review !== null)
-        ? (row.review as Record<string, unknown>) : {};
-      return {
-        rowId: str(row.row_id),
-        startStation: str(normalized.start_station) || str(raw.start_station),
-        endStation: str(normalized.end_station) || str(raw.end_station),
-        extractionMethod: str(extraction.extraction_method),
-        reviewStatus: str(review.status),
-        reason: strOrNull(review.reason),
-        footageFt: numOrNull(raw.footage_ft),
-        depthMinFt: numOrNull(raw.depth_min_ft),
-        bocMinFt: numOrNull(raw.boc_min_ft),
-        printRaw: strOrNull(raw.print_raw),
-        sheetRefs: numList(raw.sheet_refs),
-        sourceFile: strOrNull(raw.source_file),
-        date: strOrNull(raw.date),
-        crew: strOrNull(raw.crew),
-      };
-    });
+    .map((row) => composeReviewedRow(row));
   const rawGroups = Array.isArray(r.groups) ? r.groups : [];
   const groups: ReviewedGroupView[] = rawGroups
     .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
@@ -411,6 +574,59 @@ export async function reviewReviewedRow(
   });
 }
 
+// --- W3: per-row review (edit/confirm surface). SAME route + SAME wire body as reviewReviewedRow above
+// ({to_status, corrected_values, reason?} — the pre-existing route, confirmed by the landed backend wave)
+// — the row editor's Confirm / Save-corrections actions use this one (client-facing {status, corrections}
+// shape, translated to the wire body below); the legacy bulk-confirm / Advanced-manual-review Confirm/Reject
+// actions keep using reviewReviewedRow untouched. ---
+
+export type RowReviewDecision =
+  | { readonly status: 'CONFIRMED'; readonly reason?: string }
+  | { readonly status: 'CORRECTED'; readonly corrections: Readonly<Record<string, unknown>>; readonly reason?: string };
+
+export interface RowReviewResult {
+  readonly ok: boolean;
+  // Composed updated row on success; null when the server doesn't support this route yet (see notAvailable).
+  readonly row: ReviewedRowView | null;
+  // True on a 404/405 from an older backend — the caller shows an honest "not available yet" message and
+  // falls back to the legacy bulk-confirm path rather than treating this as a hard error.
+  readonly notAvailable: boolean;
+}
+
+/** Confirm a row as-is, or save human corrections to it (nullable-aware — a correction value of `null`
+ *  clears that field rather than being dropped). Never throws on 404/405 (an older backend without this
+ *  route) — that comes back as `{ notAvailable: true }` so the caller can degrade gracefully. Any other
+ *  non-OK response still throws (no mock fallback). */
+export async function submitRowReview(
+  jobId: string, rblId: string, rowId: string, decision: RowReviewDecision,
+): Promise<RowReviewResult> {
+  // Wire body matches the pre-existing route (same one reviewReviewedRow posts to): to_status +
+  // corrected_values (CORRECTED only) + an optional reason. Field names inside corrected_values are the
+  // backend snake_case raw keys the caller already builds (see FIELDS in ProductBoreRowEditor).
+  const wireBody: Record<string, unknown> = decision.status === 'CONFIRMED'
+    ? { to_status: 'CONFIRMED' }
+    : { to_status: 'CORRECTED', corrected_values: decision.corrections };
+  if (decision.reason) wireBody.reason = decision.reason;
+
+  const response = await fetch(
+    `${apiBase()}/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/rows/${rowId}/review`,
+    {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify(wireBody),
+    },
+  );
+  if (response.status === 404 || response.status === 405) {
+    return { ok: false, row: null, notAvailable: true };
+  }
+  if (!response.ok) {
+    throw new Error(`product POST row-review failed with HTTP ${response.status}${await serverDetail(response)}`);
+  }
+  const doc: unknown = await response.json();
+  return { ok: true, row: composeReviewedRow(doc), notAvailable: false };
+}
+
 export async function defineSegmentGroup(
   jobId: string, rblId: string, groupId: string, memberRowIds: readonly string[], relation: SegmentRelation,
 ): Promise<unknown> {
@@ -426,7 +642,9 @@ export async function setGroupingStatus(
 ): Promise<unknown> {
   return postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/groups/${groupId}/status`, {
     to_status: toStatus,
-    reason: reason ?? null,
+    // Omit the key entirely when there's no reason, rather than sending a bare null — some backends treat
+    // "key absent" differently from "key present but null" (e.g. audit-log presence checks).
+    ...(reason ? { reason } : {}),
   });
 }
 
@@ -435,9 +653,139 @@ export async function fetchReviewQueue(jobId: string, rblId: string): Promise<Re
     await getProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/review-queue`));
 }
 
+function is409(err: unknown): boolean {
+  return err instanceof Error && /HTTP 409/.test(err.message);
+}
+
+const REVIEWED_STATUSES = new Set(['CONFIRMED', 'CORRECTED']);
+
+/** Idempotently ensure ONE CONFIRMED segment group exists for an RBL once ALL its rows are reviewed.
+ *  Engine-readiness needs a CONFIRMED group, not just reviewed rows, and the per-row review surface (see
+ *  submitRowReview) has no grouping step of its own — this closes that gap for BOTH the primary RBL and
+ *  every fan-out sibling RBL, called after any successful per-row review AND inside a bulk "Confirm all
+ *  remaining". Skips entirely (zero calls) when the RBL has no rows, has any not-yet-reviewed row, or
+ *  already has a CONFIRMED group. Tolerates a 409 on the create call (group already exists — e.g. a prior
+ *  partial/racing attempt) and proceeds straight to confirming it. Returns true iff grouping state actually
+ *  changed, so the caller knows to re-read engine-readiness. */
+export async function ensureGroupingConfirmed(
+  jobId: string, rblId: string, rows: readonly ReviewedRowView[], groups: readonly ReviewedGroupView[],
+): Promise<boolean> {
+  if (rows.length === 0) return false;
+  if (!rows.every((r) => REVIEWED_STATUSES.has(r.reviewStatus))) return false;
+  if (groups.some((g) => g.groupingStatus === 'CONFIRMED')) return false;
+  const groupId = 'g-1';
+  try {
+    await defineSegmentGroup(jobId, rblId, groupId, rows.map((r) => r.rowId), 'SEPARATE_BORE');
+  } catch (e) {
+    if (!is409(e)) throw e;
+  }
+  await setGroupingStatus(jobId, rblId, groupId, 'CONFIRMED');
+  return true;
+}
+
+// --- W3 fan-out siblings: ONE shared pure id-probe + a read-only aggregate-readiness helper -------- //
+//
+// LIVE-VERIFIED (round 4) against the real backend: the primary RBL id is ALWAYS "rbl-main"/"rbl-N" (see
+// rblFor in the gate) and NEVER itself carries a "-rN" suffix, so a probe that only extends the primary
+// id's OWN suffix can never find anything — it was a no-op by construction. Re-POSTing extract() to
+// rediscover siblings isn't safe either: the real backend rejects a redundant extract on an already
+// fanned-out RBL (duplicate row_id). The ACTUAL naming is a deterministic, position-based scheme —
+// "rbl-hw-p{pageIndex}-r{runIndex}" (0-based page, 1-based run), independent of the primary id — so a
+// bounded probe of THAT pattern is what a fan-out job's fresh-session self-heal must use.
+
+const MAX_HANDWRITTEN_FANOUT_PAGES = 6;
+const MAX_HANDWRITTEN_FANOUT_RUNS_PER_PAGE = 8;
+
+/** Bounded, read-only rediscovery of a handwritten multi-bore fan-out's sibling RBL ids when the backend's
+ *  own created_reviewed_bore_logs isn't known this session (there is no listing endpoint). `exists(id)`
+ *  decides whether a candidate id is real — the caller supplies it (typically a cheap fetchReviewQueue
+ *  probe) so this function stays a pure sequencing/early-stop policy: stop a page's run loop at the first
+ *  gap; stop trying further pages once a page's very first run doesn't exist either. Ordinary (non-fan-out)
+ *  jobs cost exactly ONE failed check (page 0, run 1) and stop. */
+export async function probeHandwrittenFanOutIds(exists: (candidateId: string) => Promise<boolean>): Promise<string[]> {
+  const found: string[] = [];
+  for (let page = 0; page < MAX_HANDWRITTEN_FANOUT_PAGES; page += 1) {
+    let foundOnPage = false;
+    for (let run = 1; run <= MAX_HANDWRITTEN_FANOUT_RUNS_PER_PAGE; run += 1) {
+      // Intentionally sequential (not batched): each check's result decides whether the NEXT candidate
+      // is even worth trying (early-stop policy).
+      const candidateId = `rbl-hw-p${page}-r${run}`;
+      if (await exists(candidateId)) { found.push(candidateId); foundOnPage = true; } else { break; }
+    }
+    if (!foundOnPage) break;
+  }
+  return found;
+}
+
+async function handwrittenFanOutIdExists(jobId: string, candidateId: string): Promise<boolean> {
+  try { await fetchReviewQueue(jobId, candidateId); return true; } catch { return false; }
+}
+
+/** Read-only AGGREGATE engine-readiness for one uploaded bore-log file, accounting for handwritten
+ *  multi-bore fan-out: when the primary RBL has fanned out into sibling RBLs that carry rows, readiness
+ *  aggregates over those siblings (ALL must be engine-ready) and the primary — typically empty in a
+ *  fan-out package — is excluded. No fanned-out siblings carrying rows -> falls back to the primary RBL's
+ *  own engineReady, unchanged. Throws exactly like fetchReviewQueue on a failed PRIMARY read (same
+ *  try/catch contract callers already have).
+ *
+ *  `probeAllowed` gates the (bounded, but still real) rediscovery probe — default `false` so a plain
+ *  single-RBL job/caller costs exactly the one primary read, zero probe requests. Pass `true` only when the
+ *  caller genuinely has no other way to know this file's fan-out state this session (mirrors the gate's own
+ *  "extractCreatedRbls[i] is undefined" condition); a caller that already knows there's no fan-out (or
+ *  doesn't have per-file session context at all, e.g. the workspace's generic job-level checks) passes
+ *  `false` and skips the probe entirely. */
+export async function fetchAggregateEngineReadiness(
+  jobId: string, primaryRblId: string, probeAllowed = false,
+): Promise<boolean> {
+  const primaryReady = (await fetchReviewQueue(jobId, primaryRblId)).engineReady;
+  if (!probeAllowed) return primaryReady;
+  const siblingIds = await probeHandwrittenFanOutIds((id) => handwrittenFanOutIdExists(jobId, id));
+  const siblingsWithRows: boolean[] = [];
+  for (const candidateId of siblingIds) {
+    try {
+      const srbl = await fetchReviewedBoreLog(jobId, candidateId);
+      if (srbl.rows.length > 0) siblingsWithRows.push((await fetchReviewQueue(jobId, candidateId)).engineReady);
+    } catch { /* skip — id existed a moment ago but a full read failed; treat as not-counted */ }
+  }
+  return siblingsWithRows.length > 0 ? siblingsWithRows.every(Boolean) : primaryReady;
+}
+
+// One reviewed-bore-log the extraction call created — fan-out for a handwritten multi-bore package (one
+// uploaded file, several detected bores). `sourceUploadId`/`rowId`/`pageIndex`/`runIndex` are each optional
+// (an older backend may report the id alone); array is in creation order.
+export interface CreatedReviewedBoreLog {
+  readonly reviewedBoreLogId: string;
+  readonly sourceUploadId: string | null;
+  readonly rowId: string | null;
+  readonly pageIndex: number | null;
+  readonly runIndex: number | null;
+}
+
+// `undefined` ONLY when the wire key itself is absent (an older backend that hasn't landed this field) —
+// the caller's bounded id-probe fallback fires ONLY on that `undefined`. A present-but-empty array (or one
+// containing only the just-extracted RBL) is the backend AUTHORITATIVELY reporting "no siblings": that
+// composes to `[]`, not `undefined`, so the caller renders no sibling cards and issues zero probe requests.
+function composeCreatedReviewedBoreLogs(value: unknown): CreatedReviewedBoreLog[] | undefined {
+  if (value === undefined) return undefined;
+  const list = Array.isArray(value) ? value : [];
+  return list
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x))
+    .map((x) => ({
+      reviewedBoreLogId: str(x.reviewed_bore_log_id),
+      sourceUploadId: strOrNull(x.source_upload_id),
+      rowId: strOrNull(x.row_id),
+      pageIndex: numOrNull(x.page_index),
+      runIndex: numOrNull(x.run_index),
+    }))
+    .filter((x) => x.reviewedBoreLogId !== '');
+}
+
 export interface ExtractRowsResult {
   readonly extractedCount: number;
   readonly extractedRowIds: readonly string[];
+  // See composeCreatedReviewedBoreLogs: undefined = field absent (older backend, probe fallback applies);
+  // an array (possibly empty) = authoritative fan-out siblings, no probe.
+  readonly createdReviewedBoreLogs: readonly CreatedReviewedBoreLog[] | undefined;
 }
 
 /** Deterministic, read-only TABLE extraction of the reviewed-bore-log's SOURCE upload (.xlsx/.csv) into
@@ -447,7 +795,11 @@ export async function extractBoreLogRows(jobId: string, rblId: string): Promise<
   const d = asRecord(
     await postProductJson(`/v2/product/jobs/${jobId}/reviewed-bore-logs/${rblId}/extract`, {}),
     'extract-rows');
-  return { extractedCount: int(d.extracted_count), extractedRowIds: strList(d.extracted_row_ids) };
+  return {
+    extractedCount: int(d.extracted_count),
+    extractedRowIds: strList(d.extracted_row_ids),
+    createdReviewedBoreLogs: composeCreatedReviewedBoreLogs(d.created_reviewed_bore_logs),
+  };
 }
 
 // ====================================================================================================
@@ -678,6 +1030,23 @@ async function getProductBlob(path: string): Promise<Blob> {
   const response = await fetch(`${apiBase()}${path}`, { method: 'GET', cache: 'no-store', headers: headers() });
   if (!response.ok) throw new Error(`product GET ${path} failed with HTTP ${response.status}`);
   return response.blob();
+}
+
+// --- W3 (flag-gated): handwritten bore-log source-page preview -------------------------------------- //
+
+/** Pure path builder (unit-checkable) for the raster of one page of an uploaded bore-log file. */
+export function borelogSourcePagePath(jobId: string, uploadId: string, pageIndex: number): string {
+  return `/v2/product/jobs/${jobId}/uploads/${uploadId}/borelog-source?page=${pageIndex}`;
+}
+
+/** Read-only raster of ONE page of the uploaded bore-log file (for the source-page preview panel next to
+ *  the row editor, shown only behind handwrittenBorelogEnabled()). Header-bearing fetch -> Blob (a plain
+ *  <img src> cannot send the identity headers). Throws on ANY non-OK response — the caller renders "Source
+ *  page preview unavailable." rather than a broken <img>, never a mock/placeholder image. */
+export async function fetchBorelogSourcePageBlob(
+  jobId: string, uploadId: string, pageIndex: number,
+): Promise<Blob> {
+  return getProductBlob(borelogSourcePagePath(jobId, uploadId, pageIndex));
 }
 
 /** Read-only PNG raster of ONE uploaded PLAN_PDF page (the plan AS-IS — NO redline overlay). Header-

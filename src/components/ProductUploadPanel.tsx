@@ -10,7 +10,7 @@ import { useRef, useState } from 'react';
 import { ClipboardCheck, FileText, ImageIcon, Map as MapIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
-import { fileToBase64, uploadProductFile } from '@/lib/api/productWrites';
+import { fileToBase64, handwrittenBorelogEnabled, uploadProductFile } from '@/lib/api/productWrites';
 
 type Kind = 'PLAN_PDF' | 'GIS_ROUTE' | 'BORE_LOG' | 'PHOTO';
 
@@ -29,11 +29,21 @@ interface KindDef {
   readonly icon: typeof FileText;
 }
 
+// Bore-log accepted extensions: .jpg/.jpeg/.png are ADDITIVE, behind the flag (scanned/photographed bore
+// logs). NEXT_PUBLIC_* is inlined at build, so this is a stable module-level computation — flag off keeps
+// the extension list and description byte-identical to pre-W3.
+const BORE_LOG_EXTS = handwrittenBorelogEnabled()
+  ? ['.pdf', '.csv', '.xlsx', '.jpg', '.jpeg', '.png']
+  : ['.pdf', '.csv', '.xlsx'];
+const BORE_LOG_DESC = handwrittenBorelogEnabled()
+  ? 'Bore stations (.xlsx / .csv / .pdf / scanned photo)'
+  : 'Bore stations (.xlsx / .csv / .pdf)';
+
 // Order per Patrick: Plan PDF · KMZ/KML route · Bore log · Photos.
 const KINDS: readonly KindDef[] = [
   { kind: 'PLAN_PDF', label: 'Plan PDF', desc: 'The construction plan', exts: ['.pdf'], accept: '.pdf', icon: FileText },
   { kind: 'GIS_ROUTE', label: 'KMZ / KML route', desc: 'Route for the map', exts: ['.kmz', '.kml'], accept: '.kmz,.kml', icon: MapIcon },
-  { kind: 'BORE_LOG', label: 'Bore log', desc: 'Bore stations (.xlsx / .csv / .pdf)', exts: ['.pdf', '.csv', '.xlsx'], accept: '.pdf,.csv,.xlsx', icon: ClipboardCheck },
+  { kind: 'BORE_LOG', label: 'Bore log', desc: BORE_LOG_DESC, exts: BORE_LOG_EXTS, accept: BORE_LOG_EXTS.join(','), icon: ClipboardCheck },
   { kind: 'PHOTO', label: 'Photos', desc: 'Stored for reference only', exts: ['.jpg', '.jpeg', '.png', '.webp'], accept: '.jpg,.jpeg,.png,.webp', icon: ImageIcon },
 ];
 
@@ -159,9 +169,20 @@ export function ProductUploadPanel({ jobId, onUploaded }: { jobId: string; onUpl
 
       {kind === 'BORE_LOG' && (
         <p className="mt-2 text-xs text-ink-3">
-          The bore log is <span className="font-medium">stored for your review, not auto-read</span> (no OCR) —
-          you confirm its stations in the <span className="font-medium">Bore logs</span> step before the engine
-          uses them. Upload multiple bore logs separately; each is reviewed on its own.
+          {handwrittenBorelogEnabled() ? (
+            <>
+              Scanned or photographed bore logs are read by an extraction assistant and{' '}
+              <span className="font-medium">ALWAYS reviewed by you before use.</span> You confirm its stations
+              in the <span className="font-medium">Bore logs</span> step before the engine uses them. Upload
+              multiple bore logs separately; each is reviewed on its own.
+            </>
+          ) : (
+            <>
+              The bore log is <span className="font-medium">stored for your review, not auto-read</span> (no OCR) —
+              you confirm its stations in the <span className="font-medium">Bore logs</span> step before the engine
+              uses them. Upload multiple bore logs separately; each is reviewed on its own.
+            </>
+          )}
         </p>
       )}
       {kind === 'PHOTO' && (

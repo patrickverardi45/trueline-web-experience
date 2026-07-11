@@ -8,22 +8,29 @@
 // table read of the .xlsx/.csv, NOT OCR, nothing guessed) then review + confirm. Hand-entry is demoted to a
 // collapsed "Advanced manual review" gated behind the internal flag — never the primary workflow.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from 'lucide-react';
 
+import { ProductBoreRowEditor } from '@/components/ProductBoreRowEditor';
 import { Card } from '@/components/ui/Card';
 import { internalToolingEnabled } from '@/lib/internalMode';
 import {
   addReviewedRows,
   createReviewedBoreLog,
   defineSegmentGroup,
+  ensureGroupingConfirmed,
   extractBoreLogRows,
+  fetchAggregateEngineReadiness,
   fetchReviewQueue,
   fetchReviewedBoreLog,
+  probeHandwrittenFanOutIds,
   reviewReviewedRow,
   setGroupingStatus,
+  type CreatedReviewedBoreLog,
   type ManualRowInput,
   type ReviewedBoreLogView,
+  type ReviewedGroupView,
+  type ReviewedRowView,
   type ReviewQueueView,
   type SegmentRelation,
 } from '@/lib/api/productWrites';
@@ -47,6 +54,16 @@ function rid(): string {
 }
 function gid(): string {
   return 'grp-' + Math.random().toString(36).slice(2, 8);
+}
+
+// probeHandwrittenFanOutIds (the bounded "rbl-hw-p{page}-r{run}" rediscovery probe) lives in
+// productWrites.ts — ONE shared place, reused by fetchAggregateEngineReadiness's own probe too.
+
+interface BoreCardData {
+  readonly rblId: string;
+  readonly label: string;
+  readonly rbl: ReviewedBoreLogView;
+  readonly queue: ReviewQueueView;
 }
 
 export function ProductReviewedBoreLogGate({
@@ -76,26 +93,122 @@ export function ProductReviewedBoreLogGate({
   const [relation, setRelation] = useState<SegmentRelation>('SEPARATE_BORE');
   // Per-file engine-ready status for the file list badges (one light read per uploaded bore log).
   const [readyMap, setReadyMap] = useState<Record<number, boolean | null>>({});
+  // Sibling reviewed-bore-logs fanned out from the SAME uploaded file (handwritten multi-bore packages).
+  // Empty for every ordinary (non-fan-out) job — see probeHandwrittenFanOutIds.
+  const [siblingBores, setSiblingBores] = useState<readonly BoreCardData[]>([]);
+  // AUTHORITATIVE fan-out ids, per uploaded-file index, as reported by the extract call itself
+  // (created_reviewed_bore_logs). Populated in onExtract(). `undefined` for an index means "not yet known
+  // this session" OR "the backend's response didn't carry the field" — both fall back to the id probe. A
+  // defined array (even []) means the backend authoritatively answered — no probe, ever, for that index.
+  const [extractCreatedRbls, setExtractCreatedRbls] =
+    useState<Record<number, readonly CreatedReviewedBoreLog[] | undefined>>({});
+
+  // load() is defined below; ensureRblGroupedThenReload needs to call the LATEST load() without making
+  // itself (and every row editor holding it) re-render/re-bind on every load() identity change — a ref
+  // (kept current by the effect right after load's definition) breaks that circularity cleanly.
+  const loadRef = useRef<() => Promise<void>>(async () => {});
+
+  // Direct, SINGLE-RBL grouping-ensure — the editor's per-row-review SUCCESS callback uses this (not the
+  // broader sweep below) so a review success on ONE RBL is never blocked by another RBL's fetch/grouping
+  // trouble elsewhere. Best-effort: a failure here doesn't surface as an error — the self-heal sweep in
+  // load() (below) retries it on the next visit/action regardless.
+  const ensureRblGroupedThenReload = useCallback(async (rblId: string) => {
+    try {
+      const freshRbl = await fetchReviewedBoreLog(jobId, rblId);
+      await ensureGroupingConfirmed(jobId, rblId, freshRbl.rows, freshRbl.groups);
+    } catch {
+      // best-effort — see comment above
+    }
+    await loadRef.current();
+  }, [jobId]);
 
   const load = useCallback(async () => {
-    if (!active) { setPhase('absent'); return; }
+    if (!active) { setPhase('absent'); setSiblingBores([]); return; }
     setError(null);
     try {
-      const [record, q] = [await fetchReviewedBoreLog(jobId, activeRbl), await fetchReviewQueue(jobId, activeRbl)];
+      const record = await fetchReviewedBoreLog(jobId, activeRbl);
+      let q = await fetchReviewQueue(jobId, activeRbl);
+      // SELF-HEALING (a): idempotently ensure grouping the moment ALL of this RBL's rows are reviewed
+      // (per-row review has no grouping step of its own) — a no-op for the (typically empty) primary in a
+      // fan-out package. Never lets a grouping failure block rendering the primary's own data.
+      try {
+        if (await ensureGroupingConfirmed(jobId, activeRbl, record.rows, record.groups)) {
+          q = await fetchReviewQueue(jobId, activeRbl);
+        }
+      } catch { /* best-effort — retried on the next load() */ }
       setRbl(record);
       setQueue(q);
       setPhase('ready');
-      setReadyMap((prev) => ({ ...prev, [sel]: q.engineReady }));
+
+      // Sibling ids: the backend's created_reviewed_bore_logs (from the last extract THIS session) is
+      // AUTHORITATIVE the moment it's present, even if empty.
+      let created = extractCreatedRbls[sel];
+      if (created === undefined) {
+        // SELF-HEALING (b), the critical case: a totally fresh page load has NO session memory of
+        // created_reviewed_bore_logs (extraction happened in an earlier session) — and re-POSTing extract()
+        // to rediscover it is NOT safe (the real backend rejects a redundant extract on an already
+        // fanned-out RBL). Rediscover via the deterministic "rbl-hw-p{page}-r{run}" naming instead: bounded,
+        // read-only, zero-cost for a non-fan-out job (one failed check, then stop). The result — even an
+        // empty one — is cached into extractCreatedRbls so this only runs once per file per session.
+        const discoveredIds = await probeHandwrittenFanOutIds(async (id) => {
+          try { await fetchReviewQueue(jobId, id); return true; } catch { return false; }
+        });
+        created = discoveredIds.map((id) => ({
+          reviewedBoreLogId: id, sourceUploadId: null, rowId: null, pageIndex: null, runIndex: null,
+        }));
+        setExtractCreatedRbls((prev) => ({ ...prev, [sel]: created }));
+      }
+      const backendSiblingIds = created
+        .map((c) => c.reviewedBoreLogId)
+        .filter((id): id is string => !!id && id !== activeRbl);
+
+      // Sibling numbering follows CREATION order (both id sources below are already creation-ordered): when
+      // the primary carries no rows (the ordinary fan-out shape), siblings are "Bore 1..N"; when the primary
+      // itself carries rows too, it occupies "Bore 1" implicitly and siblings continue from "Bore 2".
+      const primaryHasRows = record.rows.length > 0;
+      const labelFor = (position: number) => `Bore ${primaryHasRows ? position + 2 : position + 1}`;
+
+      const siblings: BoreCardData[] = [];
+      for (const candidateId of backendSiblingIds) {
+        try {
+          // FETCH always pushes the card (so a sibling with reviewed-but-ungrouped rows stays VISIBLE,
+          // never silently vanishes). Grouping-ENSURE is a separate best-effort step — its failure never
+          // hides data.
+          const srbl = await fetchReviewedBoreLog(jobId, candidateId);
+          let squeue = await fetchReviewQueue(jobId, candidateId);
+          try {
+            if (await ensureGroupingConfirmed(jobId, candidateId, srbl.rows, srbl.groups)) {
+              squeue = await fetchReviewQueue(jobId, candidateId);
+            }
+          } catch { /* best-effort — retried on the next load() */ }
+          siblings.push({ rblId: candidateId, label: labelFor(siblings.length), rbl: srbl, queue: squeue });
+        } catch { /* skip; independent known ids, not a sequential guess */ }
+      }
+      setSiblingBores(siblings);
+
+      // File-level "reviewed & ready" (the per-file pill + this file's status pill): when fan-out siblings
+      // carry rows, aggregate over THEM (all engine-ready) and exclude the — typically empty — primary. No
+      // siblings carrying rows -> unchanged single-RBL behavior (the primary's own engineReady).
+      const siblingsWithRows = siblings.filter((s) => s.rbl.rows.length > 0);
+      const aggregateReady = siblingsWithRows.length > 0
+        ? siblingsWithRows.every((s) => s.queue.engineReady)
+        : q.engineReady;
+      setReadyMap((prev) => ({ ...prev, [sel]: aggregateReady }));
     } catch (e) {
       if (is404(e)) {
         setPhase('absent');
         setReadyMap((prev) => ({ ...prev, [sel]: false }));
+        setSiblingBores([]);
         return;
       }
       setError(e instanceof Error ? e.message : 'unavailable');
       setPhase('error');
     }
-  }, [jobId, activeRbl, active, sel]);
+  }, [jobId, activeRbl, active, sel, extractCreatedRbls]);
+
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -111,7 +224,13 @@ export function ProductReviewedBoreLogGate({
     (async () => {
       const entries = await Promise.all(
         boreLogUploads.map(async (_, i) => {
-          try { return [i, (await fetchReviewQueue(jobId, rblFor(i))).engineReady] as const; }
+          // Aggregates over that file's own fan-out siblings (excluding its empty primary) when they carry
+          // rows; falls back to the primary's own engineReady otherwise — same rule as load() above. The
+          // rediscovery probe only runs when THIS file's fan-out state isn't already known this session
+          // (extractCreatedRbls[i] undefined) — same absent-condition load() uses, so a file already
+          // resolved (empty or with known ids) costs zero extra probe requests here.
+          const probeAllowed = extractCreatedRbls[i] === undefined;
+          try { return [i, await fetchAggregateEngineReadiness(jobId, rblFor(i), probeAllowed)] as const; }
           catch { return [i, false] as const; }
         }),
       );
@@ -168,33 +287,49 @@ export function ProductReviewedBoreLogGate({
     if (!effectiveSourceUploadId) return;
     await act(async () => {
       if (phase === 'absent') await createReviewedBoreLog(jobId, activeRbl, effectiveSourceUploadId);
-      await extractBoreLogRows(jobId, activeRbl);
+      const result = await extractBoreLogRows(jobId, activeRbl);
+      // Record the AUTHORITATIVE fan-out ids for THIS uploaded file (keyed by its index) so load() renders
+      // sibling bore cards from them instead of the id-probe fallback.
+      setExtractCreatedRbls((prev) => ({ ...prev, [sel]: result.createdReviewedBoreLogs }));
     });
   }
 
-  // Confirm the selected file's extracted rows and group them so it becomes engine-ready — without diving into
-  // the Advanced manual tooling. Groups all rows as separate bores (one bore span per uploaded file).
-  async function onConfirmReady() {
+  // Bulk-confirm every not-yet-passed row of ONE reviewed-bore-log, then idempotently ensure its grouping
+  // (the SAME shared helper the per-row review path uses via load()) so it becomes engine-ready — the
+  // "Confirm all remaining" fallback for the plain-table lanes. Shared by the primary card and every
+  // fan-out sibling bore card (each RBL confirms independently).
+  async function confirmAllRemaining(
+    targetRblId: string, targetRows: readonly ReviewedRowView[], targetGroups: readonly ReviewedGroupView[],
+  ) {
     await act(async () => {
-      for (const r of rows) {
+      for (const r of targetRows) {
         if (!PASS.has(r.reviewStatus)) {
-          await reviewReviewedRow(jobId, activeRbl, r.rowId, { toStatus: 'CONFIRMED' });
+          await reviewReviewedRow(jobId, targetRblId, r.rowId, { toStatus: 'CONFIRMED' });
         }
       }
-      const ids = rows.map((r) => r.rowId);
-      if (ids.length > 0 && (rbl?.groups.length ?? 0) === 0) {
-        const groupId = gid();
-        await defineSegmentGroup(jobId, activeRbl, groupId, ids, 'SEPARATE_BORE');
-        await setGroupingStatus(jobId, activeRbl, groupId, 'CONFIRMED');
-      }
+      // Every targetRows entry is reviewed now (just confirmed above, or already was) — ensureGroupingConfirmed
+      // re-derives the group membership from this post-confirm view and is a no-op if already grouped.
+      const reviewedRows = targetRows.map((r) => (PASS.has(r.reviewStatus) ? r : { ...r, reviewStatus: 'CONFIRMED' }));
+      await ensureGroupingConfirmed(jobId, targetRblId, reviewedRows, targetGroups);
     });
+  }
+
+  // Confirm the SELECTED (primary) file's extracted rows — without diving into the Advanced manual tooling.
+  async function onConfirmReady() {
+    await confirmAllRemaining(activeRbl, rows, rbl?.groups ?? []);
   }
 
   const rows = rbl?.rows ?? [];
   const passedRows = rows.filter((r) => PASS.has(r.reviewStatus));
   const effectiveSourceUploadId = active?.uploadId ?? '';
   const hasUpload = boreLogUploads.length > 0;
-  const ready = !!queue?.engineReady;
+  // File-level "reviewed & ready" — aggregate over fan-out siblings that carry rows (excluding the
+  // typically-empty primary rbl-main) when they exist; no siblings carrying rows -> the primary's own
+  // engineReady, unchanged single-RBL behavior. Mirrors the same rule computed in load().
+  const siblingBoresWithRows = siblingBores.filter((s) => s.rbl.rows.length > 0);
+  const ready = siblingBoresWithRows.length > 0
+    ? siblingBoresWithRows.every((s) => s.queue.engineReady)
+    : !!queue?.engineReady;
   const showAdvanced = internalToolingEnabled() && hasUpload && phase !== 'loading' && phase !== 'error';
 
   return (
@@ -276,7 +411,8 @@ export function ProductReviewedBoreLogGate({
               </p>
             </Card>
           ) : ready ? (
-            /* READY: show the reviewed bore rows READ-ONLY (trusted evidence). No entry form on the main path. */
+            /* READY: the reviewed bore rows are trusted evidence — every canonical field, honestly, but
+               no Edit/Confirm actions (a banked human review grade is never reopened here). */
             <Card className="mt-3">
               <h4 className="font-medium text-ink">Bore rows from {active.filename} ({rows.length})</h4>
               <p className="mt-1 text-xs text-ink-3">
@@ -284,24 +420,13 @@ export function ProductReviewedBoreLogGate({
                 Generate the redline in the <span className="font-medium">Redline proof</span> step.
               </p>
               {rows.length > 0 && (
-                <table className="mt-2 w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-line text-left text-ink-3">
-                      <th className="py-1.5 pr-3 font-medium">Start → End station</th>
-                      <th className="py-1.5 pr-3 font-medium">Plan sheet(s)</th>
-                      <th className="py-1.5 font-medium">Review</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.rowId} className="border-b border-line/60 last:border-0">
-                        <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
-                        <td className="py-1.5 pr-3 text-ink-2">{r.sheetRefs.length > 0 ? r.sheetRefs.join(', ') : r.printRaw || '—'}</td>
-                        <td className="py-1.5 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="mt-2">
+                  {rows.map((r) => (
+                    <ProductBoreRowEditor
+                      key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
+                      uploadFilename={active?.filename ?? null} row={r} readOnly onChanged={load} />
+                  ))}
+                </div>
               )}
             </Card>
           ) : rows.length === 0 ? (
@@ -326,41 +451,28 @@ export function ProductReviewedBoreLogGate({
               </p>
             </Card>
           ) : (
-            /* NOT READY, rows extracted: review + confirm them (no hand-entry on the main path). */
+            /* NOT READY, rows extracted: per-row review — see every field, edit (nullable-aware), confirm
+               each individually, or bulk-confirm the rest (no hand-entry on the main path). */
             <Card className="mt-3">
               <h4 className="font-medium text-ink">Extracted bore rows from {active.filename} — review &amp; confirm ({rows.length})</h4>
               <p className="mt-1 text-xs text-ink-3">
-                Extracted from this file (deterministic table read). Confirm them to enable redline
-                placement — nothing is placed until you do.
+                Extracted from this file. Review each row — edit anything that&rsquo;s wrong, confirm what&rsquo;s
+                right — to enable redline placement. Nothing is placed until you do.
               </p>
-              <table className="mt-2 w-full text-sm">
-                <thead>
-                  <tr className="border-b border-line text-left text-ink-3">
-                    <th className="py-1.5 pr-3 font-medium">Start → End station</th>
-                    <th className="py-1.5 pr-3 font-medium">Plan sheet(s)</th>
-                    <th className="py-1.5 pr-3 font-medium">Source</th>
-                    <th className="py-1.5 font-medium">Review</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.rowId} className="border-b border-line/60 last:border-0">
-                      <td className="py-1.5 pr-3 font-mono text-ink">{r.startStation} → {r.endStation}</td>
-                      <td className="py-1.5 pr-3 text-ink-2">{r.sheetRefs.length > 0 ? r.sheetRefs.join(', ') : r.printRaw || '—'}</td>
-                      <td className="py-1.5 pr-3 text-xs text-ink-3">
-                        {r.extractionMethod === 'TABLE_IMPORT' ? 'extracted · needs review' : 'manual · needs review'}
-                      </td>
-                      <td className="py-1.5 text-ink-2">{r.reviewStatus.toLowerCase()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-2">
+                {rows.map((r) => (
+                  <ProductBoreRowEditor
+                    key={r.rowId} jobId={jobId} rblId={activeRbl} uploadId={effectiveSourceUploadId || null}
+                    uploadFilename={active?.filename ?? null} row={r} disabled={busy}
+                    onChanged={() => ensureRblGroupedThenReload(activeRbl)} />
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
                 <button
                   onClick={onConfirmReady}
                   disabled={busy}
                   className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
-                  {busy ? 'Confirming…' : 'Confirm rows & mark reviewed'}
+                  {busy ? 'Confirming…' : 'Confirm all remaining'}
                 </button>
                 <button
                   onClick={onExtract}
@@ -371,6 +483,15 @@ export function ProductReviewedBoreLogGate({
               </div>
             </Card>
           )}
+
+          {/* ---- Fan-out sibling bore cards — the SAME uploaded file split into several reviewed-bore-logs
+               (handwritten multi-bore packages). Empty for every ordinary job/lane. ---- */}
+          {phase !== 'loading' && phase !== 'error' && siblingBores.map((s) => (
+            <SiblingBoreCard
+              key={s.rblId} jobId={jobId} uploadId={effectiveSourceUploadId || null}
+              uploadFilename={active?.filename ?? null} card={s}
+              busy={busy} onConfirmAll={confirmAllRemaining} onRowChanged={ensureRblGroupedThenReload} />
+          ))}
 
           {/* ---- Advanced manual fallback (collapsed by default) — NOT the primary workflow ---- */}
           {showAdvanced && (
@@ -541,5 +662,55 @@ function Stat({ label, v }: { label: string; v: number }) {
       <dt className="text-ink-3">{label}</dt>
       <dd className="font-mono text-ink">{v}</dd>
     </div>
+  );
+}
+
+// One fan-out sibling bore card: the SAME uploaded file, ANOTHER reviewed-bore-log (a distinct bore within
+// a handwritten multi-bore package). Its own per-row editor + its own "Confirm all remaining" — a sibling's
+// review state never affects the primary's.
+function SiblingBoreCard({
+  jobId, uploadId, uploadFilename, card, busy, onConfirmAll, onRowChanged,
+}: {
+  jobId: string;
+  uploadId: string | null;
+  uploadFilename: string | null;
+  card: BoreCardData;
+  busy: boolean;
+  onConfirmAll: (rblId: string, rows: readonly ReviewedRowView[], groups: readonly ReviewedGroupView[]) => Promise<void>;
+  // Fired by a row editor on a SUCCESSFUL confirm/correction — ensures grouping for THIS card's rblId
+  // directly (not via the parent's broader sibling-discovery sweep) before reloading the whole gate.
+  onRowChanged: (rblId: string) => Promise<void>;
+}) {
+  const rows = card.rbl.rows;
+  const ready = card.queue.engineReady;
+  return (
+    <Card className="mt-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="font-medium text-ink">{card.label} — {rows.length} row(s)</h4>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+        }`}>
+          {ready ? 'Reviewed' : 'Needs review'}
+        </span>
+      </div>
+      <div className="mt-2">
+        {rows.map((r) => (
+          <ProductBoreRowEditor
+            key={r.rowId} jobId={jobId} rblId={card.rblId} uploadId={uploadId}
+            uploadFilename={uploadFilename} row={r} disabled={busy} readOnly={ready}
+            onChanged={() => onRowChanged(card.rblId)} />
+        ))}
+      </div>
+      {!ready && rows.length > 0 && (
+        <div className="mt-3 border-t border-line/60 pt-3">
+          <button
+            onClick={() => onConfirmAll(card.rblId, rows, card.rbl.groups)}
+            disabled={busy}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
+            {busy ? 'Confirming…' : 'Confirm all remaining'}
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }
