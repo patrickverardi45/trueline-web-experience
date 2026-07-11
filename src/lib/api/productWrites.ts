@@ -1229,8 +1229,14 @@ export async function createSourceAnchor(
     reviewed_bore_log_id: input.reviewedBoreLogId,
     page_number: input.pageNumber,
     control_points: input.controlPoints.map((p) => ({ x: p.x, y: p.y })),
-    group_id: input.groupId ?? null,
-    row_ids: input.rowIds ? [...input.rowIds] : null,
+    // Integration fix: when adopting (route_adoption present), row_ids/group_id are FORCED from the SAME
+    // routeAdoption input — never input.rowIds/input.groupId, never new component state. The backend requires
+    // the create request to carry EXACTLY ONE row_id (the adopted row) and NO group_id whenever route_adoption
+    // is present, else it refuses 409 ROUTE_ADOPTION_SCOPE_MISMATCH ("route_adoption requires the create
+    // request to carry exactly one row_id and no group_id"). The non-adoption body (input.routeAdoption
+    // absent) is computed exactly as before — byte-identical.
+    group_id: input.routeAdoption ? null : (input.groupId ?? null),
+    row_ids: input.routeAdoption ? [input.routeAdoption.rowId] : (input.rowIds ? [...input.rowIds] : null),
     start_identity: identityBody(input.startIdentity),
     end_identity: identityBody(input.endIdentity),
     notes: input.notes ?? null,
