@@ -1081,22 +1081,41 @@ export function ProductSourceAnchorCapture({
                     Station dots ({stationDots.length}) — every 50&#8242; along your redline, plus start and end
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {stationDots.map((d, i) => (
-                      <button
-                        key={`${d.index}-${d.footageAlong}`}
-                        type="button"
-                        onClick={() => setSelectedDot((prev) => (prev === i ? null : i))}
-                        className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
-                          selectedDot === i
-                            ? 'border-accent bg-accent-soft text-accent-strong'
-                            : 'border-line text-ink-2 hover:text-ink'
-                        }`}>
-                        {d.station ?? `${d.footageAlong}′`}
-                      </button>
-                    ))}
+                    {stationDots.map((d, i) => {
+                      // Mission-8 ADDENDUM: `origin` is additive/absence-tolerant — a legacy payload without
+                      // it (origin === null) renders exactly as before (no secondary styling ever applied).
+                      const isDerived = d.origin === 'DERIVED_INTERVAL';
+                      return (
+                        <button
+                          key={`${d.index}-${d.footageAlong}`}
+                          type="button"
+                          onClick={() => setSelectedDot((prev) => (prev === i ? null : i))}
+                          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+                            selectedDot === i
+                              ? 'border-accent bg-accent-soft text-accent-strong'
+                              : isDerived
+                                ? 'border-dashed border-line text-ink-3 hover:text-ink-2'
+                                : 'border-line text-ink-2 hover:text-ink'
+                          }`}>
+                          {d.station ?? `${d.footageAlong}′`}
+                        </button>
+                      );
+                    })}
                   </div>
                   {selectedDot != null && stationDots[selectedDot] && (() => {
                     const d = stationDots[selectedDot];
+                    // Honest per-dot provenance line (Mission-8 ADDENDUM). `origin === null` (legacy payload,
+                    // field absent) renders nothing here — never guessed. Depth/BOC/notes need no extra
+                    // handling below: a DERIVED_INTERVAL dot's wire object omits those keys entirely, so the
+                    // existing strOrNull() decode already yields `null` for them and the row filter below
+                    // already drops null/empty rows — no placeholder dashes implying a measurement.
+                    const provenanceLine = d.origin === 'SOURCE_RECORDED'
+                      ? `Recorded station — read from the bore log${
+                          d.stationEvidence?.confidence ? ` · ${d.stationEvidence.confidence} confidence` : ''
+                        }`
+                      : d.origin === 'DERIVED_INTERVAL'
+                        ? 'Derived 50′ interval marker — not a recorded station'
+                        : null;
                     const rows: readonly (readonly [string, string | null])[] = [
                       ['Footage', `${d.footageAlong}′ from start`],
                       ['Station', d.station],
@@ -1109,14 +1128,23 @@ export function ProductSourceAnchorCapture({
                       ['Bore log', d.boreLogId],
                     ];
                     return (
-                      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-md bg-paper px-3 py-2 text-xs sm:grid-cols-3">
-                        {rows.filter(([, v]) => v != null && v !== '').map(([k, v]) => (
-                          <div key={k}>
-                            <dt className="text-ink-3">{k}</dt>
-                            <dd className="font-medium text-ink">{v}</dd>
-                          </div>
-                        ))}
-                      </dl>
+                      <>
+                        {provenanceLine && (
+                          <p className={`mt-2 text-[11px] font-medium ${
+                            d.origin === 'DERIVED_INTERVAL' ? 'text-ink-3' : 'text-accent-strong'
+                          }`}>
+                            {provenanceLine}
+                          </p>
+                        )}
+                        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-md bg-paper px-3 py-2 text-xs sm:grid-cols-3">
+                          {rows.filter(([, v]) => v != null && v !== '').map(([k, v]) => (
+                            <div key={k}>
+                              <dt className="text-ink-3">{k}</dt>
+                              <dd className="font-medium text-ink">{v}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </>
                     );
                   })()}
                 </div>

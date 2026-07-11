@@ -1656,7 +1656,25 @@ export interface JobArtifactRef {
 
 /** One clickable interval/footage dot along a HUMAN-confirmed redline (backend-computed; provenance is
  *  always HUMAN_CONFIRMED_CONTROL_POINTS — never AUTO). Dots mark 0' (start), every 50', and the final
- *  endpoint; info fields are the bore row's own values (null when the row doesn't carry them). */
+ *  endpoint; info fields are the bore row's own values (null when the row doesn't carry them).
+ *
+ *  Mission-8 ADDENDUM (station-dot contract): each dot ADDITIVELY carries `origin` — whether it is an
+ *  actual station reading taken off the bore log (SOURCE_RECORDED) or an arithmetic 50' interval fill
+ *  the engine derived because the log only recorded start/end/total footage (DERIVED_INTERVAL). `origin`
+ *  is `null` on a legacy payload that predates this field — NEVER guessed from other data. Derived dots
+ *  never carry depth/boc/notes (the wire object omits those keys entirely; the existing strOrNull()-based
+ *  decode below already renders that as an honest absence, same as any other missing field). */
+export type StationDotOrigin = 'SOURCE_RECORDED' | 'DERIVED_INTERVAL';
+
+/** Per-station evidence for a SOURCE_RECORDED dot (present only when the backend attached it — a
+ *  DERIVED_INTERVAL dot never carries this, and a malformed/non-object wire value composes to `null`
+ *  rather than a fabricated placeholder). */
+export interface StationEvidenceView {
+  readonly verbatim: string | null;
+  readonly status: string | null;
+  readonly confidence: string | null;
+}
+
 export interface StationDot {
   readonly index: number;
   readonly footageAlong: number;
@@ -1670,6 +1688,8 @@ export interface StationDot {
   readonly notes: string | null;
   readonly boreLogId: string | null;
   readonly provenance: string;
+  readonly origin: StationDotOrigin | null;
+  readonly stationEvidence: StationEvidenceView | null;
 }
 
 export interface SourceAnchorRenderResult {
@@ -1681,6 +1701,33 @@ export interface SourceAnchorRenderResult {
   readonly artifacts: readonly JobArtifactRef[];
   // Additive: {source_anchor_id: [dot, ...]} from the published manifest ({} when the row had no footage).
   readonly stationDotsByLog: Readonly<Record<string, readonly StationDot[]>>;
+  // Mission-8 ADDENDUM, additive + absence-tolerant: {source_anchor_id: basis} / {source_anchor_id:
+  // [warning, ...]} mirroring stationDotsByLog's per-log grouping (the manifest's per-log station-marks
+  // metadata lives alongside that same log's dots). `{}` on any payload that doesn't carry these keys yet
+  // (legacy payload or a backend that hasn't landed this field) — never defaulted to a fabricated basis.
+  readonly stationMarksBasisByLog: Readonly<Record<string, string>>;
+  readonly stationMarksWarningsByLog: Readonly<Record<string, readonly string[]>>;
+}
+
+const STATION_DOT_ORIGINS: readonly StationDotOrigin[] = ['SOURCE_RECORDED', 'DERIVED_INTERVAL'];
+
+/** `null` on anything but an exact recognized enum value — absent (legacy payload), unrecognized, or
+ *  malformed all compose to `null` alike, so a caller can only ever branch on the two named origins or
+ *  "unknown/legacy", never on a guessed third state. */
+function composeStationDotOrigin(value: unknown): StationDotOrigin | null {
+  return typeof value === 'string' && (STATION_DOT_ORIGINS as readonly string[]).includes(value)
+    ? (value as StationDotOrigin)
+    : null;
+}
+
+/** A malformed (non-object) `station_evidence` composes to `null` — the whole object is ignored rather
+ *  than fabricated. A present object keeps whatever individual fields are actually strings (same
+ *  honest-absence convention as composeSourceEvidence above); it is never rejected wholesale just because
+ *  one field is missing. */
+function composeStationEvidence(value: unknown): StationEvidenceView | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const e = value as Record<string, unknown>;
+  return { verbatim: strOrNull(e.verbatim), status: strOrNull(e.status), confidence: strOrNull(e.confidence) };
 }
 
 function composeStationDot(d: Record<string, unknown>): StationDot {
@@ -1694,6 +1741,8 @@ function composeStationDot(d: Record<string, unknown>): StationDot {
     depth: strOrNull(d.depth), boc: strOrNull(d.boc), date: strOrNull(d.date), crew: strOrNull(d.crew),
     print: strOrNull(d.print), notes: strOrNull(d.notes), boreLogId: strOrNull(d.bore_log_id),
     provenance: str(d.provenance),
+    origin: composeStationDotOrigin(d.origin),
+    stationEvidence: composeStationEvidence(d.station_evidence),
   };
 }
 
@@ -1705,6 +1754,24 @@ function composeStationDotsByLog(value: unknown): Record<string, readonly Statio
     out[logId] = dots
       .filter((d): d is Record<string, unknown> => typeof d === 'object' && d !== null && !Array.isArray(d))
       .map(composeStationDot);
+  }
+  return out;
+}
+
+function composeStationMarksBasisByLog(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [logId, basis] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof basis === 'string' && basis.trim()) out[logId] = basis;
+  }
+  return out;
+}
+
+function composeStationMarksWarningsByLog(value: unknown): Record<string, readonly string[]> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, readonly string[]> = {};
+  for (const [logId, warnings] of Object.entries(value as Record<string, unknown>)) {
+    out[logId] = strList(warnings);
   }
   return out;
 }
@@ -1729,6 +1796,8 @@ export function composeSourceAnchorRenderResult(doc: unknown): SourceAnchorRende
     sourceAnchorIds: strList(d.source_anchor_ids),
     artifacts: composeArtifactRefList(d.artifacts),
     stationDotsByLog: composeStationDotsByLog(d.station_dots),
+    stationMarksBasisByLog: composeStationMarksBasisByLog(d.station_marks_basis),
+    stationMarksWarningsByLog: composeStationMarksWarningsByLog(d.station_marks_warnings),
   };
 }
 
