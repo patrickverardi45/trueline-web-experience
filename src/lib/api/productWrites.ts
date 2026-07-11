@@ -1171,12 +1171,23 @@ export function composeSourceAnchorResult(doc: unknown): SourceAnchorResult {
   };
 }
 
-// Ticket W-C: explicit adoption of a source-backed route proposal, carried on the EXISTING source-anchor
-// create write (never a separate write). `confirmed` is always `true` on the wire — the type pins it so a
-// caller can never accidentally send a false/omitted confirmation.
+// Ticket W-C / W-C-ECHO: explicit adoption of a source-backed route proposal, carried on the EXISTING
+// source-anchor create write (never a separate write). `confirmed` is always `true` on the wire — the type
+// pins it so a caller can never accidentally send a false/omitted confirmation. Per the FINAL backend
+// contract (RouteAdoptionIn), the echo carries the proposal's FULL bound identity + control points, not just
+// the hash — the backend uses the echo only to REFINE which refusal code a mismatch produces (it never trusts
+// the echo to grant adoption; the create request's own top-level fields remain the source of truth for what
+// gets re-derived and stored), but the web side must still send it verbatim from the held proposal (see
+// routeAdoptionInputFromProposal below) rather than from independently-tracked component state, which can
+// drift from what the proposal was actually searched against.
 export interface RouteAdoptionInput {
   readonly proposalHash: string;
   readonly confirmed: true;
+  readonly planUploadId: string;
+  readonly reviewedBoreLogId: string;
+  readonly rowId: string;
+  readonly pageNumber: number;
+  readonly controlPoints: readonly [ControlPointInput, ControlPointInput];
 }
 
 export interface SourceAnchorCreateInput {
@@ -1224,9 +1235,20 @@ export async function createSourceAnchor(
     end_identity: identityBody(input.endIdentity),
     notes: input.notes ?? null,
     // Key omitted entirely (not `route_adoption: null`) when not adopting — the non-adoption request body
-    // stays byte-for-byte identical to what it was before this field existed.
+    // stays byte-for-byte identical to what it was before this field existed. When adopting (Ticket
+    // W-C-ECHO), the FULL echo per the final backend RouteAdoptionIn contract — every field sourced verbatim
+    // from the caller-supplied RouteAdoptionInput (itself sourced verbatim from the held proposal — see
+    // routeAdoptionInputFromProposal), never re-derived here.
     ...(input.routeAdoption
-      ? { route_adoption: { proposal_hash: input.routeAdoption.proposalHash, confirmed: true } }
+      ? { route_adoption: {
+          proposal_hash: input.routeAdoption.proposalHash,
+          confirmed: true,
+          plan_upload_id: input.routeAdoption.planUploadId,
+          reviewed_bore_log_id: input.routeAdoption.reviewedBoreLogId,
+          row_id: input.routeAdoption.rowId,
+          page_number: input.routeAdoption.pageNumber,
+          control_points: input.routeAdoption.controlPoints.map((p) => ({ x: p.x, y: p.y })),
+        } }
       : {}),
   }));
 }
@@ -1247,6 +1269,12 @@ export interface RouteProposalPoint {
 export interface RouteProposalSourceView {
   readonly engineeringSheet: string | null;
   readonly pdfPage: number | null;
+  // Ticket W-C-ECHO: the proposal's own bound identity (plan/RBL/row) — carried alongside engineeringSheet/
+  // pdfPage so a held proposal object is self-sufficient to source a full route_adoption echo verbatim (see
+  // routeAdoptionInputFromProposal below), never re-derived from independent component state.
+  readonly planUploadId: string | null;
+  readonly reviewedBoreLogId: string | null;
+  readonly rowId: string | null;
 }
 
 export interface RouteProposalConnectivityView {
@@ -1294,11 +1322,41 @@ export function composeRouteProposal(value: unknown): RouteProposalView {
     proposedRenderPoints: composeRouteProposalPoints(d.proposed_render_points),
     candidateRoutePoints: composeRouteProposalPoints(d.candidate_route_points),
     humanControlPoints: composeRouteProposalPoints(d.human_control_points),
-    source: { engineeringSheet: strOrNull(source.engineering_sheet), pdfPage: numOrNull(source.pdf_page) },
+    source: {
+      engineeringSheet: strOrNull(source.engineering_sheet),
+      pdfPage: numOrNull(source.pdf_page),
+      planUploadId: strOrNull(source.plan_upload_id),
+      reviewedBoreLogId: strOrNull(source.reviewed_bore_log_id),
+      rowId: strOrNull(source.row_id),
+    },
     connectivity: { whyConnected: str(connectivity.why_connected) },
     // Treat any additional response fields (route_evidence, readiness, hashes, ...) as optional display
     // metadata this decoder doesn't need to know about — never required, never validated away.
     warnings: strList(d.warnings),
+  };
+}
+
+// Ticket W-C-ECHO: derive the FULL route_adoption echo verbatim from a HELD proposal object — every field
+// read straight off `proposal` (proposal.proposalHash, proposal.source.planUploadId/reviewedBoreLogId/rowId/
+// pdfPage, proposal.humanControlPoints), NEVER from independently-tracked component state (the plan/page
+// dropdown, the selected row, the live marked points), which can drift from what the proposal was actually
+// searched against between the search and the adopt click. Returns null — never a guess/fallback — when any
+// needed field is absent from the proposal (an older/malformed proposal shape): the caller must then disable
+// adoption and surface the honest "Proposal incomplete — re-search." note rather than submitting a partial or
+// component-state-sourced echo.
+export function routeAdoptionInputFromProposal(proposal: RouteProposalView): RouteAdoptionInput | null {
+  const { proposalHash, source, humanControlPoints } = proposal;
+  const { planUploadId, reviewedBoreLogId, rowId, pdfPage } = source;
+  if (!proposalHash || !planUploadId || !reviewedBoreLogId || !rowId || pdfPage == null) return null;
+  if (humanControlPoints.length !== 2) return null;
+  return {
+    proposalHash,
+    confirmed: true,
+    planUploadId,
+    reviewedBoreLogId,
+    rowId,
+    pageNumber: pdfPage,
+    controlPoints: [humanControlPoints[0], humanControlPoints[1]],
   };
 }
 

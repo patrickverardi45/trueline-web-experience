@@ -7,16 +7,23 @@
 // route" (which the caller wires to the EXISTING source-anchor create write with route_adoption attached).
 // Mounted only behind sourceRouteAdoptionEnabled() by the caller (ProductSourceAnchorCapture).
 
-import type { RouteProposalView } from '@/lib/api/productWrites';
+import type { RouteAdoptionInput, RouteProposalView } from '@/lib/api/productWrites';
 
 interface SourceRouteProposalPanelProps {
   readonly proposal: RouteProposalView;
-  readonly onAdopt: () => void;
+  // Ticket W-C-ECHO: the full route_adoption echo sourced verbatim from `proposal` by the caller (see
+  // routeAdoptionInputFromProposal in productWrites.ts) — null when the held proposal is missing a field the
+  // echo needs (older/malformed shape). Adoption is disabled and an honest inline note shown in that case,
+  // rather than guessing a value from elsewhere.
+  readonly adoption: RouteAdoptionInput | null;
+  readonly onAdopt: (adoption: RouteAdoptionInput) => void;
   readonly onDismiss: () => void;
   readonly busy: boolean;
 }
 
-export function SourceRouteProposalPanel({ proposal, onAdopt, onDismiss, busy }: SourceRouteProposalPanelProps) {
+export function SourceRouteProposalPanel({
+  proposal, adoption, onAdopt, onDismiss, busy,
+}: SourceRouteProposalPanelProps) {
   const interiorCount = proposal.candidateRoutePoints.length;
   const hasSource = proposal.source.engineeringSheet != null || proposal.source.pdfPage != null;
 
@@ -59,8 +66,8 @@ export function SourceRouteProposalPanel({ proposal, onAdopt, onDismiss, busy }:
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={onAdopt}
-          disabled={busy}
+          onClick={() => { if (adoption) onAdopt(adoption); }}
+          disabled={busy || adoption === null}
           className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-50">
           {busy ? 'Adopting…' : 'Use engineering route'}
         </button>
@@ -72,6 +79,9 @@ export function SourceRouteProposalPanel({ proposal, onAdopt, onDismiss, busy }:
           Keep straight segment
         </button>
       </div>
+      {adoption === null && (
+        <p className="mt-1.5 text-red-600">Proposal incomplete — re-search.</p>
+      )}
       <p className="mt-1.5 text-ink-3">
         Straight segment (representative) — declining draws a straight line between your two marks instead,
         same as marking without a search.

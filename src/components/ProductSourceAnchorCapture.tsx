@@ -18,6 +18,7 @@ import {
   fetchReviewedBoreLog,
   renderSourceAnchor,
   requestSourceRouteProposal,
+  routeAdoptionInputFromProposal,
   routeAdoptionRefusalCode,
   sourceRouteAdoptionEnabled,
   type ControlPointInput,
@@ -25,6 +26,7 @@ import {
   type PlanPageInfo,
   type PlanPageMetadata,
   type ReviewedRowView,
+  type RouteAdoptionInput,
   type RouteProposalView,
   type RouteRefusalView,
   type SourceAnchorRenderResult,
@@ -255,10 +257,11 @@ export function ProductSourceAnchorCapture({
     setPoints((prev) => [...prev, p]);
   }
 
-  // `adoption` is Ticket W-C only (undefined for the ordinary "Confirm route" path — the request body then
-  // omits route_adoption entirely, byte-identical to before this field existed). Passed by "Use engineering
-  // route" in the proposal panel below.
-  async function onSubmit(adoption?: { proposalHash: string }) {
+  // `adoption` is Ticket W-C / W-C-ECHO only (undefined for the ordinary "Confirm route" path — the request
+  // body then omits route_adoption entirely, byte-identical to before this field existed). Passed by "Use
+  // engineering route" in the proposal panel below, ALREADY fully sourced verbatim from the held proposal
+  // (routeAdoptionInputFromProposal) — never rebuilt here from planUploadId/rblId/pageNumber/points.
+  async function onSubmit(adoption?: RouteAdoptionInput) {
     setBusy(true);
     setSubmitError(null);
     setResult(null);
@@ -273,7 +276,7 @@ export function ProductSourceAnchorCapture({
         controlPoints: points,
         startIdentity: { station: startStation || undefined, structureLabel: startLabel || undefined },
         endIdentity: { station: endStation || undefined, structureLabel: endLabel || undefined },
-        ...(adoption ? { routeAdoption: { proposalHash: adoption.proposalHash, confirmed: true as const } } : {}),
+        ...(adoption ? { routeAdoption: adoption } : {}),
       });
       setResult(r);
       // Freeze the page identity of the anchor we just created, so the placed-proof label + full-sheet
@@ -596,7 +599,8 @@ export function ProductSourceAnchorCapture({
               {proposalState.phase === 'proposal' && (
                 <SourceRouteProposalPanel
                   proposal={proposalState.proposal}
-                  onAdopt={() => onSubmit({ proposalHash: proposalState.proposal.proposalHash })}
+                  adoption={routeAdoptionInputFromProposal(proposalState.proposal)}
+                  onAdopt={(adoption) => onSubmit(adoption)}
                   onDismiss={() => setProposalState({ phase: 'idle' })}
                   busy={busy}
                 />
