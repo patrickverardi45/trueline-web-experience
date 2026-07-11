@@ -183,6 +183,41 @@ async function serverDetail(response: Response): Promise<string> {
   return '';
 }
 
+// Extract a machine-readable refusal CODE from an error response body, tolerant of every shape a backend
+// might reasonably use for a named refusal: (a) this repo's own `_to_http` convention — `detail` a string
+// with the code as its leading token, e.g. `"ROUTE_ADOPTION_STALE: Proposal expired"` (product_pipeline_
+// routes.py `_to_http`) — remains the PRIMARY expected shape; (b) `detail` as an object carrying a `code`
+// field; (c) a top-level `code` field on the body itself. Checked in that order (most-specific/most-likely
+// first); returns null when none match — never guesses a code that isn't actually present.
+function extractRefusalCode(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  const detail = b.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    const m = /^([A-Z][A-Z0-9_]*)/.exec(detail.trim());
+    if (m) return m[1];
+  }
+  if (typeof detail === 'object' && detail !== null && !Array.isArray(detail)) {
+    const d = detail as Record<string, unknown>;
+    if (typeof d.code === 'string' && d.code.trim()) return d.code.trim();
+  }
+  if (typeof b.code === 'string' && b.code.trim()) return b.code.trim();
+  return null;
+}
+
+// Thrown by postProductJson on a non-OK response. Extends Error (so every existing `e instanceof Error` /
+// `e.message` call site is unaffected) and additively carries the extractRefusalCode() result so a caller
+// that needs the STRUCTURED code (not just the human-readable message) — e.g. routeAdoptionRefusalCode below
+// — doesn't have to re-derive it from a string that may not even contain it (shape (b)/(c) above).
+export class ProductApiError extends Error {
+  readonly code: string | null;
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = 'ProductApiError';
+    this.code = code;
+  }
+}
+
 async function postProductJson(path: string, body: unknown): Promise<unknown> {
   const response = await fetch(`${apiBase()}${path}`, {
     method: 'POST',
@@ -191,7 +226,20 @@ async function postProductJson(path: string, body: unknown): Promise<unknown> {
     body: JSON.stringify(body ?? {}),
   });
   if (!response.ok) {
-    throw new Error(`product POST ${path} failed with HTTP ${response.status}${await serverDetail(response)}`);
+    // The body can only be read once — do it here (rather than delegating to serverDetail, which other call
+    // sites still use unmodified) so both the human-readable text AND the structured code come from the same
+    // read.
+    let text = '';
+    let code: string | null = null;
+    try {
+      const errBody: unknown = await response.json();
+      const detail = (errBody as { detail?: unknown } | null)?.detail;
+      if (typeof detail === 'string' && detail.trim()) text = `: ${detail.trim().slice(0, 400)}`;
+      code = extractRefusalCode(errBody);
+    } catch {
+      // no readable JSON body — the status line is all we honestly know
+    }
+    throw new ProductApiError(`product POST ${path} failed with HTTP ${response.status}${text}`, code);
   }
   return response.json();
 }
@@ -1298,10 +1346,7 @@ export async function requestSourceRouteProposal(
   throw new Error('product POST source-route-proposals returned an unrecognized outcome');
 }
 
-// Named create-time refusal codes for an ADOPTED anchor (route_adoption present) — the backend's _to_http
-// convention embeds the code as the exception message's leading token (`"<CODE>: ...detail"`, mirrored by
-// every other named refusal in this codebase), so a substring check is the correct, honest way to recognize
-// them from the thrown Error's message (serverDetail already folds the server's `detail` string into it).
+// Named create-time refusal codes for an ADOPTED anchor (route_adoption present).
 const ROUTE_ADOPTION_REFUSAL_CODES = [
   'ROUTE_ADOPTION_INVALID',
   'ROUTE_ADOPTION_CONTROL_MISMATCH',
@@ -1310,11 +1355,24 @@ const ROUTE_ADOPTION_REFUSAL_CODES = [
   'ROUTE_ADOPTION_SCOPE_MISMATCH',
 ] as const;
 
+function isRouteAdoptionCode(code: string): boolean {
+  return (ROUTE_ADOPTION_REFUSAL_CODES as readonly string[]).includes(code);
+}
+
 /** Recognize a named route_adoption create-time refusal (HTTP 400/409) from a thrown createSourceAnchor
  *  error, so the caller can degrade honestly (clear the stale proposal, keep the human's marks, offer
  *  re-search or manual fallback) instead of showing a generic submit error. Returns null for any other
- *  error (including a plain validation REJECTED, which never throws — see SourceAnchorResult.blockers). */
+ *  error (including a plain validation REJECTED, which never throws — see SourceAnchorResult.blockers).
+ *
+ *  Tolerant of every error-body shape extractRefusalCode() recognizes: PRIMARILY the structured `.code`
+ *  ProductApiError attaches (covers the repo's `_to_http` string-leading-token convention AND a `detail`
+ *  object AND a top-level `code` field — see extractRefusalCode). Falls back to a substring search over the
+ *  thrown Error's message for a non-ProductApiError (e.g. a network failure surfaced as a plain Error, or an
+ *  older code path) so a message that happens to already carry the code string is still honored. */
 export function routeAdoptionRefusalCode(err: unknown): string | null {
+  if (err instanceof ProductApiError && err.code && isRouteAdoptionCode(err.code)) {
+    return err.code;
+  }
   if (!(err instanceof Error)) return null;
   for (const code of ROUTE_ADOPTION_REFUSAL_CODES) {
     if (err.message.includes(code)) return code;
