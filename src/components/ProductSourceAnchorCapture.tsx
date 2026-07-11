@@ -333,14 +333,28 @@ export function ProductSourceAnchorCapture({
   // page effect never overwrites the restored pageNumber on a later render.
   useEffect(() => {
     if (!pendingHydration) return;
+    // Fix-wave-1 F1: a slow list-fetch can resolve AFTER the user has already started marking their own
+    // points at mount — never clobber in-progress work. Drop the pending hydration silently (the confirmed
+    // record stays server-side and can still be reached by a later reload); this check is a GATE, not a
+    // fetch-time check, so it re-evaluates every time this effect re-runs (e.g. after the plan-switch below).
+    if (points.length !== 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPendingHydration(null);
+      return;
+    }
     if (pendingHydration.planUploadId !== planUploadId) {
       // Retarget the plan-upload selector first; loadMeta's own effect (dep: planUploadId) will fetch this
       // plan's metadata, and this effect re-runs (dep: planUploadId) once that happens.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPlanUploadId(pendingHydration.planUploadId);
       return;
     }
-    if (!meta || !boreLoaded) return;
+    // Fix-wave-1 F2: `meta` is whatever plan-upload's metadata last resolved — during a plan-switch retarget
+    // above, this effect can re-run with the PREVIOUS plan's still-non-null `meta` still in closure before
+    // loadMeta's fetch for the NEW plan has landed. Verify `meta` actually belongs to the plan we're
+    // hydrating before deriving restoredPage/planSheetLabel from it; on a mismatch, defer — loadMeta's own
+    // effect will re-render with the correct `meta` once its fetch resolves, and this effect re-fires (dep:
+    // meta).
+    if (!meta || !boreLoaded || meta.planUploadId !== pendingHydration.planUploadId) return;
     let active = true;
     appliedFor.current = planUploadId;
     const restoredPage = meta.pages.find((p) => p.pageNumber === pendingHydration.pageNumber) ?? null;
@@ -369,7 +383,7 @@ export function ProductSourceAnchorCapture({
         });
     }
     return () => { active = false; };
-  }, [pendingHydration, planUploadId, meta, boreLoaded, jobId]);
+  }, [pendingHydration, planUploadId, meta, boreLoaded, jobId, points.length]);
 
   const page = meta?.pages.find((p) => p.pageNumber === pageNumber) ?? null;
 
@@ -387,6 +401,11 @@ export function ProductSourceAnchorCapture({
       }
       return [...prev, p];
     });
+    // Fix-wave-1 F3: an insert can shift every later index — the previously-selected bend's index no longer
+    // names the same point (or may now name a DIFFERENT point entirely), so any selection/"Remove bend"
+    // target must be dropped rather than silently migrating to the wrong circle. Unconditional (matches the
+    // existing Undo/Clear handlers, which already clear it too) — a no-op when nothing is selected.
+    setSelectedBendIndex(null);
   }
 
   // Mission 8: drag-MOVE an intermediate point (never the first/last — endpoints keep the pre-existing
