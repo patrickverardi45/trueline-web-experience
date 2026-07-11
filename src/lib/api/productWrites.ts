@@ -682,42 +682,58 @@ export async function ensureGroupingConfirmed(
 }
 
 // --- W3 fan-out siblings: ONE shared pure id-probe + a read-only aggregate-readiness helper -------- //
+//
+// LIVE-VERIFIED (round 4) against the real backend: the primary RBL id is ALWAYS "rbl-main"/"rbl-N" (see
+// rblFor in the gate) and NEVER itself carries a "-rN" suffix, so a probe that only extends the primary
+// id's OWN suffix can never find anything — it was a no-op by construction. Re-POSTing extract() to
+// rediscover siblings isn't safe either: the real backend rejects a redundant extract on an already
+// fanned-out RBL (duplicate row_id). The ACTUAL naming is a deterministic, position-based scheme —
+// "rbl-hw-p{pageIndex}-r{runIndex}" (0-based page, 1-based run), independent of the primary id — so a
+// bounded probe of THAT pattern is what a fan-out job's fresh-session self-heal must use.
 
-/** Bounded fallback probe for a fan-out RBL's sibling ids, for a caller that doesn't have (or hasn't yet
- *  fetched) the backend's authoritative created_reviewed_bore_logs list — e.g. a light readiness poll with
- *  no per-session extract-result memory. Ids like "rbl-hw-p0-r1" fan out to "rbl-hw-p0-r2", "-r3", …;
- *  ordinary ids ("rbl-main", "rbl-2") never match the "-rN" suffix, so this is a zero-cost no-op for every
- *  non-fan-out RBL id. This is the ONE place the suffix pattern lives — callers import it rather than
- *  re-deriving it. */
-const FAN_OUT_SUFFIX_RE = /^(.*)-r(\d+)$/;
-const MAX_FAN_OUT_PROBE = 8;
-export function fanOutCandidateIds(primaryRblId: string): string[] {
-  const m = FAN_OUT_SUFFIX_RE.exec(primaryRblId);
-  if (!m) return [];
-  const [, prefix, numStr] = m;
-  const start = Number(numStr) + 1;
-  const out: string[] = [];
-  for (let n = start; n < start + MAX_FAN_OUT_PROBE; n += 1) out.push(`${prefix}-r${n}`);
-  return out;
+const MAX_HANDWRITTEN_FANOUT_PAGES = 6;
+const MAX_HANDWRITTEN_FANOUT_RUNS_PER_PAGE = 8;
+
+/** Bounded, read-only rediscovery of a handwritten multi-bore fan-out's sibling RBL ids when the backend's
+ *  own created_reviewed_bore_logs isn't known this session (there is no listing endpoint). `exists(id)`
+ *  decides whether a candidate id is real — the caller supplies it (typically a cheap fetchReviewQueue
+ *  probe) so this function stays a pure sequencing/early-stop policy: stop a page's run loop at the first
+ *  gap; stop trying further pages once a page's very first run doesn't exist either. Ordinary (non-fan-out)
+ *  jobs cost exactly ONE failed check (page 0, run 1) and stop. */
+export async function probeHandwrittenFanOutIds(exists: (candidateId: string) => Promise<boolean>): Promise<string[]> {
+  const found: string[] = [];
+  for (let page = 0; page < MAX_HANDWRITTEN_FANOUT_PAGES; page += 1) {
+    let foundOnPage = false;
+    for (let run = 1; run <= MAX_HANDWRITTEN_FANOUT_RUNS_PER_PAGE; run += 1) {
+      // Intentionally sequential (not batched): each check's result decides whether the NEXT candidate
+      // is even worth trying (early-stop policy).
+      const candidateId = `rbl-hw-p${page}-r${run}`;
+      if (await exists(candidateId)) { found.push(candidateId); foundOnPage = true; } else { break; }
+    }
+    if (!foundOnPage) break;
+  }
+  return found;
+}
+
+async function handwrittenFanOutIdExists(jobId: string, candidateId: string): Promise<boolean> {
+  try { await fetchReviewQueue(jobId, candidateId); return true; } catch { return false; }
 }
 
 /** Read-only AGGREGATE engine-readiness for one uploaded bore-log file, accounting for handwritten
  *  multi-bore fan-out: when the primary RBL has fanned out into sibling RBLs that carry rows, readiness
  *  aggregates over those siblings (ALL must be engine-ready) and the primary — typically empty in a
  *  fan-out package — is excluded. No fanned-out siblings carrying rows -> falls back to the primary RBL's
- *  own engineReady, unchanged (single-RBL lanes are byte-identical). Throws exactly like fetchReviewQueue
- *  on a failed PRIMARY read (same try/catch contract callers already have); a sibling probe failure just
- *  stops the probe (bounded, first-gap-stops), never surfaces as an error. */
+ *  own engineReady, unchanged (single-RBL lanes are byte-identical: one failed probe check, no more). Throws
+ *  exactly like fetchReviewQueue on a failed PRIMARY read (same try/catch contract callers already have). */
 export async function fetchAggregateEngineReadiness(jobId: string, primaryRblId: string): Promise<boolean> {
   const primaryReady = (await fetchReviewQueue(jobId, primaryRblId)).engineReady;
+  const siblingIds = await probeHandwrittenFanOutIds((id) => handwrittenFanOutIdExists(jobId, id));
   const siblingsWithRows: boolean[] = [];
-  for (const candidateId of fanOutCandidateIds(primaryRblId)) {
+  for (const candidateId of siblingIds) {
     try {
-      const [srbl, squeue] = [await fetchReviewedBoreLog(jobId, candidateId), await fetchReviewQueue(jobId, candidateId)];
-      if (srbl.rows.length > 0) siblingsWithRows.push(squeue.engineReady);
-    } catch {
-      break; // first gap — stop probing
-    }
+      const srbl = await fetchReviewedBoreLog(jobId, candidateId);
+      if (srbl.rows.length > 0) siblingsWithRows.push((await fetchReviewQueue(jobId, candidateId)).engineReady);
+    } catch { /* skip — id existed a moment ago but a full read failed; treat as not-counted */ }
   }
   return siblingsWithRows.length > 0 ? siblingsWithRows.every(Boolean) : primaryReady;
 }

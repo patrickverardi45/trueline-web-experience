@@ -20,10 +20,10 @@ import {
   defineSegmentGroup,
   ensureGroupingConfirmed,
   extractBoreLogRows,
-  fanOutCandidateIds,
   fetchAggregateEngineReadiness,
   fetchReviewQueue,
   fetchReviewedBoreLog,
+  probeHandwrittenFanOutIds,
   reviewReviewedRow,
   setGroupingStatus,
   type CreatedReviewedBoreLog,
@@ -56,8 +56,8 @@ function gid(): string {
   return 'grp-' + Math.random().toString(36).slice(2, 8);
 }
 
-// fanOutCandidateIds (the bounded "-rN" suffix probe fallback) now lives in productWrites.ts — ONE shared
-// place, reused by fetchAggregateEngineReadiness's own probe below too.
+// probeHandwrittenFanOutIds (the bounded "rbl-hw-p{page}-r{run}" rediscovery probe) lives in
+// productWrites.ts — ONE shared place, reused by fetchAggregateEngineReadiness's own probe too.
 
 interface BoreCardData {
   readonly rblId: string;
@@ -94,7 +94,7 @@ export function ProductReviewedBoreLogGate({
   // Per-file engine-ready status for the file list badges (one light read per uploaded bore log).
   const [readyMap, setReadyMap] = useState<Record<number, boolean | null>>({});
   // Sibling reviewed-bore-logs fanned out from the SAME uploaded file (handwritten multi-bore packages).
-  // Empty for every ordinary (non-fan-out) job — see fanOutCandidateIds.
+  // Empty for every ordinary (non-fan-out) job — see probeHandwrittenFanOutIds.
   const [siblingBores, setSiblingBores] = useState<readonly BoreCardData[]>([]);
   // AUTHORITATIVE fan-out ids, per uploaded-file index, as reported by the extract call itself
   // (created_reviewed_bore_logs). Populated in onExtract(). `undefined` for an index means "not yet known
@@ -102,11 +102,6 @@ export function ProductReviewedBoreLogGate({
   // defined array (even []) means the backend authoritatively answered — no probe, ever, for that index.
   const [extractCreatedRbls, setExtractCreatedRbls] =
     useState<Record<number, readonly CreatedReviewedBoreLog[] | undefined>>({});
-  // One-shot-per-file guard for the SELF-HEALING re-extraction below: a fresh page load (new tab/reload)
-  // starts with extractCreatedRbls EMPTY even for an already-extracted fan-out job — without this, load()
-  // (which reruns after every action) would silently re-call extract every time that rediscovery attempt
-  // itself fails, instead of trying once and falling back to the bounded probe.
-  const [rediscoverAttempted, setRediscoverAttempted] = useState<Record<number, boolean>>({});
 
   // load() is defined below; ensureRblGroupedThenReload needs to call the LATEST load() without making
   // itself (and every row editor holding it) re-render/re-bind on every load() identity change — a ref
@@ -145,27 +140,27 @@ export function ProductReviewedBoreLogGate({
       setQueue(q);
       setPhase('ready');
 
-      // Sibling ids: the backend's created_reviewed_bore_logs (from the last extract this session) is
-      // AUTHORITATIVE the moment it's present, even if empty — the -rN probe fires ONLY when it's `undefined`.
+      // Sibling ids: the backend's created_reviewed_bore_logs (from the last extract THIS session) is
+      // AUTHORITATIVE the moment it's present, even if empty.
       let created = extractCreatedRbls[sel];
-      if (created === undefined && !rediscoverAttempted[sel]) {
+      if (created === undefined) {
         // SELF-HEALING (b), the critical case: a totally fresh page load has NO session memory of
-        // created_reviewed_bore_logs, and the bounded -rN probe below can only extend an id that ITSELF
-        // ends in "-rN" — activeRbl ("rbl-main"/"rbl-N") never does, so it can never rediscover fan-out
-        // siblings like "rbl-hw-p0-r1" on its own. Re-running this RBL's (idempotent, read-only,
-        // deterministic table-read) extraction ONCE rediscovers the authoritative sibling ids the same way
-        // the original extract did — this is what makes an already-extracted-but-stuck job heal itself on
-        // the next visit, with no user action. One attempt per file per session either way.
-        setRediscoverAttempted((prev) => ({ ...prev, [sel]: true }));
-        try {
-          const result = await extractBoreLogRows(jobId, activeRbl);
-          created = result.createdReviewedBoreLogs;
-          setExtractCreatedRbls((prev) => ({ ...prev, [sel]: created }));
-        } catch { /* leave created undefined -> the bounded probe below still applies */ }
+        // created_reviewed_bore_logs (extraction happened in an earlier session) — and re-POSTing extract()
+        // to rediscover it is NOT safe (the real backend rejects a redundant extract on an already
+        // fanned-out RBL). Rediscover via the deterministic "rbl-hw-p{page}-r{run}" naming instead: bounded,
+        // read-only, zero-cost for a non-fan-out job (one failed check, then stop). The result — even an
+        // empty one — is cached into extractCreatedRbls so this only runs once per file per session.
+        const discoveredIds = await probeHandwrittenFanOutIds(async (id) => {
+          try { await fetchReviewQueue(jobId, id); return true; } catch { return false; }
+        });
+        created = discoveredIds.map((id) => ({
+          reviewedBoreLogId: id, sourceUploadId: null, rowId: null, pageIndex: null, runIndex: null,
+        }));
+        setExtractCreatedRbls((prev) => ({ ...prev, [sel]: created }));
       }
-      const backendSiblingIds = created === undefined
-        ? undefined
-        : created.map((c) => c.reviewedBoreLogId).filter((id): id is string => !!id && id !== activeRbl);
+      const backendSiblingIds = created
+        .map((c) => c.reviewedBoreLogId)
+        .filter((id): id is string => !!id && id !== activeRbl);
 
       // Sibling numbering follows CREATION order (both id sources below are already creation-ordered): when
       // the primary carries no rows (the ordinary fan-out shape), siblings are "Bore 1..N"; when the primary
@@ -174,28 +169,20 @@ export function ProductReviewedBoreLogGate({
       const labelFor = (position: number) => `Bore ${primaryHasRows ? position + 2 : position + 1}`;
 
       const siblings: BoreCardData[] = [];
-      async function pushSibling(candidateId: string) {
-        // FETCH always pushes the card (so a sibling with reviewed-but-ungrouped rows stays VISIBLE, never
-        // silently vanishes). Grouping-ENSURE is a separate best-effort step — its failure never hides data.
-        const srbl = await fetchReviewedBoreLog(jobId, candidateId);
-        let squeue = await fetchReviewQueue(jobId, candidateId);
+      for (const candidateId of backendSiblingIds) {
         try {
-          if (await ensureGroupingConfirmed(jobId, candidateId, srbl.rows, srbl.groups)) {
-            squeue = await fetchReviewQueue(jobId, candidateId);
-          }
-        } catch { /* best-effort — retried on the next load() */ }
-        siblings.push({ rblId: candidateId, label: labelFor(siblings.length), rbl: srbl, queue: squeue });
-      }
-      if (backendSiblingIds !== undefined) {
-        // Authoritative (possibly empty) — known ids only, zero probe requests either way.
-        for (const candidateId of backendSiblingIds) {
-          try { await pushSibling(candidateId); } catch { /* skip; independent known ids, not a guess */ }
-        }
-      } else {
-        // Fallback bounded probe for fan-out siblings of THIS rbl id; stop at the first missing one.
-        for (const candidateId of fanOutCandidateIds(activeRbl)) {
-          try { await pushSibling(candidateId); } catch { break; /* first gap — stop probing */ }
-        }
+          // FETCH always pushes the card (so a sibling with reviewed-but-ungrouped rows stays VISIBLE,
+          // never silently vanishes). Grouping-ENSURE is a separate best-effort step — its failure never
+          // hides data.
+          const srbl = await fetchReviewedBoreLog(jobId, candidateId);
+          let squeue = await fetchReviewQueue(jobId, candidateId);
+          try {
+            if (await ensureGroupingConfirmed(jobId, candidateId, srbl.rows, srbl.groups)) {
+              squeue = await fetchReviewQueue(jobId, candidateId);
+            }
+          } catch { /* best-effort — retried on the next load() */ }
+          siblings.push({ rblId: candidateId, label: labelFor(siblings.length), rbl: srbl, queue: squeue });
+        } catch { /* skip; independent known ids, not a sequential guess */ }
       }
       setSiblingBores(siblings);
 
@@ -217,7 +204,7 @@ export function ProductReviewedBoreLogGate({
       setError(e instanceof Error ? e.message : 'unavailable');
       setPhase('error');
     }
-  }, [jobId, activeRbl, active, sel, extractCreatedRbls, rediscoverAttempted]);
+  }, [jobId, activeRbl, active, sel, extractCreatedRbls]);
 
   useEffect(() => {
     loadRef.current = load;
