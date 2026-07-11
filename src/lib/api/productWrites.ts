@@ -733,12 +733,22 @@ async function handwrittenFanOutIdExists(jobId: string, candidateId: string): Pr
  *  caller genuinely has no other way to know this file's fan-out state this session (mirrors the gate's own
  *  "extractCreatedRbls[i] is undefined" condition); a caller that already knows there's no fan-out (or
  *  doesn't have per-file session context at all, e.g. the workspace's generic job-level checks) passes
- *  `false` and skips the probe entirely. */
+ *  `false` and skips the probe entirely — EXCEPT for one case handled here regardless: when the primary
+ *  itself shows the "empty primary" fan-out SIGNATURE (not ready AND zero rows in every review-queue list —
+ *  needing/passed/rejected all empty), a bounded probe still runs once. An ordinary single-RBL job's primary
+ *  always carries its own rows (non-empty needing/passed/rejected), so it never matches this signature and
+ *  still costs exactly one read — only a genuinely fanned-out job's (always-empty) primary pays the probe,
+ *  even from a `probeAllowed=false` caller like the workspace's generic checks. */
 export async function fetchAggregateEngineReadiness(
   jobId: string, primaryRblId: string, probeAllowed = false,
 ): Promise<boolean> {
-  const primaryReady = (await fetchReviewQueue(jobId, primaryRblId)).engineReady;
-  if (!probeAllowed) return primaryReady;
+  const primaryQueue = await fetchReviewQueue(jobId, primaryRblId);
+  const primaryReady = primaryQueue.engineReady;
+  const primaryIsEmptyFanOutSignature = !primaryReady
+    && primaryQueue.rowsNeedingReview.length === 0
+    && primaryQueue.rowsReviewPassed.length === 0
+    && primaryQueue.rowsRejected.length === 0;
+  if (!probeAllowed && !primaryIsEmptyFanOutSignature) return primaryReady;
   const siblingIds = await probeHandwrittenFanOutIds((id) => handwrittenFanOutIdExists(jobId, id));
   const siblingsWithRows: boolean[] = [];
   for (const candidateId of siblingIds) {

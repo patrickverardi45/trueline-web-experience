@@ -265,17 +265,23 @@ export function ProductBoreRowEditor({
                   <div key={f.key}>
                     <dt className="text-[11px] text-ink-3">{f.label}</dt>
                     {editing ? (
-                      <input
-                        value={edits[f.key] ?? ''}
-                        onChange={(e) => setEdits((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                        placeholder={chip ? chip.label : undefined}
-                        className="mt-0.5 w-full rounded-md border border-line px-1.5 py-0.5 font-mono text-xs text-ink" />
+                      <>
+                        {/* The evidence status is ALSO shown as a visible chip while editing — an <input>
+                            placeholder alone (greyed, non-selectable, invisible once typed into, and not
+                            real textContent) is not an honest "distinct visible state" on its own. */}
+                        {chip && <Chip tone={chip.tone} title={chip.title}>{chip.label}</Chip>}
+                        <input
+                          value={edits[f.key] ?? ''}
+                          onChange={(e) => setEdits((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          placeholder={chip ? chip.label : undefined}
+                          className="mt-0.5 w-full rounded-md border border-line px-1.5 py-0.5 font-mono text-xs text-ink" />
+                      </>
                     ) : chip && isEmpty(value) ? (
                       <dd><Chip tone={chip.tone} title={chip.title}>{chip.label}</Chip></dd>
                     ) : (
                       <dd className="font-mono text-xs text-ink">{value}{chip && <span className="ml-1"><Chip tone={chip.tone} title={chip.title}>{chip.label}</Chip></span>}</dd>
                     )}
-                    {evidence?.verbatim && !editing && (
+                    {evidence?.verbatim && (
                       <p className="mt-0.5 truncate text-[10px] italic text-ink-3" title={evidence.verbatim}>
                         “{evidence.verbatim}”
                       </p>
